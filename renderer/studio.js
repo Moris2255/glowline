@@ -42,6 +42,7 @@ $('#studio-ordner').addEventListener('click', () => window.api.studioZeigen(null
 
 async function zeigeStudio(bereich) {
   ansicht = 'studio';
+  document.body.dataset.ansicht = ansicht;
   if (bereich) sz.bereich = bereich;
   el.classList.add('versteckt');
   $('#chat').classList.add('versteckt');
@@ -123,7 +124,7 @@ function zeichneEinrichtung(box) {
     b.appendChild(i);
     k.append(b, elem('small', null, `Step ${(l.schritt || 0) + 1} of ${l.schritte || 5}: ${l.titel || 'Starting'}${l.text ? ' – ' + l.text : ''}`));
     const ab = elem('button', 'm-knopf', 'Cancel');
-    ab.addEventListener('click', () => window.api.studioAbbrechen('einrichten'));
+    ab.addEventListener('click', () => { ab.disabled = true; ab.textContent = 'Cancelling…'; window.api.studioAbbrechen('einrichten'); });
     k.appendChild(ab);
   } else {
     if (l && l.fehler) k.appendChild(elem('small', 's-fehler', l.fehler === 'cancelled' ? 'Setup cancelled.' : 'Setup failed: ' + l.fehler));
@@ -161,7 +162,7 @@ function modellKarte(m, gewaehlt, waehle) {
     b.appendChild(i);
     s.append(b, elem('small', null, l.prozent != null ? l.prozent + '%' : (l.text || 'Installing…').slice(0, 40)));
     const ab = elem('button', 'm-knopf', 'Cancel');
-    ab.addEventListener('click', (e) => { e.stopPropagation(); window.api.studioAbbrechen('modell:' + m.id); });
+    ab.addEventListener('click', (e) => { e.stopPropagation(); ab.disabled = true; ab.textContent = 'Cancelling…'; window.api.studioAbbrechen('modell:' + m.id); });
     s.appendChild(ab);
     k.appendChild(s);
   } else {
@@ -394,7 +395,7 @@ function zeichneVorschau(box) {
     k.append(bal, elem('small', null, laufZeile(lauf)));
     if (lauf.prompt) k.appendChild(elem('p', null, lauf.prompt.slice(0, 220)));
     const ab = elem('button', 'm-knopf', 'Cancel');
-    ab.addEventListener('click', () => window.api.studioAbbrechen(lauf.vorgang));
+    ab.addEventListener('click', () => { ab.disabled = true; ab.textContent = 'Cancelling…'; window.api.studioAbbrechen(lauf.vorgang); });
     k.appendChild(ab);
     buehne.appendChild(k);
   } else if (lauf && lauf.fehler) {

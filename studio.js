@@ -52,6 +52,11 @@ const KATALOG = {
 let basis = null, sende = () => {};
 let comfy = null, stimme = null;
 const laufend = new Map(); // Vorgang -> AbortController
+// Wartet auf ein Versprechen, bricht aber sofort ab, wenn der Nutzer "Cancel" drueckt
+function mitAbbruch(versprechen, ac) {
+  if (ac.signal.aborted) return Promise.reject(new Error('cancelled'));
+  return Promise.race([versprechen, new Promise((_, f) => ac.signal.addEventListener('abort', () => f(new Error('cancelled')), { once: true }))]);
+}
 
 const P = () => ({
   basis,
@@ -381,10 +386,16 @@ function auftrag(a, vorVramFrei) {
   const ac = new AbortController();
   laufend.set(key, ac);
   const kopf = { vorgang: key, art: KATALOG[a.modell] ? KATALOG[a.modell].art : null, modell: a.modell, prompt: a.prompt || '', vonAgent: !!a.vonAgent };
-  sende('studio', { ...kopf, text: 'Waiting…', wartet: true });
-  const lauf = kette.then(() => ausfuehren(a, vorVramFrei, ac, (x) => sende('studio', { ...kopf, ...x })));
+  const melde = (x) => sende('studio', { ...kopf, ...x });
+  melde({ text: 'Waiting…', wartet: true });
+  let gestartet = false;
+  const lauf = kette.then(() => { if (ac.signal.aborted) return { fehler: 'cancelled' }; gestartet = true; return ausfuehren(a, vorVramFrei, ac, melde); });
   kette = lauf.catch(() => {});
-  return lauf.finally(() => laufend.delete(key));
+  // Abbruch in der Warteschlange sofort melden, nicht erst wenn der Auftrag dran waere
+  const wartAbbruch = new Promise((ok) => ac.signal.addEventListener('abort', () => {
+    if (!gestartet) { melde({ fertig: true, fehler: 'cancelled' }); ok({ fehler: 'cancelled' }); }
+  }, { once: true }));
+  return Promise.race([lauf, wartAbbruch]).finally(() => laufend.delete(key));
 }
 async function ausfuehren(a, vorVramFrei, ac, melde) {
   const t0 = Date.now();
@@ -393,12 +404,12 @@ async function ausfuehren(a, vorVramFrei, ac, melde) {
     const m = KATALOG[a.modell];
     if (!m) throw new Error('Unknown model');
     if (!status().modelle[a.modell].da) throw new Error(`${m.name} is not downloaded yet`);
-    if (vorVramFrei) await vorVramFrei();
+    if (vorVramFrei) await mitAbbruch(vorVramFrei(), ac);
     let dateien;
     if (m.art === 'stimme') dateien = await stimmeAuftrag(a, ac, melde);
     else {
       melde({ text: comfy && comfy.bereit ? 'Starting…' : 'Starting the engine…', prozent: 0 });
-      await comfyStarten();
+      await mitAbbruch(comfyStarten(), ac); // der Motor startet im Hintergrund weiter, der naechste Auftrag ist dann schneller
       const wa = { ...a };
       if (a.bildDatei) wa.bild = eingabeBild(a.bildDatei);
       dateien = await comfyLauf(workflow(wa), ac, melde);
@@ -431,9 +442,16 @@ async function comfyLauf(wf, ac, melde) {
     else if (d.type === 'execution_error') fehler(new Error(x.exception_message || 'Generation failed'));
     else if (d.type === 'execution_interrupted') fehler(new Error('cancelled'));
   };
-  await new Promise((ok, f) => { ws.onopen = ok; ws.onerror = () => f(new Error('Engine not reachable')); });
-  ac.signal.addEventListener('abort', () => { fetch(`http://127.0.0.1:${COMFY_PORT}/interrupt`, { method: 'POST' }).catch(() => {}); fehler(new Error('cancelled')); });
+  const stopp = () => {
+    // aus der Warteschlange der Engine nehmen und laufende Berechnung unterbrechen
+    if (promptId) fetch(`http://127.0.0.1:${COMFY_PORT}/queue`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ delete: [promptId] }) }).catch(() => {});
+    fetch(`http://127.0.0.1:${COMFY_PORT}/interrupt`, { method: 'POST' }).catch(() => {});
+    fehler(new Error('cancelled'));
+  };
+  ende.catch(() => {});
   try {
+    await mitAbbruch(new Promise((ok, f) => { ws.onopen = ok; ws.onerror = () => f(new Error('Engine not reachable')); }), ac);
+    ac.signal.addEventListener('abort', stopp, { once: true });
     const r = await fetch(`http://127.0.0.1:${COMFY_PORT}/prompt`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: wf, client_id: client }) });
     const j = await r.json();
     if (!r.ok || j.error) {
@@ -441,6 +459,7 @@ async function comfyLauf(wf, ac, melde) {
       throw new Error(((j.error && j.error.message) || 'Engine rejected the job') + (det ? ': ' + det : ''));
     }
     promptId = j.prompt_id;
+    if (ac.signal.aborted) stopp();
     await ende;
     const h = await (await fetch(`http://127.0.0.1:${COMFY_PORT}/history/${promptId}`)).json();
     const aus = [];
@@ -483,8 +502,8 @@ async function stimmeStarten() {
 
 async function stimmeAuftrag(a, ac, melde) {
   melde({ text: stimme && stimme.bereit ? 'Speaking…' : 'Starting the voice engine…' });
-  await comfyFrei();
-  await stimmeStarten();
+  await mitAbbruch(comfyFrei(), ac);
+  await mitAbbruch(stimmeStarten(), ac);
   melde({ text: 'Speaking…' });
   // ohne Zeitlimit (fetch bricht nach 5 min ab, lange Texte dauern laenger)
   const j = await new Promise((ok, fehler) => {

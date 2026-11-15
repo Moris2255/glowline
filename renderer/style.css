@@ -85,7 +85,8 @@ body.vollbild .term { top: 10px; }
 
 /* ---------- Menues ---------- */
 .menue { position: fixed; bottom: 104px; width: 300px; max-width: calc(100vw - 32px); max-height: 66vh; display: flex; flex-direction: column; background: var(--bg2); border: 1px solid var(--linie); border-radius: 14px; box-shadow: 0 24px 60px #000c; z-index: 10; overflow: hidden; padding: 4px 0; }
-#tools { right: 16px; }
+#tools { right: 16px; overflow-y: auto; max-height: calc(100vh - 124px); scrollbar-width: thin; scrollbar-color: var(--bg3) transparent; }
+#tools > * { flex: none; }
 #tools > button { text-align: left; padding: 8px 14px; display: flex; flex-direction: column; gap: 1px; }
 #tools > button:hover { background: var(--bg3); }
 #tools > button small { color: var(--sehrleise); font-size: 11px; }
@@ -330,3 +331,8 @@ details.denken div { max-height: 220px; overflow-y: auto; padding: 6px 0 0 12px;
 .s-kachel.lauf span { font: 12px var(--mono); color: var(--leise); }
 .s-audio-mini { font-size: 26px; color: var(--leise); }
 @media (max-width: 900px) { #studio-haupt { grid-template-columns: 1fr; overflow-y: auto; } #studio-rechts { min-height: 360px; } }
+
+/* Im Studio zaehlen keine Tokens: nur GPU-Strom und VRAM zeigen */
+body[data-ansicht="studio"] #leiste .feld:not(#f-strom):not(#f-vram),
+body[data-ansicht="studio"] #modell-info, body[data-ansicht="studio"] #letzte { display: none; }
+body[data-ansicht="studio"] #f-vram { display: flex; }

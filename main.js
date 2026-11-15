@@ -729,6 +729,8 @@ async function testLauf(ordner) {
   if (process.env.GLOWLINE_TEST_NUR === 'studio') {
     // GLOWLINE_TEST_STUDIO=bild,upscale,video,stimme: welche Auftraege wirklich laufen sollen
     const was = String(process.env.GLOWLINE_TEST_STUDIO || '').split(',').filter(Boolean);
+    // GLOWLINE_TEST_GROESSE=1280x720: kleineres Fenster (z. B. Laptop) pruefen
+    if (process.env.GLOWLINE_TEST_GROESSE) { const [b, h] = process.env.GLOWLINE_TEST_GROESSE.split('x').map(Number); win.setContentSize(b, h); await warte(800); }
     const warteAuftrag = async (max) => {
       for (let i = 0; i < max * 2; i++) {
         const l = await js(`(() => { const l = laufenderAuftrag(); return l ? JSON.stringify({ f: !!l.fertig, t: l.text, p: l.prozent, e: l.fehler || null, d: l.dateien || null, z: l.dauer || null }) : 'null'; })()`);
@@ -791,6 +793,30 @@ async function testLauf(ordner) {
       console.log('STIMME', JSON.stringify(await warteAuftrag(1200)));
       await warte(1500);
       await bild('s-stimme-fertig');
+    }
+    if (was.includes('abbruch')) {
+      // 1) Abbrechen, waehrend der Motor startet  2) Abbrechen mitten im Generieren
+      studio.stoppen();
+      await js(`zeigeStudio('video'); sz.felder.video.prompt = 'A paper boat on a rainy street, close-up'; sz.felder.video.format = 3; sz.felder.video.sekunden = 2; zeichneStudio(); starte()`);
+      await warte(2500);
+      const t0 = Date.now();
+      await js(`document.querySelector('.s-lauf .m-knopf').click()`);
+      await warte(150);
+      await bild('s-abbruch-knopf');
+      console.log('ABBRUCH-START', JSON.stringify(await warteAuftrag(30)), (Date.now() - t0) + 'ms');
+      await warte(800);
+      await bild('s-abbruch-start');
+      await js(`starte()`);
+      for (let i = 0; i < 600 && !(await js('(laufenderAuftrag() || {}).prozent > 0')); i++) await warte(500);
+      const t1 = Date.now();
+      await js(`document.querySelector('.s-lauf .m-knopf').click()`);
+      console.log('ABBRUCH-GENERIEREN', JSON.stringify(await warteAuftrag(60)), (Date.now() - t1) + 'ms');
+      for (let i = 0; i < 20; i++) {
+        const q = await fetch('http://127.0.0.1:8189/queue').then((r) => r.json()).catch(() => null);
+        if (q && !q.queue_running.length && !q.queue_pending.length) { console.log('ENGINE-LEER nach', i * 500, 'ms'); break; }
+        await warte(500);
+      }
+      await bild('s-abbruch-generieren');
     }
     console.log('GALERIE', await js('sz.galerie.length'));
     app.quit();

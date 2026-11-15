@@ -82,6 +82,7 @@ for (const [id, m] of Object.entries(MODI)) {
 
 function zeigeWorkspace(modus) {
   ansicht = 'chat';
+  document.body.dataset.ansicht = ansicht;
   if (modus) chat.modus = modus;
   el.classList.add('versteckt');
   $('#studio').classList.add('versteckt');
@@ -95,6 +96,7 @@ function zeigeWorkspace(modus) {
 function zeigeTerminal() {
   if (ansicht === 'terminal') return;
   ansicht = 'terminal';
+  document.body.dataset.ansicht = ansicht;
   $('#chat').classList.add('versteckt');
   $('#studio').classList.add('versteckt');
   el.classList.remove('versteckt');
