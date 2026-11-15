@@ -57,7 +57,7 @@
         <div class="balkenzeile"><b id="vram">–</b><div class="balken"><i id="vram-b"></i></div></div>
       </div>
       <div class="feld" id="f-gespart">
-        <label>Saved</label><b id="gespart">0.00 $</b>
+        <label id="l-gespart">Saved</label><b id="gespart">0.00 $</b>
       </div>
       <div class="platz"></div>
       <button class="chip" id="tool-chip" title="Switch tool or folder">
@@ -79,6 +79,21 @@
     <div class="m-gruppe">Folder</div>
     <button id="ordner-wahl"><b id="ordner-name">–</b><small>Click to choose another folder</small></button>
     <div class="m-fuss">Switching restarts the session</div>
+  </div>
+
+  <!-- Vergleichsmodell fuer "Saved" -->
+  <div id="preise" class="menue versteckt">
+    <div class="m-gruppe">Compare your local use with</div>
+    <div id="p-liste"></div>
+    <div class="m-gruppe">Name and price per 1M tokens (USD)</div>
+    <div class="p-felder">
+      <label class="p-breit">Model<input id="p-name" spellcheck="false" maxlength="40"></label>
+      <label>Input<input id="p-eingabe" type="number" min="0" step="0.01"></label>
+      <label>Cached<input id="p-cache" type="number" min="0" step="0.01"></label>
+      <label>Output<input id="p-ausgabe" type="number" min="0" step="0.01"></label>
+    </div>
+    <div class="p-fuss"><span id="p-summe"></span><button id="p-reset">Reset counter</button></div>
+    <div class="m-fuss">Prices change – check the provider's price list.</div>
   </div>
 
   <!-- Modelle: kleines Menue mit Favoriten -->

@@ -106,6 +106,8 @@ body.vollbild .term { top: 10px; }
 .m-zeile.aktuell .m-name { color: var(--weiss); font-weight: 600; }
 .m-name { font: 12px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .m-info { font: 11px var(--mono); color: var(--sehrleise); white-space: nowrap; }
+.lm-start { display: flex; align-items: center; gap: 12px; }
+.lm-start .m-knopf { min-width: 0; }
 .m-quelle { margin-left: 10px; font: 11px var(--sans); font-weight: 400; color: var(--sehrleise); }
 .m-knopf { font-size: 11px; padding: 3px 9px; border: 1px solid var(--linie); border-radius: 6px; color: var(--leise); min-width: 70px; }
 .m-knopf:hover { color: var(--text); border-color: var(--leise); }
@@ -168,6 +170,26 @@ button.ziel:hover { background: var(--bg3); }
 .dl { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 4px 12px; padding: 4px 0; }
 .m-quant:disabled { opacity: .45; cursor: default; }
 .m-fuss { padding: 8px 14px; border-top: 1px solid var(--linie); font-size: 11px; color: var(--sehrleise); margin-top: 4px; }
+
+/* ---------- Vergleichsmodell fuer "Saved" ---------- */
+#f-gespart { cursor: pointer; border-radius: 8px; padding: 3px 8px; margin: -3px -8px; }
+#f-gespart:hover { background: var(--bg3); }
+#preise { width: 320px; padding: 4px 0 0; }
+.p-modell { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; width: 100%; text-align: left; padding: 7px 14px; }
+.p-modell:hover { background: var(--bg3); }
+.p-modell b { font-weight: 500; font-size: 12px; color: var(--text); }
+.p-modell small { font: 11px var(--mono); color: var(--sehrleise); }
+.p-modell.an b { color: var(--weiss); font-weight: 600; }
+.p-modell.an b::after { content: '  ✓'; color: var(--leise); }
+.p-felder { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 4px 14px 8px; }
+.p-felder label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--leise); }
+.p-felder .p-breit { grid-column: 1 / -1; }
+.p-felder input { font: 12px var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--linie); border-radius: 7px; padding: 6px 8px; outline: none; width: 100%; }
+.p-felder input:focus { border-color: #4a4d53; }
+.p-fuss { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 4px 14px 8px; font: 11px var(--mono); color: var(--sehrleise); }
+#p-reset { font-size: 11px; padding: 3px 9px; border: 1px solid var(--linie); border-radius: 6px; color: var(--leise); white-space: nowrap; }
+#p-reset:hover { color: var(--text); border-color: var(--leise); }
+#p-reset.sicher { color: var(--rot); border-color: var(--rot); }
 
 @media (max-width: 1500px) { #f-strom, .balken { display: none; } }
 @media (max-width: 1360px) { #f-gespart, .feld:has(#runde) { display: none; } }

@@ -4,7 +4,7 @@ const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu, screen } = require
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const pty = require('@lydell/node-pty');
 const { StatsProxy, teileModell } = require('./proxy');
 
@@ -23,9 +23,11 @@ const STANDARD = {
   downloadZiel: 'ollama', // wohin Hugging-Face-Downloads gehen: ollama | lmstudio
   lmstudioModelsDir: '', // leer = Standardordner von LM Studio
   fontSize: 14,
-  // Geschaetzte Claude-API-Preise (USD pro Mio. Tokens) fuer die Anzeige "Gespart"
-  preise: { eingabe: 3.75, cache: 0.3, ausgabe: 15 },
-  gespart: 0,
+  // Vergleichsmodell fuer die Anzeige "Saved" (USD pro Mio. Tokens), in der App per Klick auf "Saved" waehlbar
+  preisModell: 'sonnet',
+  preise: { name: 'Claude Sonnet', eingabe: 3, cache: 0.3, ausgabe: 15 },
+  tokens: null, // gezaehlte Tokens { neu, cache, ausgabe }
+  gespartAlt: 0, // Betrag aus Versionen vor 1.7 (damals direkt in $ gezaehlt)
   claude: {
     settings: '', // optional: eigene Claude-Code-Einstellungsdatei (JSON)
     systemPromptFile: '', // optional: Datei mit Zusatzregeln fuer den System-Prompt
@@ -97,20 +99,8 @@ async function modellListe() {
       } catch {}
     })(),
     (async () => {
-      try {
-        const r = await holeJson(L + '/api/v0/models', { zeit: 2500 });
-        aus.lmstudio.online = true;
-        aus.lmstudio.models = (r.data || []).filter((m) => m.type !== 'embeddings').map((m) => ({
-          id: 'lmstudio,' + m.id, name: m.id, quant: m.quantization, params: m.arch,
-          loaded: m.state === 'loaded', ctx: m.loaded_context_length || m.max_context_length || null,
-        }));
-      } catch {
-        try {
-          const r = await holeJson(L + '/v1/models', { zeit: 2500 });
-          aus.lmstudio.online = true;
-          aus.lmstudio.models = (r.data || []).map((m) => ({ id: 'lmstudio,' + m.id, name: m.id, loaded: false }));
-        } catch {}
-      }
+      const lm = (await lmModelle(L)) || ((await lmPortSuchen()) ? await lmModelle(cfg.backends.lmstudio) : null);
+      if (lm) Object.assign(aus.lmstudio, { online: true, models: lm });
     })(),
   ]);
   const la = process.env.LOCALAPPDATA || '';
@@ -118,6 +108,51 @@ async function modellListe() {
     || !!(await findeProgramm('ollama', await frischerPfad()));
   aus.lmstudio.installiert = aus.lmstudio.online || fs.existsSync(path.join(HOME, '.lmstudio')) || fs.existsSync(path.join(la, 'Programs', 'LM Studio'));
   return aus;
+}
+
+async function lmModelle(L) {
+  try {
+    const r = await holeJson(L + '/api/v0/models', { zeit: 2500 });
+    // nur Sprachmodelle (keine Embeddings, keine Sprach-/Audio-Erweiterungen)
+    return (r.data || []).filter((m) => m.type !== 'embeddings' && m.publisher !== 'model-extension-pack').map((m) => ({
+      id: 'lmstudio,' + m.id, name: m.id, quant: m.quantization, params: m.arch,
+      loaded: m.state === 'loaded', ctx: m.loaded_context_length || m.max_context_length || null,
+    }));
+  } catch {
+    try {
+      const r = await holeJson(L + '/v1/models', { zeit: 2500 });
+      return (r.data || []).map((m) => ({ id: 'lmstudio,' + m.id, name: m.id, loaded: false }));
+    } catch { return null; }
+  }
+}
+
+// LM Studio weicht auf einen anderen Port aus, wenn 1234 belegt ist. Dann die naechsten Ports durchprobieren
+// (nur auf diesem PC, kurze Zeitgrenze) und die gefundene Adresse merken.
+let lmSuchZeit = 0;
+async function lmPortSuchen() {
+  const m = /^http:\/\/(127\.0\.0\.1|localhost):(\d+)$/.exec(cfg.backends.lmstudio);
+  if (!m || Date.now() - lmSuchZeit < 10000) return false;
+  lmSuchZeit = Date.now();
+  const basis = +m[2] === 1234 ? 1234 : +m[2];
+  const ports = [1234, 1235, 1236, 1237, 1238, 1239, 1240, basis].filter((p, i, a) => p !== +m[2] && a.indexOf(p) === i);
+  const treffer = await Promise.all(ports.map((p) => holeJson(`http://127.0.0.1:${p}/api/v0/models`, { zeit: 600 })
+    .then((r) => (Array.isArray(r.data) && r.data.every((x) => 'compatibility_type' in x || 'state' in x) ? p : null)).catch(() => null)));
+  const port = treffer.find(Boolean);
+  if (!port) return false;
+  cfg.backends.lmstudio = `http://127.0.0.1:${port}`;
+  speichereConfig();
+  return true;
+}
+
+// LM-Studio-Server starten (Knopf im Modellfenster)
+async function lmServerStarten() {
+  await lms(['server', 'start']);
+  for (let i = 0; i < 20; i++) {
+    lmSuchZeit = 0;
+    if ((await lmModelle(cfg.backends.lmstudio)) || (await lmPortSuchen())) { statusSchleife.lms = true; return true; }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
 }
 
 function lms(args) {
@@ -138,15 +173,28 @@ async function modellLaden(id, laden) {
 
 // Statuszeile: GPU + geladene Modelle, alle 2 s
 let gpuZaehler = 0;
+let gpuWert = null, gpuProzess = null, gpuFehler = 0;
+function gpuStarten() {
+  if (gpuProzess || gpuFehler > 3) return;
+  try {
+    gpuProzess = spawn('nvidia-smi', ['--query-gpu=name,memory.used,memory.total,utilization.gpu,power.draw', '--format=csv,noheader,nounits', '-lms', '2000'], { windowsHide: true });
+  } catch { gpuFehler++; return; }
+  let puffer = '';
+  gpuProzess.stdout.on('data', (d) => {
+    puffer += d;
+    const zeilen = puffer.split(/\r?\n/);
+    puffer = zeilen.pop();
+    const z = zeilen.filter(Boolean).pop();
+    if (!z) return;
+    const [name, used, total, util, power] = z.split(',').map((x) => x.trim());
+    if (+total) gpuWert = { name, used: +used, total: +total, util: +util, power: parseFloat(power) };
+  });
+  gpuProzess.on('error', () => { gpuFehler = 99; gpuProzess = null; });
+  gpuProzess.on('exit', () => { gpuProzess = null; gpuFehler++; });
+}
 function gpu() {
-  return new Promise((ok) => execFile('nvidia-smi',
-    ['--query-gpu=name,memory.used,memory.total,utilization.gpu,power.draw', '--format=csv,noheader,nounits'],
-    { timeout: 3000, windowsHide: true },
-    (e, so) => {
-      if (e || !so) return ok(null);
-      const [name, used, total, util, power] = so.split('\n')[0].split(',').map((s) => s.trim());
-      ok({ name, used: +used, total: +total, util: +util, power: parseFloat(power) });
-    }));
+  gpuStarten();
+  return Promise.resolve(gpuWert);
 }
 
 async function statusSchleife() {
@@ -157,6 +205,7 @@ async function statusSchleife() {
   let lmsOnline = false;
   if (gpuZaehler++ % 5 === 0) {
     lmsOnline = await holeJson(cfg.backends.lmstudio + '/v1/models', { zeit: 800 }).then(() => true).catch(() => false);
+    if (!lmsOnline && (await lmPortSuchen())) lmsOnline = true;
     statusSchleife.lms = lmsOnline;
   }
   if (win && !win.isDestroyed()) {
@@ -167,7 +216,7 @@ async function statusSchleife() {
       loaded: (geladen || []).map((m) => ({ name: m.name, vram: m.size_vram, ctx: m.context_length })),
     });
   }
-  setTimeout(statusSchleife, 2000);
+  setTimeout(statusSchleife, win && !win.isDestroyed() && (win.isMinimized() || !win.isVisible()) ? 8000 : 2000);
 }
 
 // ---------- Terminals ----------
@@ -450,13 +499,14 @@ ipcMain.on('pty:kill', (_e, id) => { const p = ptys.get(id); if (p) { try { p.ki
 
 ipcMain.handle('models:list', () => modellListe());
 ipcMain.handle('tools:check', () => werkzeugeInstalliert());
+ipcMain.handle('lmstudio:start', () => lmServerStarten());
 ipcMain.handle('models:load', (_e, id, laden) => modellLaden(id, laden));
 ipcMain.on('download:start', (_e, d) => herunterladen(d));
 ipcMain.on('download:cancel', (_e, key) => { const ac = downloads.get(key); if (ac) ac.abort(); });
 ipcMain.handle('hf:search', (_e, q) => hfSuche(q));
 ipcMain.handle('hf:files', (_e, repo) => hfDateien(repo));
 ipcMain.handle('config:get', () => cfg);
-ipcMain.handle('config:set', (_e, patch) => { cfg = mische(cfg, patch); speichereConfig(); return cfg; });
+ipcMain.handle('config:set', (_e, patch) => { Object.assign(cfg, mische(cfg, patch)); speichereConfig(); return cfg; });
 ipcMain.handle('dir:pick', async (_e, start) => {
   const r = await dialog.showOpenDialog(win, { defaultPath: start || cfg.lastDir, properties: ['openDirectory'] });
   return r.canceled ? null : r.filePaths[0];
@@ -573,15 +623,31 @@ async function testLauf(ordner) {
   st({ phase: 'ende', id: 900001, status: 'ok', eingabe: 48000, ausgabe: 400, ttft: 0.3, tps: 77.7, neu: 1200, prefill: 4000 });
   await warte(600);
   console.log('ENDE', await js(`document.querySelector('#tps').textContent + ' | ' + document.querySelector('#runde').textContent + ' | ' + document.querySelector('#spitze-text').textContent`));
+  // Vergleichsmodell fuer "Saved": Opus waehlen, dann eigene Preise
+  const gesp = () => js(`document.querySelector('#l-gespart').textContent + ' = ' + document.querySelector('#gespart').textContent`);
+  console.log('PREIS SONNET', await gesp());
+  await js(`document.querySelector('#f-gespart').click()`);
+  await warte(500);
+  await js(`[...document.querySelectorAll('.p-modell')].find((b) => b.textContent.startsWith('Claude Opus')).click()`);
+  await warte(300);
+  await bild('8b-preise');
+  console.log('PREIS OPUS', await gesp(), '|', await js(`document.querySelector('#p-summe').textContent`));
+  await js(`(() => { const n = document.querySelector('#p-name'); n.value = 'Mein Modell'; n.dispatchEvent(new Event('input'));
+    const a = document.querySelector('#p-ausgabe'); a.value = '100'; a.dispatchEvent(new Event('input')); })()`);
+  await warte(300);
+  console.log('PREIS EIGEN', await gesp(), '|', await js(`[...document.querySelectorAll('.p-modell.an')].map((b) => b.textContent).join()`));
+  await js(`[...document.querySelectorAll('.p-modell')][0].click(); schliesseMenues()`);
   // Modellfenster: Favorit setzen, Favoriten-Menue, Download nach LM Studio (Testordner) und Ollama (abbrechen)
   await js(`oeffneBib('meine')`);
   await warte(2500);
   await js(`document.querySelector('#b-liste .m-zeile .m-stern').click()`);
+  await warte(300);
+  await js(`(() => { const z = [...document.querySelectorAll('#b-liste .m-zeile')].find((x) => x.title.startsWith('lmstudio,')); if (z) z.querySelector('.m-stern').click(); })()`);
   await warte(500);
   await bild('9-alle-modelle');
   await js(`schliesseBib(); document.querySelector('#modell-chip').click()`);
   await warte(1500);
-  console.log('FAVORITEN', await js(`document.querySelectorAll('#m-liste .m-zeile').length`));
+  console.log('FAVORITEN', await js(`document.querySelectorAll('#m-liste .m-zeile').length + ' | ' + [...document.querySelectorAll('#m-liste .m-gruppe')].map((g) => g.textContent).join(', ')`));
   await bild('10-favoriten');
   const lmTest = path.join(ordner, 'lmstudio-models');
   await js(`window.api.setConfig({ lmstudioModelsDir: ${JSON.stringify(lmTest)} }).then((c) => Object.assign(cfg, c))`);
@@ -633,6 +699,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
   });
   app.on('window-all-closed', () => {
     for (const p of ptys.values()) try { p.kill(); } catch {}
+    if (gpuProzess) try { gpuProzess.kill(); } catch {}
     app.quit();
   });
 }

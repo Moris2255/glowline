@@ -25,7 +25,6 @@ let cfg = {};
 let liste = null; // Modell-Liste
 let status = { loaded: [] };
 let sitzung = null; // { id, kennung, tool, model, cwd, beendet }
-let gespart = 0;
 let neueEingabe = false; // Enter gedrueckt -> naechste Anfrage startet einen neuen Turn
 const stats = new Map(); // Kennung -> Messwerte
 
@@ -111,7 +110,9 @@ function keinModellText() {
   if (o.installiert || l.installiert) {
     const name = o.installiert ? 'Ollama' : 'LM Studio';
     return gelb(`${name} is installed but not running.`)
-      + grau(`Start ${name}${name === 'LM Studio' ? ' and its server (Developer → Start Server)' : ''}, then press Enter here.`);
+      + grau(name === 'LM Studio'
+        ? 'Click the model button (bottom right) → “All models & downloads” → “Start LM Studio server”, then press Enter here.'
+        : 'Start Ollama, then press Enter here.');
   }
   return gelb('Glowline needs a local model server, and none is installed.')
     + grau('Install one of these (both are free), start it, then press Enter here:')
@@ -184,7 +185,7 @@ function schliesseMenues() {
   term.focus();
 }
 document.addEventListener('mousedown', (e) => {
-  if (!e.target.closest('.menue') && !e.target.closest('.chip')) {
+  if (!e.target.closest('.menue') && !e.target.closest('.chip') && !e.target.closest('#f-gespart')) {
     if (document.querySelector('.menue:not(.versteckt)')) schliesseMenues();
   }
 });
@@ -271,7 +272,13 @@ function zeichneFavoriten() {
   if (!liste) { box.innerHTML = '<div class="m-leer">Loading models…</div>'; return; }
   box.innerHTML = '';
   const favs = sortiere(alleModelle().filter((m) => fav().includes(m.id)));
-  for (const m of favs) box.appendChild(modellZeile(m));
+  // Favoriten von Ollama und LM Studio getrennt zeigen (Ueberschrift nur, wenn beide vorkommen)
+  const teile = [['Ollama', favs.filter((m) => m.id.startsWith('ollama,'))], ['LM Studio', favs.filter((m) => m.id.startsWith('lmstudio,'))]];
+  const beide = teile.every(([, l]) => l.length);
+  for (const [name, l] of teile) {
+    if (beide) gruppe(box, name);
+    for (const m of l) box.appendChild(modellZeile(m));
+  }
   if (!favs.length) leer(box, 'No favorites yet. Open “All models” below and click ☆ next to the models you use most.');
 }
 
@@ -354,10 +361,28 @@ function zeichneMeine() {
     gruppe(box, `${name} · ${g.online ? g.models.length + ' models' + (geladen ? `, ${geladen} loaded` : '') : 'offline'}`);
     const ms = sortiere(g.models.filter((m) => !such || m.name.toLowerCase().includes(such)));
     for (const m of ms) box.appendChild(modellZeile(m));
-    if (!g.online) leer(box, name === 'LM Studio' ? 'LM Studio server is not running (in LM Studio: Developer → Start Server).' : 'Ollama is not running.');
+    if (!g.online && name === 'LM Studio' && g.installiert) box.appendChild(lmStartKnopf());
+    else if (!g.online) leer(box, name === 'LM Studio' ? 'LM Studio is not installed (lmstudio.ai).' : g.installiert ? 'Ollama is not running – start it.' : 'Ollama is not installed (ollama.com).');
     else if (!ms.length) leer(box, such ? 'No match.' : 'No models yet – get some in the Download tab.');
   }
   box.scrollTop = scroll;
+}
+
+// LM Studio installiert, aber sein Server laeuft nicht: per Knopf starten
+function lmStartKnopf() {
+  const z = elem('div', 'm-leer lm-start');
+  z.append(elem('span', null, 'The LM Studio server is not running. '));
+  const b = elem('button', 'm-knopf', 'Start LM Studio server');
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    b.textContent = 'starting…';
+    const ok = await window.api.lmStart();
+    hinweis(ok ? 'LM Studio server started' : 'Could not start the LM Studio server – open LM Studio → Developer → Start Server');
+    liste = await window.api.models();
+    zeichneModelle();
+  });
+  z.appendChild(b);
+  return z;
 }
 
 // ---------------- Download von Hugging Face ----------------
@@ -541,6 +566,7 @@ window.api.onDownload(async (p) => {
       const f = hf.dateien.find((x) => x.quant === d.quant);
       if (f) f.lmstudio = true;
     }
+    zeichneModelle();
     liste = await window.api.models();
   } else {
     hinweis(p.fehler === 'cancelled' ? 'Download cancelled' : 'Download failed: ' + p.fehler);
@@ -565,10 +591,23 @@ function hauptLauf(m) {
   return best;
 }
 
-function kosten(m, s) {
-  const p = cfg.preise || { eingabe: 3.75, cache: 0.3, ausgabe: 15 };
+// "Saved": Glowline zaehlt die Tokens (neu / aus dem Cache / Ausgabe) und rechnet sie mit den Preisen
+// des gewaehlten Vergleichsmodells um. So passt der Betrag sofort, wenn man ein anderes Modell waehlt.
+const PREIS_MODELLE = [
+  { id: 'sonnet', name: 'Claude Sonnet', eingabe: 3, cache: 0.3, ausgabe: 15 },
+  { id: 'opus', name: 'Claude Opus', eingabe: 5, cache: 0.5, ausgabe: 25 },
+  { id: 'haiku', name: 'Claude Haiku', eingabe: 1, cache: 0.1, ausgabe: 5 },
+  { id: 'gpt5', name: 'GPT-5', eingabe: 1.25, cache: 0.125, ausgabe: 10 },
+];
+const preise = () => cfg.preise || PREIS_MODELLE[0];
+const tokenSumme = () => cfg.tokens || { neu: 0, cache: 0, ausgabe: 0 };
+function gespartJetzt() {
+  const p = preise(), t = tokenSumme();
+  return (cfg.gespartAlt || 0) + (t.neu * p.eingabe + t.cache * p.cache + t.ausgabe * p.ausgabe) / 1e6;
+}
+function tokenAnteile(m, s) {
   const neu = s.neu != null ? s.neu : Math.max(0, s.eingabe - m.vorherEingabe);
-  return (neu * p.eingabe + (s.eingabe - neu) * p.cache + s.ausgabe * p.ausgabe) / 1e6;
+  return { neu, cache: Math.max(0, s.eingabe - neu), ausgabe: s.ausgabe || 0 };
 }
 
 window.api.onStat((s) => {
@@ -602,9 +641,10 @@ window.api.onStat((s) => {
     if (s.status === 'ok') {
       m.zuletzt = jetzt;
       if (s.eingabe) {
-        gespart += kosten(m, s);
+        const t = tokenAnteile(m, s), summe = tokenSumme();
+        cfg.tokens = { neu: summe.neu + t.neu, cache: summe.cache + t.cache, ausgabe: summe.ausgabe + t.ausgabe };
         m.vorherEingabe = s.eingabe;
-        window.api.setConfig({ gespart });
+        window.api.setConfig({ tokens: cfg.tokens });
       }
     }
   }
@@ -702,13 +742,87 @@ function zeichneLeiste() {
   $('#modell-chip').title = (modelId || '') + '\nClick: manage models';
   $('#modell-punkt').classList.toggle('an', !!geladen);
 
-  $('#gespart').textContent = zahl(gespart, 2) + ' $';
-  const p = cfg.preise || { eingabe: 3.75, cache: 0.3, ausgabe: 15 };
-  $('#f-gespart').title = `Estimate: what these tokens would have cost on the Claude API\n(${p.eingabe} $ new / ${p.cache} $ cache / ${p.ausgabe} $ output per 1M tokens, change under "preise" in config.json)`;
+  $('#gespart').textContent = zahl(gespartJetzt(), 2) + ' $';
+  const p = preise();
+  $('#l-gespart').textContent = 'Saved vs ' + String(p.name || 'custom').replace(/^Claude /, '');
+  $('#f-gespart').title = `What your local tokens would have cost with ${p.name || 'your model'}\n(${p.eingabe} $ input / ${p.cache} $ cached / ${p.ausgabe} $ output per 1M tokens)\nClick to choose the model or enter your own prices`;
 }
 
+// ---------------- Vergleichsmodell fuer "Saved" ----------------
+$('#f-gespart').addEventListener('click', () => {
+  const offen = !$('#preise').classList.contains('versteckt');
+  schliesseMenues();
+  if (offen) return;
+  const r = $('#f-gespart').getBoundingClientRect();
+  $('#preise').style.left = Math.max(16, Math.min(window.innerWidth - 336, r.left - 20)) + 'px';
+  $('#preise').classList.remove('versteckt');
+  zeichnePreise();
+});
+
+function zeichnePreise() {
+  const p = preise();
+  const box = $('#p-liste');
+  box.innerHTML = '';
+  const aktiv = PREIS_MODELLE.find((x) => x.id === cfg.preisModell && x.eingabe === p.eingabe && x.cache === p.cache && x.ausgabe === p.ausgabe);
+  for (const x of [...PREIS_MODELLE, { id: 'eigen', name: 'Your own model' }]) {
+    const b = elem('button', 'p-modell' + ((aktiv ? aktiv.id === x.id : x.id === 'eigen') ? ' an' : ''));
+    b.append(elem('b', null, x.name), elem('small', null, x.id === 'eigen' ? 'enter name and prices below' : `${x.eingabe} $ in · ${x.ausgabe} $ out`));
+    b.addEventListener('click', () => {
+      if (x.id === 'eigen') {
+        setzePreise({ ...preise(), name: aktiv ? 'My model' : p.name }, 'eigen');
+        $('#p-name').select();
+        return;
+      }
+      setzePreise({ name: x.name, eingabe: x.eingabe, cache: x.cache, ausgabe: x.ausgabe }, x.id);
+    });
+    box.appendChild(b);
+  }
+  for (const [id, k] of [['#p-name', 'name'], ['#p-eingabe', 'eingabe'], ['#p-cache', 'cache'], ['#p-ausgabe', 'ausgabe']]) {
+    if (document.activeElement !== $(id)) $(id).value = p[k] ?? '';
+  }
+  const t = tokenSumme();
+  $('#p-summe').textContent = `${kurz(t.neu)} new · ${kurz(t.cache)} cached · ${kurz(t.ausgabe)} output tokens`;
+}
+
+function setzePreise(p, id) {
+  cfg.preise = p;
+  cfg.preisModell = id;
+  window.api.setConfig({ preise: p, preisModell: id });
+  zeichnePreise();
+  zeichneLeiste();
+}
+
+for (const [id, k] of [['#p-name', 'name'], ['#p-eingabe', 'eingabe'], ['#p-cache', 'cache'], ['#p-ausgabe', 'ausgabe']]) {
+  $(id).addEventListener('input', () => {
+    const v = k === 'name' ? $(id).value.slice(0, 40) : Math.max(0, parseFloat($(id).value) || 0);
+    setzePreise({ ...preise(), [k]: v }, 'eigen');
+  });
+}
+
+$('#p-reset').addEventListener('click', () => {
+  const b = $('#p-reset');
+  if (!b.classList.contains('sicher')) {
+    b.classList.add('sicher');
+    b.textContent = 'Click again to reset';
+    setTimeout(() => { b.classList.remove('sicher'); b.textContent = 'Reset counter'; }, 3000);
+    return;
+  }
+  b.classList.remove('sicher');
+  b.textContent = 'Reset counter';
+  cfg.tokens = { neu: 0, cache: 0, ausgabe: 0 };
+  cfg.gespartAlt = 0;
+  window.api.setConfig({ tokens: cfg.tokens, gespartAlt: 0 });
+  zeichnePreise();
+  zeichneLeiste();
+});
+
 // Laufende Zeiten hochzaehlen
-setInterval(() => { const m = sitzung && stats.get(sitzung.kennung); if (m && (m.aktiv.size || m.zuletzt)) zeichneLeiste(); }, 250);
+let takt = 0;
+setInterval(() => {
+  if (document.hidden) return;
+  const m = sitzung && stats.get(sitzung.kennung);
+  if (m && (m.aktiv.size || (m.zuletzt && ++takt % 4 === 0))) zeichneLeiste();
+}, 250);
 
 window.api.onVollbild((an) => { document.body.classList.toggle('vollbild', an); try { fit.fit(); } catch {} });
 
@@ -731,7 +845,13 @@ window.api.onStatus((s) => {
 // ---------------- Start ----------------
 (async () => {
   cfg = await window.api.getConfig();
-  gespart = cfg.gespart || 0;
+  // Umstellung von altem "gespart"-Betrag auf Token-Zaehler: der bisherige Betrag bleibt erhalten
+  if (!cfg.tokens) {
+    cfg.gespartAlt = cfg.gespart || 0;
+    cfg.tokens = { neu: 0, cache: 0, ausgabe: 0 };
+    if (!cfg.preisModell) { cfg.preise = { ...PREIS_MODELLE[0] }; delete cfg.preise.id; cfg.preisModell = 'sonnet'; }
+    window.api.setConfig({ gespartAlt: cfg.gespartAlt, tokens: cfg.tokens, preise: cfg.preise, preisModell: cfg.preisModell });
+  }
   term.options.fontSize = cfg.fontSize || 14;
   try { fit.fit(); } catch {}
   liste = await window.api.models().catch(() => null);

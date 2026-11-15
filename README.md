@@ -14,7 +14,7 @@ A minimal Windows terminal for running **Claude Code**, **Codex** and **OpenCode
 | **Prompt** | prompt tokens vs. the model's context window |
 | **Output / Turn** | tokens of the last reply, duration of the current turn |
 | **GPU power / VRAM** | live from `nvidia-smi` |
-| **Saved** | what the same tokens would have cost on the Claude API |
+| **Saved** | what the same tokens would have cost with a cloud model – click it to pick Claude Sonnet / Opus / Haiku, GPT-5 or enter your own model and prices |
 
 ## How it works
 
@@ -29,11 +29,13 @@ Models can be loaded/unloaded from the model menu. Press **F11** for fullscreen.
 
 ### Favorites and downloads
 
-- The model button in the bar only shows your **favorites**. Click **All models & downloads** to open the big model window.
+- The model button in the bar only shows your **favorites** (split into Ollama and LM Studio when you have both). Click **All models & downloads** to open the big model window.
 - **My models** lists everything from Ollama and LM Studio with readable names (long Hugging Face names are shortened, the uploader is shown in grey, the full name is in the tooltip). Click ☆ to add a model to your favorites, Load/Unload it, or click it to switch.
 - **Download** gets GGUF models from Hugging Face: 1) choose where it goes (Ollama or LM Studio), 2) search, 3) pick a model and a size. Sizes that fit your VRAM are marked. Ollama downloads it itself (`hf.co/<repo>:<quant>`); for LM Studio, Glowline saves the file into the LM Studio models folder. Downloads show progress and can be cancelled.
 
 ## Requirements
+
+If LM Studio's server runs on another port (it moves away from 1234 when that port is taken), Glowline finds it by itself. If the server is not running, the model window has a **Start LM Studio server** button.
 
 Glowline tells you what is missing: if a tool is not installed it shows the install command right in the terminal, and if no model server is installed or running it says so and links to Ollama / LM Studio.
 
@@ -54,4 +56,4 @@ Older installers are moved to `dist/alt/` automatically.
 
 ## Config
 
-`%APPDATA%\Glowline\config.json` – port, backends, default tool/model, prices for the "Saved" estimate, Claude Code environment.
+`%APPDATA%\Glowline\config.json` – port, backends, default tool/model, the comparison model and token counter for "Saved", Claude Code environment.
