@@ -25,7 +25,7 @@ Glowline starts a small measuring proxy on `127.0.0.1:3460`. The coding tools ta
 - **OpenCode** – `opencode --standalone` with an injected OpenAI-compatible provider.
 - **PowerShell** – plain shell, no model.
 
-Models can be loaded/unloaded from the model menu.
+Models can be loaded/unloaded from the model menu. Press **F11** for fullscreen.
 
 ## Requirements
 
