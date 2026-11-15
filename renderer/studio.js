@@ -418,13 +418,24 @@ function zeichneVorschau(box) {
       // ein schon vergroessertes Bild nochmal x4 waere riesig (z. B. 21504 × 12288)
       if (!/[\\/]upscale[\\/]/.test(datei)) knopf('Upscale →', () => { sz.felder.upscale.bild = datei; zeigeStudio('upscale'); });
     }
-    const weg = knopf('Delete', async () => {
-      if (!weg.classList.contains('sicher')) { weg.classList.add('sicher'); weg.textContent = 'Sure?'; return; }
+    // "Sure?" merken, damit es ein Neuzeichnen uebersteht (4 s gueltig)
+    const sicher = () => sz.loeschen && sz.loeschen.datei === datei && Date.now() - sz.loeschen.zeit < 4000;
+    const weg = knopf(sicher() ? 'Sure?' : 'Delete', async () => {
+      if (!sicher()) {
+        sz.loeschen = { datei, zeit: Date.now() };
+        weg.classList.add('sicher'); weg.textContent = 'Sure?';
+        zurueck(4100);
+        return;
+      }
+      sz.loeschen = null;
       await window.api.studioWegwerfen(datei);
       sz.auswahl = null;
       hinweis('Moved to the recycle bin');
       ladeStudio();
     });
+    // nach 4 s wieder "Delete" (auch wenn der Knopf zwischendurch neu gebaut wurde)
+    function zurueck(ms) { setTimeout(() => { if (weg.isConnected && !sicher()) { weg.classList.remove('sicher'); weg.textContent = 'Delete'; } }, ms); }
+    if (sicher()) { weg.classList.add('sicher'); zurueck(4100 - (Date.now() - sz.loeschen.zeit)); }
     buehne.appendChild(leiste);
   } else {
     const l = elem('div', 'chat-leer');
@@ -495,7 +506,9 @@ window.api.onStudio((p) => {
   else zeichneStudio();
 });
 function ladeFortschritt(id) {
-  const s = document.querySelector(`#studio-links .s-modell[data-m="${id}"] .s-m-laden`);
+  const karte = document.querySelector(`#studio-links .s-modell[data-m="${id}"]`);
+  if (!karte) return true; // Modell ist in diesem Bereich nicht zu sehen: nichts neu zeichnen
+  const s = karte.querySelector('.s-m-laden');
   const l = sz.laden.get('modell:' + id);
   if (!s || !l) return false;
   s.querySelector('.s-balken i').style.width = (l.prozent || 0) + '%';

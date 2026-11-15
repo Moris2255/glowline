@@ -826,6 +826,27 @@ async function testLauf(ordner) {
       await warte(1200);
       console.log('FORMAT', await js(`(() => { sz.felder.bild.format = 1; zeichneStudio(); const box = document.querySelector('.s-formate'); const r = box.getBoundingClientRect(); const ziel = document.elementFromPoint(r.right + 30, r.top + r.height / 2); ziel.click(); box.parentElement.click(); const z = [...document.querySelectorAll('.s-feld')].map((x) => x.tagName.toLowerCase() + ':' + x.firstChild.textContent).join(' '); return 'format=' + sz.felder.bild.format + ' | ' + z; })()`));
     }
+    if (was.includes('loeschen')) {
+      // "Sure?" bleibt stehen, waehrend nebenbei ein Modell laedt (Video-Bereich, Karte nicht sichtbar)
+      await js(`zeigeStudio('bild')`);
+      await warte(1200);
+      await js(`sz.auswahl = { datei: sz.galerie.find((g) => /\.png$/.test(g.datei)).datei }; zeichneStudio(); [...document.querySelectorAll('.s-buehne .m-knopf')].find((b) => b.textContent === 'Delete').click()`);
+      for (const pr of [11, 12, 13]) { win.webContents.send('studio', { vorgang: 'modell:z-image', prozent: pr }); await warte(300); }
+      const a1 = await js(`[...document.querySelectorAll('.s-buehne .m-knopf')].map((b) => b.textContent).join(',')`);
+      await js(`zeichneStudio()`);
+      const a2 = await js(`[...document.querySelectorAll('.s-buehne .m-knopf')].map((b) => b.textContent).join(',')`);
+      await warte(4500);
+      const a3 = await js(`[...document.querySelectorAll('.s-buehne .m-knopf')].map((b) => b.textContent).join(',')`);
+      console.log('LOESCHEN', a1, '|', a2, '|', a3);
+      // Laengen-Regler im Video-Bereich: Download-Fortschritt darf ihn nicht neu bauen
+      await js(`zeigeStudio('video')`);
+      await warte(1200);
+      await js(`document.querySelector('#studio-links input[type=range]').merker = 1`);
+      for (const pr of [14, 15, 16]) { win.webContents.send('studio', { vorgang: 'modell:z-image', prozent: pr }); await warte(300); }
+      console.log('REGLER', await js(`document.querySelector('#studio-links input[type=range]').merker === 1 ? 'bleibt' : 'NEU GEBAUT'`));
+      win.webContents.send('studio', { vorgang: 'modell:z-image', fertig: true, fehler: 'cancelled' });
+      await warte(500);
+    }
     if (was.includes('laden')) {
       // gespielter Download: Karte zeigt Fortschritt, Eingabefelder werden dabei nicht neu gebaut
       await js(`zeigeStudio('bild')`);
