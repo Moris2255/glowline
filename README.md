@@ -1,8 +1,23 @@
 # Glowline
 
-A local AI workspace for Windows: run **Claude Code**, **Codex** and **OpenCode** against **local models** (Ollama, LM Studio) or your own subscriptions, chat with any model, write prompts, and create **images, videos, upscales and voices** on your own GPU – all in one window with a live stats bar at the bottom.
+A local AI workspace for Windows: run **Claude Code**, **Codex**, **OpenCode**, **Antigravity** and more coding agents against **local models** (Ollama, LM Studio) or your own subscriptions and API keys, chat with any model, write prompts, and create **images, videos, upscales and voices** on your own GPU – all in one window with a live stats bar at the bottom.
 
 ![logo](build/icon.png)
+
+## Express setup
+
+On the first start Glowline looks at your PC (graphics card, VRAM, RAM, free space) and offers two ways:
+
+- **Express** – pick a speed (**Fast**, **Balanced** or **Best quality**; the one that fits your PC is marked) and Glowline installs everything in one go: Ollama if it is missing, a **coder**, a **reasoning** and a **fast helper** model, plus the Studio models for **images, video, voice and upscaling**. Untick anything you don't want – the download size and free space are shown before you start. Optionally take the **uncensored (abliterated)** versions of the language models.
+- **Custom** – set up everything yourself, like before.
+
+| Speed | Coder | Reasoning | Fast helper |
+|---|---|---|---|
+| Fast | Qwen 3.5 4B (64k context) | Qwen 3 4B | LFM 3 1.7B |
+| Balanced | Qwen 3.5 9B (64k context) | Qwen 3 8B | LFM 3 1.7B |
+| Best quality | Qwen 3.5 35B (128k context) | Qwen 3 30B | LFM 3 1.7B |
+
+Glowline saves each model with a fixed context size (e.g. `qwen3.5:9b-64k`) and tells Claude Code and OpenCode about it, so long sessions don't silently overflow. Afterwards the coder is the default in the terminal and the fast helper in Chat. You can open the setup again any time under **Models → Express setup**; it keeps running in the background if you hide it.
 
 ## What it shows
 
@@ -23,7 +38,13 @@ Glowline starts a small measuring proxy on `127.0.0.1:3460`. The coding tools ta
 - **Claude Code** – the real `claude` CLI with `ANTHROPIC_BASE_URL` pointed at the proxy. Switch models in the bar (uses `/model`).
 - **Codex** – `codex --oss` with `CODEX_OSS_BASE_URL`.
 - **OpenCode** – `opencode --standalone` with an injected OpenAI-compatible provider.
+- **Antigravity** – Google's coding agent (`agy`), with your own Google account and its own models.
+- **More agents** (fold-out group in the tool menu):
+  - **Qwen Code** – runs on your Glowline model (local or an OpenAI-compatible API key) through the proxy.
+  - **Gemini CLI**, **GitHub Copilot**, **Droid** (Factory) and **Cline** – started in your folder with their own account and models.
 - **PowerShell** – plain shell, no model.
+
+Tools that are not installed show their install command right in the terminal.
 
 Models can be loaded/unloaded from the model menu. Press **F11** for fullscreen.
 
@@ -40,7 +61,8 @@ Under **Models → Accounts**:
 
 - **Claude subscription** (Pro/Max) – used inside Claude Code with your own login. Glowline only measures; it never reads your login.
 - **ChatGPT account** (Plus/Pro) – used inside Codex with its own login.
-- **API keys** for Anthropic, OpenAI, OpenRouter and Google Gemini – their models then appear in the model lists for Chat, OpenCode, Claude Code (Anthropic) and Codex (OpenAI). Keys are encrypted with your Windows login and only sent to their provider.
+- **API keys** for Anthropic, OpenAI, OpenRouter, Google Gemini, DeepSeek, Groq, Mistral and xAI (Grok) – their models then appear in the model lists for Chat, OpenCode, Qwen Code (OpenAI-compatible ones), Claude Code (Anthropic) and Codex (OpenAI). Keys are encrypted with your Windows login and only sent to their provider.
+- **Higgsfield API key** – for cloud video in the Studio (see below).
 - **Hugging Face token** (optional) – for gated model downloads.
 
 "Saved costs" only counts local tokens.
@@ -57,6 +79,8 @@ Images, video, upscaling and voice – running fully inside Glowline. The first 
 | Upscale | Real-ESRGAN x4 | BSD-3 | 70 MB |
 | Voice | Chatterbox Multilingual – speech + voice cloning, 20+ languages | MIT | ~4 GB |
 
+**Cloud video (optional):** with a [Higgsfield API key](https://open.higgsfield.ai/api-keys) the Video tab also offers **Wan 3.0 Prime** and **Seedance 2.0** – up to 15 s with sound, no GPU needed. These run on Higgsfield's servers and are paid from your Higgsfield balance per second of video (the button says *(paid)*); a start image is uploaded to Higgsfield. Cancel is free while the job is still queued, and failed or filtered jobs are not charged. Coding agents can't start paid cloud jobs.
+
 - **✨ Improve prompt** uses your chat model to turn a short idea into a strong prompt.
 - Results appear in a gallery per tab: *Animate →* sends an image to Video, *Upscale →* to Upscale. Everything is saved under `studio\ausgabe`.
 - Before a job, Glowline unloads language models from the GPU (8 GB is not enough for both) and frees the GPU again when you chat with a local model.
@@ -65,7 +89,7 @@ Images, video, upscaling and voice – running fully inside Glowline. The first 
 
 ### Studio tools for coding agents
 
-When the Studio is set up, Claude Code, Codex and OpenCode started from Glowline get the tools `generate_image`, `generate_video`, `upscale_image`, `text_to_speech` and `studio_status` (MCP on `127.0.0.1:3461`, protected with a random key per start). Ask your agent for "a 16:9 hero image for the landing page" and it renders it locally.
+When the Studio is set up, Claude Code, Codex, OpenCode and Qwen Code started from Glowline get the tools `generate_image`, `generate_video`, `upscale_image`, `text_to_speech` and `studio_status` (MCP on `127.0.0.1:3461`, protected with a random key per start). Ask your agent for "a 16:9 hero image for the landing page" and it renders it locally.
 
 ### Favorites and downloads
 
@@ -80,8 +104,8 @@ If LM Studio's server runs on another port (it moves away from 1234 when that po
 Glowline tells you what is missing: if a tool is not installed it shows the install command right in the terminal, and if no model server is installed or running it says so and links to Ollama / LM Studio.
 
 - Windows 10/11
-- [Ollama](https://ollama.com) and/or [LM Studio](https://lmstudio.ai) (server started)
-- The tools you want to use: `claude`, `codex`, `opencode` on your PATH
+- [Ollama](https://ollama.com) and/or [LM Studio](https://lmstudio.ai) (server started) – Express setup installs Ollama for you
+- The tools you want to use (`claude`, `codex`, `opencode`, `agy`, …) on your PATH
 - NVIDIA GPU for power/VRAM readings (optional) and for the Studio (8 GB VRAM or more recommended, plus 25–60 GB disk space for the models you pick)
 
 ## Build

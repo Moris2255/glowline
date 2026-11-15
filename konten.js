@@ -16,9 +16,14 @@ const WOLKEN = {
   openai: { name: 'OpenAI API', basis: 'https://api.openai.com', format: 'openai', key: 'openai', link: 'https://platform.openai.com/api-keys' },
   openrouter: { name: 'OpenRouter', basis: 'https://openrouter.ai/api', format: 'openai', key: 'openrouter', link: 'https://openrouter.ai/keys' },
   gemini: { name: 'Google Gemini', basis: 'https://generativelanguage.googleapis.com/v1beta/openai', ohneV1: true, format: 'openai', key: 'gemini', link: 'https://aistudio.google.com/apikey' },
+  // weitere Anbieter mit OpenAI-kompatibler Schnittstelle (Modellliste unter /v1/models)
+  deepseek: { name: 'DeepSeek', basis: 'https://api.deepseek.com', format: 'openai', key: 'deepseek', link: 'https://platform.deepseek.com/api_keys', einfach: true },
+  groq: { name: 'Groq', basis: 'https://api.groq.com/openai', format: 'openai', key: 'groq', link: 'https://console.groq.com/keys', einfach: true },
+  mistral: { name: 'Mistral', basis: 'https://api.mistral.ai', format: 'openai', key: 'mistral', link: 'https://console.mistral.ai/api-keys', einfach: true },
+  xai: { name: 'xAI (Grok)', basis: 'https://api.x.ai', format: 'openai', key: 'xai', link: 'https://console.x.ai', einfach: true },
 };
-// Schluessel, die man eintragen kann (huggingface: fuer Downloads geschuetzter Modelle)
-const SCHLUESSEL = ['anthropic', 'openai', 'openrouter', 'gemini', 'huggingface'];
+// Schluessel, die man eintragen kann (huggingface: Downloads geschuetzter Modelle, higgsfield: Cloud-Videos im Studio)
+const SCHLUESSEL = ['anthropic', 'openai', 'openrouter', 'gemini', 'deepseek', 'groq', 'mistral', 'xai', 'huggingface', 'higgsfield'];
 
 const datei = () => path.join(app.getPath('userData'), 'konten.json');
 let speicher = null;
@@ -85,6 +90,7 @@ async function hole(url, kopf) {
 }
 const OPENAI_CHAT = /^(gpt-|o\d|chatgpt-|codex)/i;
 const OPENAI_WEG = /(audio|realtime|tts|transcribe|image|search|embedding|instruct|moderation|dall-e|whisper)/i;
+const NICHT_CHAT = /(embed|whisper|tts|transcri|audio|speech|moderation|guard|ocr|imagine|image|video|vision-only)/i;
 
 async function anbieterModelle(id) {
   const c = modellCache.get(id);
@@ -107,6 +113,9 @@ async function anbieterModelle(id) {
   } else if (id === 'openrouter') {
     const r = await hole('https://openrouter.ai/api/v1/models', { authorization: 'Bearer ' + k });
     liste = (r.data || []).map((m) => ({ model: m.id, name: m.name || m.id, ctx: m.context_length || null }));
+  } else if (WOLKEN[id].einfach) {
+    const r = await hole(WOLKEN[id].basis + '/v1/models', { authorization: 'Bearer ' + k });
+    liste = (r.data || []).map((m) => String(m.id)).filter((m) => !NICHT_CHAT.test(m)).sort().map((m) => ({ model: m, name: m }));
   } else if (id === 'gemini') {
     const r = await hole('https://generativelanguage.googleapis.com/v1beta/openai/models', { authorization: 'Bearer ' + k });
     liste = (r.data || []).map((m) => String(m.id).replace(/^models\//, '')).filter((m) => /^gemini/i.test(m) && !/(embedding|tts|image|live)/i.test(m))

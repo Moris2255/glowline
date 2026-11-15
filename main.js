@@ -4,12 +4,13 @@ const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu, screen, shell, pro
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { execFile, spawn } = require('child_process');
+const { execFile, execFileSync, spawn } = require('child_process');
 const pty = require('@lydell/node-pty');
 const { StatsProxy, teileModell, istWolke } = require('./proxy');
 const konten = require('./konten');
 const studio = require('./studio');
 const agenten = require('./agenten');
+const einrichtung = require('./einrichtung');
 const { Readable } = require('stream');
 
 const HOME = os.homedir();
@@ -109,11 +110,21 @@ async function modellListe(mitWolke) {
     })(),
   ]);
   const la = process.env.LOCALAPPDATA || '';
-  aus.ollama.installiert = aus.ollama.online || fs.existsSync(path.join(la, 'Programs', 'Ollama', 'ollama.exe'))
-    || !!(await findeProgramm('ollama', await frischerPfad()));
+  aus.ollama.installiert = aus.ollama.online || await ollamaInstalliert();
   aus.lmstudio.installiert = aus.lmstudio.online || fs.existsSync(path.join(HOME, '.lmstudio')) || fs.existsSync(path.join(la, 'Programs', 'LM Studio'));
   aus.wolke = await wolke;
   return aus;
+}
+
+// "qwen3.5:9b-64k" -> 64 (Kontext in Tausend Tokens), sonst null
+function kontextAusName(name) {
+  const m = /[-:](\d{2,3})k$/i.exec(String(name || ''));
+  return m && +m[1] >= 8 ? +m[1] : null;
+}
+
+async function ollamaInstalliert() {
+  if (process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_OLLAMA_FEHLT) return false; // Test: PC ohne Ollama
+  return fs.existsSync(path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Ollama', 'ollama.exe')) || !!(await findeProgramm('ollama', await frischerPfad()));
 }
 
 async function lmModelle(L) {
@@ -146,6 +157,7 @@ async function chatSenden({ id, model: modellId, system, nachrichten }) {
     if (w && w.nurWerkzeug) throw new Error(`${w.name} works only inside ${WERKZEUG[w.nurWerkzeug]}. For chat, add an API key under Models → Accounts or pick a local model.`);
     const msgs = (Array.isArray(nachrichten) ? nachrichten : []).filter((m) => m && /^(user|assistant)$/.test(m.role)).map((m) => ({ role: m.role, content: String(m.content) }));
     // lokales Modell: der Studio-Motor gibt vorher den Grafikspeicher frei
+    if (!w && studio.beschaeftigt().gpu) throw new Error('Studio is using the graphics card right now. Local chat works again when the job is done – cloud models work anytime.');
     if (!w) await Promise.race([studio.frei(), new Promise((ok) => setTimeout(ok, 1500))]);
     const anthropic = w && w.format === 'anthropic';
     const url = `http://127.0.0.1:${cfg.port}/s/chat/${b}` + (anthropic ? '/v1/messages' : '/v1/chat/completions');
@@ -338,15 +350,22 @@ function findeProgramm(name, pfad) {
 async function werkzeugeInstalliert() {
   const pfad = await frischerPfad();
   const r = {};
-  await Promise.all(Object.keys(INSTALL).map(async (t) => { r[t] = !!(await findeProgramm(t, pfad)); }));
+  await Promise.all(Object.keys(INSTALL).map(async (t) => { r[t] = !!(await findeProgramm(INSTALL[t].exe || t, pfad)); }));
   return r;
 }
 const INSTALL = {
   claude: { name: 'Claude Code', befehl: 'irm https://claude.ai/install.ps1 | iex' },
   codex: { name: 'Codex', befehl: 'npm install -g @openai/codex', node: true },
   opencode: { name: 'OpenCode', befehl: 'npm install -g opencode-ai', node: true },
+  // konto: meldet sich selbst an und nutzt seine eigenen Modelle (Glowline startet es nur im Ordner)
+  antigravity: { name: 'Antigravity', exe: 'agy', befehl: 'irm https://antigravity.google/cli/install.ps1 | iex', konto: true },
+  gemini: { name: 'Gemini CLI', befehl: 'npm install -g @google/gemini-cli', node: true, konto: true },
+  qwen: { name: 'Qwen Code', befehl: 'npm install -g @qwen-code/qwen-code', node: true },
+  copilot: { name: 'GitHub Copilot', befehl: 'npm install -g @github/copilot', node: true, konto: true },
+  droid: { name: 'Droid', befehl: 'irm https://app.factory.ai/cli/windows | iex', konto: true },
+  cline: { name: 'Cline', befehl: 'npm install -g cline', node: true, konto: true },
 };
-const WERKZEUG = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', shell: 'PowerShell' };
+const WERKZEUG = { ...Object.fromEntries(Object.entries(INSTALL).map(([k, v]) => [k, v.name])), shell: 'PowerShell' };
 function meldung(env, zeilen) {
   const text = ['', ...zeilen, ''].map((t, i) => `Write-Host ${q(t)}${i === 1 ? ' -ForegroundColor Yellow' : i > 1 && t ? ' -ForegroundColor DarkGray' : ''}`).join('; ');
   return { file: 'powershell.exe', args: ['-NoLogo', '-NoProfile', '-NoExit', '-Command', text], env };
@@ -375,22 +394,36 @@ async function baueBefehl(tool, modellId, tab) {
   let zeile = null;
   let exe = null;
   if (INSTALL[tool]) {
-    exe = await findeProgramm(tool, pfad);
+    exe = await findeProgramm(INSTALL[tool].exe || tool, pfad);
     if (!exe) return { file: 'powershell.exe', args: ['-NoLogo', '-NoProfile', '-NoExit', '-Command', installHinweis(tool)], env, fehlt: tool };
+    if (INSTALL[tool].konto) {
+      const args = ['-NoLogo', '-NoProfile', '-NoExit', '-Command', `& ${q(exe)}`];
+      if (/\.ps1$/i.test(exe)) args.splice(2, 0, '-ExecutionPolicy', 'Bypass');
+      return { file: 'powershell.exe', args, env };
+    }
   }
 
   const wolke = istWolke(backend) ? konten.WOLKEN[backend] : null;
   if (wolke) {
-    const passt = { claude: ['abo', 'anthropic'], codex: ['chatgpt', 'openai'], opencode: ['anthropic', 'openai', 'openrouter', 'gemini'] }[tool];
+    const passt = {
+      claude: ['abo', 'anthropic'], codex: ['chatgpt', 'openai'],
+      opencode: Object.keys(konten.WOLKEN).filter((k) => !konten.WOLKEN[k].nurWerkzeug),
+      qwen: Object.keys(konten.WOLKEN).filter((k) => konten.WOLKEN[k].format === 'openai'),
+    }[tool];
     if (passt && !passt.includes(backend)) {
-      const wo = wolke.nurWerkzeug ? WERKZEUG[wolke.nurWerkzeug] : 'OpenCode or Chat';
+      const wo = wolke.nurWerkzeug ? WERKZEUG[wolke.nurWerkzeug] : wolke.format === 'openai' ? 'OpenCode, Qwen Code or Chat' : 'OpenCode or Chat';
       return meldung(env, [`${wolke.name} models work in ${wo}, not in ${WERKZEUG[tool]}.`, 'Pick another model (bottom right) or switch the tool.']);
     }
   }
 
   const mitStudio = studio.status().eingerichtet; // Agenten bekommen die Studio-Werkzeuge (MCP)
   if (tool === 'claude') {
-    if (!wolke) Object.assign(env, cfg.claude.env, { ANTHROPIC_BASE_URL: basis, ANTHROPIC_AUTH_TOKEN: 'glowline' });
+    if (!wolke) {
+      Object.assign(env, cfg.claude.env, { ANTHROPIC_BASE_URL: basis, ANTHROPIC_AUTH_TOKEN: 'glowline' });
+      // Modell mit festem Kontext im Namen (z. B. "qwen3.5:9b-64k"): Claude Code nicht mehr schicken lassen, als passt
+      const k = kontextAusName(model);
+      if (k && k < 128) Object.assign(env, { CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(k * 1000), CLAUDE_CODE_AUTO_COMPACT_WINDOW: Math.floor(k * 0.78) + 'k' });
+    }
     // Abo: Claude Code meldet sich selbst an, der Proxy misst nur mit. API-Schluessel: setzt der Proxy ein.
     else if (backend === 'abo') env.ANTHROPIC_BASE_URL = basis;
     else Object.assign(env, { ANTHROPIC_BASE_URL: basis, ANTHROPIC_AUTH_TOKEN: 'glowline' });
@@ -426,7 +459,7 @@ async function baueBefehl(tool, modellId, tab) {
     const liste = await modellListe();
     const modelle = {};
     for (const m of [...liste.ollama.models, ...liste.lmstudio.models]) {
-      modelle[m.name] = { name: m.name, limit: { context: m.ctx || 128000, output: 16000 } };
+      modelle[m.name] = { name: m.name, limit: { context: m.ctx || (kontextAusName(m.name) || 128) * 1000, output: 16000 } };
     }
     const provider = {
       glowline: {
@@ -449,6 +482,15 @@ async function baueBefehl(tool, modellId, tab) {
     env.OPENCODE_CONFIG_CONTENT = JSON.stringify(oc);
     // --standalone: eigener Server, sonst nimmt OpenCode 2 den Hintergrund-Dienst ohne unsere Einstellungen
     zeile = `& ${q(exe)} --standalone`;
+  } else if (tool === 'qwen') {
+    // Qwen Code spricht OpenAI-Format: lokale Modelle und Cloud-Schluessel laufen ueber den Proxy
+    const a = [q(exe), '--openai-base-url', q(basis + '/v1'), '--openai-api-key', 'glowline', '-m', q(model)];
+    if (mitStudio) {
+      const mcpPfad = path.join(app.getPath('userData'), 'qwen-mcp.json');
+      fs.writeFileSync(mcpPfad, JSON.stringify({ mcpServers: { 'glowline-studio': { httpUrl: agenten.url(), timeout: 1800000 } } }, null, 2));
+      a.push('--mcp-config', q(mcpPfad));
+    }
+    zeile = '& ' + a.join(' ');
   }
 
   if (tool === 'codex' && zeile && mitStudio) zeile += ` -c ${q(`mcp_servers.glowline_studio.url="${agenten.url()}"`)} -c mcp_servers.glowline_studio.tool_timeout_sec=1800`;
@@ -640,7 +682,12 @@ ipcMain.handle('pty:spawn', async (_e, o) => {
 });
 ipcMain.on('pty:write', (_e, id, d) => { const p = ptys.get(id); if (p) p.write(d); });
 ipcMain.on('pty:resize', (_e, id, c, r) => { const p = ptys.get(id); if (p && c > 0 && r > 0) try { p.resize(c, r); } catch {} });
-ipcMain.on('pty:kill', (_e, id) => { const p = ptys.get(id); if (p) { try { p.kill(); } catch {} ptys.delete(id); } });
+// ganzen Baum beenden: manche Werkzeuge (z. B. Cline) laufen sonst nach dem Wechsel im Hintergrund weiter
+function ptyWeg(p) {
+  try { execFileSync('taskkill', ['/PID', String(p.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore', timeout: 5000 }); } catch {}
+  try { p.kill(); } catch {}
+}
+ipcMain.on('pty:kill', (_e, id) => { const p = ptys.get(id); if (p) { ptys.delete(id); ptyWeg(p); } });
 
 ipcMain.handle('models:list', () => modellListe(true));
 ipcMain.handle('tools:check', () => werkzeugeInstalliert());
@@ -672,6 +719,11 @@ ipcMain.on('studio:freigeben', (_e, f) => { if (typeof f === 'string' && /\.(png
 ipcMain.on('studio:zeigen', (_e, f) => { if (f && studio.inAusgabe(f)) shell.showItemInFolder(f); else if (!f) { fs.mkdirSync(studio.P().ausgabe, { recursive: true }); shell.openPath(studio.P().ausgabe); } });
 ipcMain.handle('studio:wegwerfen', async (_e, f) => { if (!studio.inAusgabe(f)) return false; await shell.trashItem(f); return true; });
 ipcMain.handle('config:get', () => cfg);
+ipcMain.handle('einrichtung:system', () => einrichtung.system(true));
+ipcMain.handle('einrichtung:plan', (_e, wahl) => einrichtung.plan(wahl));
+ipcMain.handle('einrichtung:start', (_e, wahl) => einrichtung.starten(wahl));
+ipcMain.handle('einrichtung:stand', () => einrichtung.stand());
+ipcMain.on('einrichtung:abbrechen', () => einrichtung.abbrechen());
 ipcMain.handle('config:set', (_e, patch) => { Object.assign(cfg, mische(cfg, patch)); speichereConfig(); return cfg; });
 ipcMain.handle('dir:pick', async (_e, start) => {
   const r = await dialog.showOpenDialog(win, { defaultPath: start || cfg.lastDir, properties: ['openDirectory'] });
@@ -704,6 +756,9 @@ function fenster() {
     },
   });
   Menu.setApplicationMenu(null);
+  // Fenster bleibt immer Glowline: eine daneben fallen gelassene Datei oder ein Link ersetzt sonst die ganze App
+  win.webContents.on('will-navigate', (e) => e.preventDefault());
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   // Testmodus: Fenster ausserhalb des Bildschirms, ohne Fokus und ohne Taskleiste
   if (process.env.GLOWLINE_TEST) win.webContents.on('paint', (_e, _d, bild) => { win.letztesBild = bild; });
   else win.once('ready-to-show', () => win.show());
@@ -718,11 +773,12 @@ function fenster() {
   win.on('close', (e) => {
     if (process.env.GLOWLINE_TEST) return;
     const b = studio.beschaeftigt();
-    if (!b.auftraege && !b.laden) return;
+    const ein = einrichtung.laeuft();
+    if (!b.auftraege && !b.laden && !ein) return;
     const r = dialog.showMessageBoxSync(win, {
       type: 'question', buttons: ['Keep open', 'Close anyway'], defaultId: 0, cancelId: 0, noLink: true,
-      message: b.auftraege ? 'Studio is still generating' : 'A Studio download is still running',
-      detail: b.auftraege ? 'Closing Glowline cancels the running job.' : 'You can resume the download later, it continues where it stopped.',
+      message: b.auftraege ? 'Studio is still generating' : ein ? 'The setup is still installing' : 'A Studio download is still running',
+      detail: b.auftraege ? 'Closing Glowline cancels the running job.' : ein ? 'You can open the setup again later (Models → Express setup), finished parts are kept.' : 'You can resume the download later, it continues where it stopped.',
     });
     if (r === 0) e.preventDefault();
   });
@@ -847,6 +903,194 @@ async function testLauf(ordner) {
       win.webContents.send('studio', { vorgang: 'modell:z-image', fertig: true, fehler: 'cancelled' });
       await warte(500);
     }
+    if (was.includes('sicher')) {
+      // Cancel braucht zwei Klicks (gespielter Auftrag, nichts laeuft wirklich)
+      await js(`zeigeStudio('bild')`);
+      await warte(1200);
+      console.log('STANDARD', await js(`document.querySelector('.s-formate .an').textContent`));
+      await js(`window.__abgebrochen = []; const alt = window.api.studioAbbrechen; window.api.studioAbbrechen = (v) => window.__abgebrochen.push(v); window.__altAbbrechen = alt; sz.auftraege.set('auftrag:spiel', { vorgang: 'auftrag:spiel', art: 'bild', text: 'Generating', prozent: 30, start: Date.now() }); sz.auswahl = { vorgang: 'auftrag:spiel' }; zeichneStudio()`).catch((e) => console.log('ERR', e.message));
+      const klick = () => js(`(() => { const b = document.querySelector('.s-lauf .m-knopf'); b.click(); return b.textContent + '/' + window.__abgebrochen.length; })()`);
+      const k1 = await klick();
+      await bild('s-cancel-sicher');
+      const k2 = await klick();
+      console.log('CANCEL', k1, k2);
+      await js(`sz.auftraege.delete('auftrag:spiel'); sz.auswahl = null; zeichneStudio()`);
+    }
+    if (was.includes('expressknopf')) {
+      await js(`oeffneBib('meine')`);
+      await warte(1500);
+      await bild('k-bib');
+      await js(`document.querySelector('#bib-express').click()`);
+      await warte(2500);
+      const sicht = () => js(`[!document.querySelector('#bib').classList.contains('versteckt'), !document.querySelector('#einrichtung').classList.contains('versteckt'), cfg.einrichtung || '-'].join(',')`);
+      console.log('KNOPF offen', await sicht());
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+      await warte(800);
+      console.log('KNOPF esc', await sicht());
+    }
+    if (was.includes('ohneollama')) {
+      await js(`zeigeEinrichtung()`);
+      await warte(2500);
+      console.log('OHNE START', await js(`[...document.querySelectorAll('.ein-chip')].map((c) => c.textContent).join(' / ')`));
+      await js(`document.querySelector('.ein-karte.empfohlen').click()`);
+      await warte(2500);
+      for (const t of ['bild', 'video', 'stimme', 'upscale']) { await js(`document.querySelector('[data-teil=${t}]').click()`); await warte(700); }
+      console.log('OHNE ZEILEN', await js(`[...document.querySelectorAll('#ein-inhalt .ein-zeile')].map((z) => z.querySelector('b').textContent + ' = ' + z.querySelector('.ein-gb').textContent).join(' | ') + ' || ' + document.querySelector('.ein-summe').textContent`));
+      await bild('o-express');
+      await js(`document.querySelector('#ein-los').click()`);
+      for (let i = 0; i < 60; i++) { await warte(1000); if (await js(`!!(ein.stand && ein.stand.fertig)`)) break; }
+      console.log('OHNE FERTIG', await js(`JSON.stringify(ein.stand.schritte.map((x) => x.titel + ':' + x.status + (x.fehler ? '(' + x.fehler + ')' : ''))) + ' | ' + document.querySelector('#ein-lauf-summe').textContent + ' | retry=' + !document.querySelector('#ein-nochmal').classList.contains('versteckt') + ' | cfg=' + cfg.einrichtung + ',' + cfg.defaultModel`));
+      await bild('o-fertig');
+    }
+    if (was.includes('einrichtung')) {
+      // Einrichtungs-Assistent gegen den Ollama-Nachbau (config.json im Testordner zeigt auf ihn)
+      const ein = (code) => js(code);
+      const zeilen = () => ein(`[...document.querySelectorAll('#ein-inhalt .ein-zeile')].map((z) => (z.querySelector('input') ? (z.querySelector('input').checked ? '[x] ' : '[ ] ') : '') + z.querySelector('b').textContent + ' ' + z.querySelector('small').textContent + ' = ' + z.querySelector('.ein-gb').textContent).join(' | ')`);
+      const summe = () => ein(`(document.querySelector('.ein-summe') || {}).textContent + ' | los=' + (document.querySelector('#ein-los') ? (document.querySelector('#ein-los').disabled ? 'aus' : 'an') : '-')`);
+      await ein(`zeigeEinrichtung()`);
+      await warte(2500);
+      console.log('EIN START', await ein(`document.querySelector('#ein-titel').textContent + ' | ' + [...document.querySelectorAll('.ein-chip')].map((c) => c.textContent).join(' / ') + ' | karten=' + document.querySelectorAll('.ein-karte').length`));
+      await bild('e-start');
+      await ein(`document.querySelector('.ein-karte.empfohlen').click()`);
+      await warte(2500);
+      console.log('EIN STUFE', await ein(`[...document.querySelectorAll('.ein-stufe')].map((k) => (k.classList.contains('an') ? '*' : '') + k.querySelector('b').textContent + (k.querySelector('em') ? '(empf)' : '')).join(' | ')`));
+      console.log('EIN ZEILEN', await zeilen());
+      console.log('EIN SUMME', await summe());
+      await bild('e-express');
+      for (const st of ['schnell', 'stark']) {
+        await ein(`document.querySelector('[data-stufe=${st}]').click()`);
+        await warte(1500);
+        console.log('EIN', st.toUpperCase(), await summe(), '||', await zeilen());
+      }
+      await ein(`document.querySelector('.ein-frei input').click()`);
+      await warte(1500);
+      console.log('EIN FREI', await zeilen());
+      await ein(`document.querySelector('.ein-frei input').click(); document.querySelector('[data-stufe=mittel]').click()`);
+      await warte(1500);
+      // fuer den Testlauf: nur Sprachmodelle + Upscaling (klein, echter Download)
+      for (const t of ['bild', 'video', 'stimme']) { await ein(`document.querySelector('[data-teil=${t}]').click()`); await warte(700); }
+      console.log('EIN AUSWAHL', await summe(), '||', await zeilen());
+      await bild('e-auswahl');
+      await ein(`document.querySelector('#ein-los').click()`);
+      for (let i = 0; i < 120; i++) {
+        await warte(1000);
+        const st = await ein(`JSON.stringify(ein.stand && { f: ein.stand.fertig, s: ein.stand.schritte.map((x) => x.titel + ':' + x.status + (x.fehler ? '(' + x.fehler + ')' : '')) })`);
+        if (i === 2) { console.log('EIN LAUF', st); await bild('e-lauf'); }
+        if (JSON.parse(st).f) { console.log('EIN FERTIG', st); break; }
+      }
+      await bild('e-fertig');
+      console.log('EIN CFG', await ein(`cfg.defaultModel + ' | ' + cfg.chatModel + ' | ' + cfg.einrichtung + ' | ' + document.querySelector('#ein-lauf-summe').textContent`));
+      console.log('EIN NOCHMAL', await ein(`(async () => { document.querySelector('#ein-fertig').click(); await zeigeEinrichtung(); await new Promise((ok) => setTimeout(ok, 2000)); document.querySelector('.ein-karte.empfohlen').click(); await new Promise((ok) => setTimeout(ok, 2000)); return document.querySelector('.ein-summe').textContent + ' | los=' + document.querySelector('#ein-los').textContent; })()`));
+      // Abbruch: Denker neu (frei-Variante), Nachbau laedt langsam (GLOWLINE_TEST_LANGSAM)
+      if (process.env.GLOWLINE_TEST_ABBRUCH) {
+        await ein(`document.querySelector('.ein-frei input').click()`);
+        await warte(1500);
+        await ein(`document.querySelector('#ein-los').click()`);
+        await warte(3000);
+        await ein(`document.querySelector('#ein-abbrechen').click()`);
+        console.log('EIN SICHER', await ein(`document.querySelector('#ein-abbrechen').textContent`));
+        await warte(600);
+        await ein(`document.querySelector('#ein-abbrechen').click()`);
+        await warte(2500);
+        console.log('EIN ABBRUCH', await ein(`JSON.stringify({ f: ein.stand.fertig, a: ein.stand.abgebrochen, s: ein.stand.schritte.map((x) => x.titel + ':' + x.status) }) + ' | ' + document.querySelector('#ein-lauf-summe').textContent + ' | retry=' + !document.querySelector('#ein-nochmal').classList.contains('versteckt')`));
+      }
+    }
+    if (was.includes('werkzeuge')) {
+      // jedes Werkzeug einmal starten (leerer Testordner) und den Terminal-Text lesen
+      const ziel = path.join(process.env.GLOWLINE_TEST, 'ordner');
+      fs.mkdirSync(ziel, { recursive: true });
+      for (const t of (process.env.GLOWLINE_TEST_TOOLS || 'antigravity,gemini,qwen,copilot,droid,cline').split(',')) {
+        await js(`zeigeTerminal(); starteSitzung({ tool: '${t}', cwd: ${JSON.stringify(ziel)} })`);
+        await warte(9000);
+        const text = await js(`(() => { const b = term.buffer.active, z = []; for (let i = 0; i < b.length; i++) { const l = b.getLine(i).translateToString(true).trim(); if (l) z.push(l); } return z.slice(-6).join(' / ').slice(0, 300); })()`);
+        console.log('TOOL', t, '|', await js(`document.querySelector('#modell-name').textContent + ' | ' + document.querySelector('#modell-info').textContent`), '|', text);
+        await bild('t-' + t);
+      }
+      await js(`if (sitzung && !sitzung.beendet) window.api.kill(sitzung.id)`);
+      await js(`document.querySelector('#tool-chip').click()`);
+      await warte(1500);
+      await js(`document.querySelector('[data-klapp=agenten]').click()`);
+      await warte(500);
+      console.log('MENUE3', await js(`[...document.querySelectorAll('#tools > button')].filter((b) => getComputedStyle(b).display !== 'none').map((b) => (b.querySelector('b') || b).textContent + (b.classList.contains('fehlt') ? '(fehlt)' : '')).join(' | ')`));
+      await bild('t-menue');
+    }
+    if (was.includes('higgs')) {
+      // Cloud-Video gegen den Higgsfield-Nachbau (GLOWLINE_TEST_HIGGS)
+      await js(`window.api.kontoSetzen('higgsfield', 'testid:testsecret')`);
+      await js(`zeigeStudio('video')`);
+      await warte(1500);
+      console.log('HIGGS KARTEN', await js(`[...document.querySelectorAll('#studio-links .s-modell')].map((k) => k.querySelector('b').textContent + ': ' + (k.querySelector('.s-m-status, .m-knopf') || {}).textContent).join(' | ')`));
+      const lauf = async (modell, prompt, mitBild, sek) => {
+        await js(`sz.felder.video.modell = '${modell}'; sz.felder.video.prompt = ${JSON.stringify(prompt)}; sz.felder.video.bild = ${mitBild ? `sz.galerie.find((g) => /png$/.test(g.datei)).datei` : 'null'}; sz.felder.video.sekunden = ${sek}; sz.felder.video.format = 1; zeichneStudio(); starte()`);
+        await warte(300);
+        const gpu = studio.beschaeftigt();
+        const r = await warteAuftrag(90);
+        return `gpu=${gpu.gpu} alle=${gpu.auftraege} -> ` + JSON.stringify({ e: r.e, d: r.d && r.d[0].split(/[\\/]/).slice(-2).join('/'), t: r.t });
+      };
+      console.log('HIGGS UI', await js(`(() => { sz.felder.video.modell = 'hf-wan3'; zeichneStudio(); const r = document.querySelector('#studio-links input[type=range]'); return [document.querySelector('#studio-los').textContent, 'range ' + r.min + '-' + r.max, 'avoid=' + !!document.querySelector('[data-k=negativ]'), 'ton=' + !!document.querySelector('.s-erlaubt input'), 'verbessern=' + !document.querySelector('.s-verbessern').disabled].join(' | '); })()`));
+      await bild('s-higgs-felder');
+      console.log('HIGGS T2V', await lauf('hf-wan3', 'A fox in the snow', false, 20));
+      await bild('s-higgs-fertig');
+      console.log('HIGGS I2V', await lauf('hf-seedance2', 'The neon sign flickers', true, 1));
+      console.log('HIGGS FAIL', await lauf('hf-wan3', 'please fail', false, 5));
+      console.log('HIGGS NSFW', await lauf('hf-wan3', 'nsfw thing', false, 5));
+      console.log('HIGGS GELD', await lauf('hf-wan3', 'broke', false, 5));
+      // Abbruch in der Warteschlange
+      await js(`sz.felder.video.modell = 'hf-wan3'; sz.felder.video.prompt = 'cancel me'; sz.felder.video.bild = null; zeichneStudio(); starte()`);
+      await warte(1200);
+      await js(`(() => { const b = document.querySelector('.s-lauf .m-knopf'); b.click(); b.click(); })()`);
+      const ab = await warteAuftrag(30);
+      console.log('HIGGS CANCEL', JSON.stringify({ e: ab.e }));
+      await js(`window.api.kontoSetzen('higgsfield', 'falsch:schluessel')`);
+      console.log('HIGGS KEY', await lauf('hf-wan3', 'A fox', false, 5));
+      await js(`window.api.kontoSetzen('higgsfield', '')`);
+      await js(`ladeStudio()`);
+      await warte(1500);
+      console.log('HIGGS OHNE KEY', await js(`[...document.querySelectorAll('#studio-links .s-modell')].map((k) => k.querySelector('b').textContent + ': ' + (k.querySelector('.s-m-status, .m-knopf') || {}).textContent).join(' | ') + ' | gewaehlt=' + aktivesModell('video').id`));
+    }
+    if (was.includes('vorschau')) {
+      // waehrend ein (gespielter) Auftrag laeuft, ein fertiges Bild ansehen: die Vorschau darf nicht neu gebaut werden
+      await js(`zeigeStudio('bild')`);
+      await warte(1200);
+      await js(`sz.auftraege.set('auftrag:spiel2', { vorgang: 'auftrag:spiel2', art: 'bild', text: 'Generating', prozent: 10, start: Date.now() }); sz.auswahl = { datei: sz.galerie.find((g) => /png$/.test(g.datei)).datei }; zeichneStudio(); document.querySelector('#studio-rechts .s-buehne img').merker = 1`);
+      for (const pr of [20, 30, 40]) { win.webContents.send('studio', { vorgang: 'auftrag:spiel2', art: 'bild', text: 'Generating', prozent: pr }); await warte(300); }
+      console.log('VORSCHAU', await js(`(() => { const i = document.querySelector('#studio-rechts .s-buehne img'); const t = document.querySelector('#studio-rechts .s-kachel.lauf span'); return (i && i.merker === 1 ? 'bleibt' : 'NEU GEBAUT') + ' kachel=' + (t && t.textContent); })()`));
+      win.webContents.send('studio', { vorgang: 'auftrag:spiel3', art: 'bild', text: 'Waiting', wartet: true });
+      await warte(400);
+      console.log('NEUE KACHEL', await js(`document.querySelectorAll('#studio-rechts .s-kachel.lauf').length`));
+      await js(`sz.auftraege.delete('auftrag:spiel2'); sz.auftraege.delete('auftrag:spiel3'); sz.auswahl = null; zeichneStudio()`);
+    }
+    if (was.includes('navi')) {
+      await js(`location.href = 'https://example.com/'; window.open('https://example.com/')`).catch(() => {});
+      await warte(1500);
+      console.log('NAVI', await js(`location.protocol + ' ' + !!document.querySelector('#studio')`));
+    }
+    if (was.includes('zimage')) {
+      const t0 = Date.now();
+      await js(`zeigeStudio('bild'); sz.felder.bild.modell = 'z-image'; sz.felder.bild.prompt = 'A neon sign that says GLOWLINE on a rainy brick wall at night, photo'; sz.felder.bild.format = 1; zeichneStudio(); starte()`);
+      console.log('ZIMAGE', JSON.stringify(await warteAuftrag(600)), Math.round((Date.now() - t0) / 1000) + 's');
+      await warte(1500);
+      await bild('s-zimage');
+      await js(`sz.felder.bild.modell = ''`);
+    }
+    if (was.includes('animieren')) {
+      // Bild zu Video: neuestes Bild als Startbild, kurz und klein
+      const t0 = Date.now();
+      await js(`(() => { const g = sz.galerie.find((x) => x.datei.includes(String.fromCharCode(92) + 'bild' + String.fromCharCode(92))); sz.felder.video.bild = g.datei; window.api.studioFreigeben(g.datei); })(); zeigeStudio('video'); sz.felder.video.prompt = 'Rain falls, the neon sign flickers, slow camera push in'; sz.felder.video.format = 3; sz.felder.video.sekunden = 2; zeichneStudio(); starte()`);
+      await warte(4000);
+      await bild('s-animieren-laeuft');
+      console.log('ANIMIEREN', JSON.stringify(await warteAuftrag(1200)), Math.round((Date.now() - t0) / 1000) + 's');
+      await warte(2000);
+      await bild('s-animieren');
+    }
+    if (was.includes('klonen')) {
+      // Stimme klonen: die zuletzt erzeugte Sprachaufnahme dient als Probe
+      const t0 = Date.now();
+      await js(`(() => { const g = sz.galerie.find((x) => /\\.wav$/i.test(x.datei)); sz.felder.stimme.probe = g.datei; sz.felder.stimme.erlaubt = true; })(); zeigeStudio('stimme'); sz.felder.stimme.prompt = 'Und jetzt spricht die geklonte Stimme einen zweiten Satz.'; zeichneStudio(); starte()`);
+      console.log('KLONEN', JSON.stringify(await warteAuftrag(1200)), Math.round((Date.now() - t0) / 1000) + 's');
+      await warte(1500);
+      await bild('s-klonen');
+    }
     if (was.includes('laden')) {
       // gespielter Download: Karte zeigt Fortschritt, Eingabefelder werden dabei nicht neu gebaut
       await js(`zeigeStudio('bild')`);
@@ -864,7 +1108,7 @@ async function testLauf(ordner) {
       await js(`zeigeStudio('video'); sz.felder.video.prompt = 'A paper boat on a rainy street, close-up'; sz.felder.video.format = 3; sz.felder.video.sekunden = 2; zeichneStudio(); starte()`);
       await warte(2500);
       const t0 = Date.now();
-      await js(`document.querySelector('.s-lauf .m-knopf').click()`);
+      await js(`document.querySelector('.s-lauf .m-knopf').click(); document.querySelector('.s-lauf .m-knopf').click()`);
       await warte(150);
       await bild('s-abbruch-knopf');
       console.log('ABBRUCH-START', JSON.stringify(await warteAuftrag(30)), (Date.now() - t0) + 'ms');
@@ -873,7 +1117,7 @@ async function testLauf(ordner) {
       await js(`starte()`);
       for (let i = 0; i < 600 && !(await js('(laufenderAuftrag() || {}).prozent > 0')); i++) await warte(500);
       const t1 = Date.now();
-      await js(`document.querySelector('.s-lauf .m-knopf').click()`);
+      await js(`document.querySelector('.s-lauf .m-knopf').click(); document.querySelector('.s-lauf .m-knopf').click()`);
       console.log('ABBRUCH-GENERIEREN', JSON.stringify(await warteAuftrag(60)), (Date.now() - t1) + 'ms');
       for (let i = 0; i < 20; i++) {
         const q = await fetch('http://127.0.0.1:8189/queue').then((r) => r.json()).catch(() => null);
@@ -1055,7 +1299,12 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     try { await proxy.listen(cfg.port); } catch (e) {
       dialog.showErrorBox('Glowline', `Port ${cfg.port} is already in use (${e.code}). Set a different "port" in config.json.`);
     }
-    studio.init(process.env.GLOWLINE_STUDIO || cfg.studioOrdner || path.join(process.env.LOCALAPPDATA || app.getPath('userData'), 'Glowline', 'studio'), sende);
+    studio.init(process.env.GLOWLINE_STUDIO || cfg.studioOrdner || path.join(process.env.LOCALAPPDATA || app.getPath('userData'), 'Glowline', 'studio'),
+      (k, x) => { sende(k, x); if (k === 'studio') einrichtung.studioEreignis(x); }, (id) => konten.schluessel(id));
+    einrichtung.init({
+      cfg: () => cfg, sende, studio, ollamaHolen, ollamaInstalliert,
+      setzeConfig: (neu) => { Object.assign(cfg, neu); speichereConfig(); sende('config', cfg); },
+    });
     dateiProtokoll();
     agenten.starten(studio, vramFrei, app.getVersion());
     fenster();
@@ -1066,9 +1315,10 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     }
   });
   // auch bei app.quit() (dann kommt kein window-all-closed): Studio-Motor nicht weiterlaufen lassen
-  app.on('will-quit', () => studio.stoppen());
+  app.on('will-quit', () => { for (const p of ptys.values()) ptyWeg(p); ptys.clear(); studio.stoppen(); });
   app.on('window-all-closed', () => {
-    for (const p of ptys.values()) try { p.kill(); } catch {}
+    for (const p of ptys.values()) ptyWeg(p);
+    ptys.clear();
     if (gpuProzess) try { gpuProzess.kill(); } catch {}
     studio.stoppen();
     app.quit();

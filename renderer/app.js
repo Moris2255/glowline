@@ -3,14 +3,20 @@
 const $ = (s) => document.querySelector(s);
 const zahl = (n, d = 0) => (n == null || !isFinite(n) ? '–' : n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }));
 const kurz = (n) => (n == null ? '–' : n >= 1000 ? zahl(n / 1000, n >= 10000 ? 0 : 1) + 'k' : String(n));
-const WERKZEUG_NAME = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', shell: 'PowerShell' };
+const WERKZEUG_NAME = {
+  claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', antigravity: 'Antigravity',
+  gemini: 'Gemini CLI', qwen: 'Qwen Code', copilot: 'GitHub Copilot', droid: 'Droid', cline: 'Cline', shell: 'PowerShell',
+};
+// Werkzeuge mit eigenem Konto: waehlen ihr Modell selbst (Glowline startet sie nur im Ordner)
+const KONTO = { antigravity: 'Google account', gemini: 'Google account', copilot: 'GitHub account', droid: 'Factory account', cline: 'Cline account' };
+const MEHR_AGENTEN = ['gemini', 'qwen', 'copilot', 'droid', 'cline'];
 const TESTMODUS = new URLSearchParams(location.search).has('test');
 
 // Lesbarer Modellname: "hf.co/mradermacher/Foo-8B-abliterated-i1-GGUF:i1-Q4_K_M" -> "Foo-8B-abliterated" + Ersteller "mradermacher".
 // Die Quantisierung steht ohnehin in der Info daneben, der volle Name im Tooltip.
 const QUANT_TAG = /^(i1-)?(UD-)?(I?Q\d[\w]*|F16|BF16|F32)$|^latest$/i;
 function anzeigeName(voll) {
-  let n = String(voll || '').replace(/^(ollama|lmstudio|abo|chatgpt|anthropic|openai|openrouter|gemini),/, ''), quelle = '', tag = '';
+  let n = String(voll || '').replace(/^(ollama|lmstudio|abo|chatgpt|anthropic|openai|openrouter|gemini|deepseek|groq|mistral|xai),/, ''), quelle = '', tag = '';
   const hf = /^hf\.co\/([^/]+)\/(.+)$/i.exec(n);
   if (hf) [, quelle, n] = hf;
   const i = n.lastIndexOf(':');
@@ -24,9 +30,9 @@ function anzeigeName(voll) {
 let cfg = {};
 let ansicht = 'terminal'; // terminal | chat | studio
 const imChat = () => ansicht === 'chat' || ansicht === 'studio'; // Studio nutzt das Chat-Modell fuer den Prompt-Helfer
-const BACKEND_NAME = { ollama: 'Ollama', lmstudio: 'LM Studio', abo: 'Claude subscription', chatgpt: 'ChatGPT account', anthropic: 'Anthropic API', openai: 'OpenAI API', openrouter: 'OpenRouter', gemini: 'Google Gemini' };
+const BACKEND_NAME = { ollama: 'Ollama', lmstudio: 'LM Studio', abo: 'Claude subscription', chatgpt: 'ChatGPT account', anthropic: 'Anthropic API', openai: 'OpenAI API', openrouter: 'OpenRouter', gemini: 'Google Gemini', deepseek: 'DeepSeek', groq: 'Groq', mistral: 'Mistral', xai: 'xAI' };
 const backendVon = (id) => (/^([a-z]+),/.exec(id || '') || [])[1] || 'ollama';
-const istWolkeId = (id) => /^(abo|chatgpt|anthropic|openai|openrouter|gemini),/.test(id || '');
+const istWolkeId = (id) => /^(abo|chatgpt|anthropic|openai|openrouter|gemini|deepseek|groq|mistral|xai),/.test(id || '');
 const aktiveKennung = () => (imChat() ? 'chat' : sitzung && sitzung.kennung);
 let liste = null; // Modell-Liste
 let status = { loaded: [] };
@@ -75,10 +81,11 @@ window.api.onExit((id, code) => {
 
 async function starteSitzung(neu) {
   const tool = neu.tool || (sitzung && sitzung.tool) || cfg.defaultTool || 'claude';
-  const model = neu.model || (sitzung && sitzung.model) || cfg.defaultModel || (tool !== 'shell' ? await standardModell() : null);
+  const ohneModell = tool === 'shell' || !!KONTO[tool];
+  const model = ohneModell ? null : neu.model || (sitzung && sitzung.model) || cfg.defaultModel || (await standardModell());
   const cwd = neu.cwd || (sitzung && sitzung.cwd) || cfg.lastDir;
   // ohne Modell: Hinweis zum Modell-Server - ausser das Werkzeug fehlt, dann zeigt das Terminal die Installationshilfe
-  if (!model && tool !== 'shell' && (await window.api.tools().catch(() => ({})))[tool] !== false) {
+  if (!model && !ohneModell && (await window.api.tools().catch(() => ({})))[tool] !== false) {
     if (sitzung && !sitzung.beendet) window.api.kill(sitzung.id);
     sitzung = { id: null, kennung: null, tool, model: null, cwd, beendet: true };
     term.reset();
@@ -89,10 +96,10 @@ async function starteSitzung(neu) {
   if (sitzung && !sitzung.beendet) window.api.kill(sitzung.id);
   term.reset();
   try { fit.fit(); } catch {}
-  const r = await window.api.spawn({ tool, model: tool === 'shell' ? null : model, cwd, cols: term.cols, rows: term.rows });
+  const r = await window.api.spawn({ tool, model, cwd, cols: term.cols, rows: term.rows });
   sitzung = { id: r.id, kennung: r.tab, tool, model, cwd: r.cwd, beendet: false };
   if (r.fehlt) hinweis(WERKZEUG_NAME[r.fehlt] + ' is not installed – see the terminal');
-  if (tool !== 'shell') { cfg.defaultTool = tool; cfg.defaultModel = model; }
+  if (tool !== 'shell') { cfg.defaultTool = tool; if (model) cfg.defaultModel = model; }
   cfg.lastDir = r.cwd;
   const ordner = r.cwd.replace(/^C:\\Users\\[^\\]+/i, '~');
   $('#titel-text').innerHTML = '';
@@ -111,7 +118,7 @@ function keinModellText() {
   const grau = (t) => '\x1b[90m' + t + '\x1b[0m\r\n', gelb = (t) => '\x1b[33m' + t + '\x1b[0m\r\n';
   if (o.online || l.online) {
     return gelb('No models yet.') + grau(`${o.online ? 'Ollama' : 'LM Studio'} is running but has no models. Click the model button (bottom right) →`)
-      + grau('“All models & downloads” → Download to get one, then press Enter here.');
+      + grau('“All models & downloads” → Download to get one (or Express setup for a ready-made set), then press Enter here.');
   }
   if (o.installiert || l.installiert) {
     const name = o.installiert ? 'Ollama' : 'LM Studio';
@@ -121,7 +128,8 @@ function keinModellText() {
         : 'Start Ollama, then press Enter here.');
   }
   return gelb('Glowline needs a local model server, and none is installed.')
-    + grau('Install one of these (both are free), start it, then press Enter here:')
+    + grau('Easiest: Models (bottom right) → “All models & downloads” → Express setup installs everything for you.')
+    + grau('Or install one of these yourself (both are free), start it, then press Enter here:')
     + grau('  • Ollama     https://ollama.com/download')
     + grau('  • LM Studio  https://lmstudio.ai')
     + grau('PowerShell works without one: pick it in the tool menu (bottom right).');
@@ -180,7 +188,8 @@ el.addEventListener('contextmenu', async (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (document.querySelector('.menue:not(.versteckt)')) { schliesseMenues(); e.preventDefault(); }
+  if (!$('#einrichtung').classList.contains('versteckt')) { if (ein.seite === 'lauf') $('#ein-fertig').click(); else schliesseEinrichtung(); e.preventDefault(); }
+  else if (document.querySelector('.menue:not(.versteckt)')) { schliesseMenues(); e.preventDefault(); }
   else if (!$('#bib').classList.contains('versteckt')) { schliesseBib(); e.preventDefault(); }
 });
 
@@ -205,9 +214,9 @@ $('#tool-chip').addEventListener('click', () => {
   for (const b of document.querySelectorAll('#tools [data-modus]')) b.classList.toggle('an', ansicht === 'chat' && b.dataset.modus === chat.modus);
   for (const b of document.querySelectorAll('#tools [data-studio]')) b.classList.toggle('an', ansicht === 'studio' && b.dataset.studio === sz.bereich);
   // nur die Gruppe aufklappen, in der man gerade ist
-  klappAuf = ansicht === 'chat' ? 'workspace' : ansicht === 'studio' ? 'studio' : null;
+  klappAuf = ansicht === 'chat' ? 'workspace' : ansicht === 'studio' ? 'studio' : sitzung && MEHR_AGENTEN.includes(sitzung.tool) ? 'agenten' : null;
   zeigeKlapp();
-  $('#ordner-name').textContent = sitzung ? sitzung.cwd : cfg.lastDir;
+  $('#ordner-name').textContent = String((sitzung ? sitzung.cwd : cfg.lastDir) || '').replace(/^C:\\Users\\[^\\]+/i, '~');
   $('#tools').classList.remove('versteckt');
   $('#tool-chip').classList.add('offen');
   window.api.tools().then((da) => {
@@ -288,6 +297,14 @@ function waehleModell(id) {
   schliesseMenues();
   $('#bib').classList.add('versteckt');
   if (imChat()) return setzeChatModell(id);
+  if (sitzung && !sitzung.beendet && KONTO[sitzung.tool]) {
+    // eigenes Konto: das Modell waehlt man im Werkzeug selbst; gemerkt wird es fuer die anderen
+    cfg.defaultModel = id;
+    window.api.setConfig({ defaultModel: id });
+    hinweis(WERKZEUG_NAME[sitzung.tool] + ' uses its own models – switch them inside it (/model)');
+    zeichneLeiste();
+    return;
+  }
   if (!sitzung || sitzung.beendet || sitzung.tool === 'shell') return starteSitzung({ model: id, tool: sitzung && sitzung.tool === 'shell' ? cfg.defaultTool : undefined });
   const gleicheQuelle = istWolkeId(id) ? backendVon(id) === backendVon(sitzung.model) : !istWolkeId(sitzung.model);
   if (sitzung.tool === 'claude' && gleicheQuelle) {
@@ -770,7 +787,7 @@ function zeichneLeiste() {
   $('#letzte').textContent = m && m.zuletzt && !l ? 'Last reply ' + vor(Date.now() - m.zuletzt) : '';
 
   // Prompt / Kontext
-  const modelId = imChat() ? aktuellesModell() || '' : (sitzung && sitzung.tool !== 'shell' && sitzung.model) || (m && m.model) || '';
+  const modelId = imChat() ? aktuellesModell() || '' : sitzung && KONTO[sitzung.tool] ? '' : (sitzung && sitzung.tool !== 'shell' && sitzung.model) || (m && m.model) || '';
   const wolke = istWolkeId(modelId);
   const name = modelId.replace(/^[a-z]+,/, '');
   const backend = BACKEND_NAME[backendVon(modelId)] || 'Ollama';
@@ -797,10 +814,11 @@ function zeichneLeiste() {
     i.textContent = `  on ${backend}${gpuName ? ' · ' + gpuName : ''}${geladen ? '' : ' · not loaded'}`;
     $('#modell-info').append(i);
   } else {
-    $('#modell-info').textContent = sitzung && sitzung.tool === 'shell' ? 'PowerShell · no model' : 'No model active';
+    $('#modell-info').textContent = sitzung && sitzung.tool === 'shell' ? 'PowerShell · no model'
+      : sitzung && KONTO[sitzung.tool] ? `${WERKZEUG_NAME[sitzung.tool]} · own ${KONTO[sitzung.tool]}, models chosen inside it` : 'No model active';
   }
   $('#tool-name').textContent = ansicht === 'studio' ? 'Studio · ' + BEREICHE[sz.bereich].name : ansicht === 'chat' ? MODI[chat.modus].name : sitzung ? WERKZEUG_NAME[sitzung.tool] : 'Tool';
-  $('#modell-name').textContent = modelId ? kurzName : 'no model';
+  $('#modell-name').textContent = modelId ? kurzName : sitzung && KONTO[sitzung.tool] && !imChat() && ansicht === 'terminal' ? 'own account' : 'no model';
   $('#modell-chip').title = (modelId || '') + '\nClick: manage models';
   $('#modell-punkt').classList.toggle('an', !!geladen);
 
@@ -923,4 +941,6 @@ window.api.onStatus((s) => {
   zeichneLeiste();
   window.glowlineBereit = true;
   if (!TESTMODUS) starteSitzung({});
+  // erster Start ohne ein einziges Modell: den Einrichtungs-Assistenten anbieten
+  if (!TESTMODUS && !cfg.einrichtung && liste && !liste.ollama.models.length && !liste.lmstudio.models.length) zeigeEinrichtung();
 })();

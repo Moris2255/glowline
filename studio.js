@@ -12,6 +12,7 @@ const COMFY_ZIP = 'https://api.github.com/repos/Comfy-Org/ComfyUI/zipball/v0.45.
 const UV_ZIP = 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip';
 const TORCH_INDEX = 'https://download.pytorch.org/whl/cu128';
 const HF = 'https://huggingface.co';
+const HIGGS = (process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_HIGGS) || 'https://api.higgsfield.ai'; // Test: Nachbau-Server
 
 // Ausgewaehlte Modelle: die besten, die auf normalen Grafikkarten laufen, mit freien Lizenzen
 const KATALOG = {
@@ -43,13 +44,22 @@ const KATALOG = {
     art: 'upscale', name: 'Real-ESRGAN x4', info: '4× sharper, for photos and renders', lizenz: 'BSD-3', vram: 2,
     dateien: [{ repo: 'Comfy-Org/Real-ESRGAN_repackaged', pfad: 'RealESRGAN_x4plus.safetensors', ziel: 'upscale_models', groesse: 0.07e9 }],
   },
+  // Cloud-Videos ueber die Higgsfield-API (eigener Schluessel, kostet Guthaben, braucht keine Grafikkarte)
+  'hf-wan3': {
+    art: 'video', wolke: 'higgsfield', pfad: '/alibaba/wan-3.0-prime', sekunden: [2, 15], name: 'Wan 3.0 Prime', info: 'Cloud via Higgsfield · 720p, with sound, cheapest', lizenz: 'paid per second', vram: 0,
+    dateien: [],
+  },
+  'hf-seedance2': {
+    art: 'video', wolke: 'higgsfield', pfad: '/bytedance/seedance-2.0', sekunden: [4, 15], name: 'Seedance 2.0', info: 'Cloud via Higgsfield · cinematic, with sound', lizenz: 'paid per second', vram: 0,
+    dateien: [],
+  },
   chatterbox: {
     art: 'stimme', name: 'Chatterbox Multilingual', info: 'Voice cloning from a short sample, 20+ languages incl. German', lizenz: 'MIT', vram: 4,
     dateien: [], // laedt sich beim ersten Einsatz selbst (Hugging Face), siehe stimme.py
   },
 };
 
-let basis = null, sende = () => {};
+let basis = null, sende = () => {}, schluessel = () => null;
 let comfy = null, stimme = null;
 const laufend = new Map(); // Vorgang -> AbortController
 const dateiLaedt = new Map(); // Zieldatei -> laufender Download (Modelle teilen sich Dateien)
@@ -77,9 +87,10 @@ const P = () => ({
   stimmeBereit: path.join(basis, 'stimme-bereit.json'),
 });
 
-function init(ordner, senden) {
+function init(ordner, senden, schluesselVon) {
   basis = ordner;
   sende = senden;
+  if (schluesselVon) schluessel = schluesselVon;
 }
 
 const uvEnv = () => ({ ...process.env, UV_PYTHON_INSTALL_DIR: P().python, UV_CACHE_DIR: P().cache, UV_NO_COLOR: '1', PYTHONUTF8: '1' });
@@ -91,7 +102,7 @@ function status() {
     const fehlt = m.dateien.filter((d) => !fs.existsSync(path.join(p.modelle, d.ziel, path.basename(d.pfad))));
     modelle[id] = {
       ...m, id, dateien: undefined,
-      da: m.art === 'stimme' ? fs.existsSync(p.stimmeBereit) : !fehlt.length,
+      da: m.wolke ? !!schluessel(m.wolke) : m.art === 'stimme' ? fs.existsSync(p.stimmeBereit) : !fehlt.length,
       groesse: m.dateien.reduce((s, d) => s + d.groesse, 0),
       fehltGroesse: fehlt.reduce((s, d) => s + d.groesse, 0),
       teilweise: fehlt.reduce((s, d) => { try { return s + fs.statSync(path.join(p.modelle, d.ziel, path.basename(d.pfad)) + '.part').size; } catch { return s; } }, 0),
@@ -110,6 +121,8 @@ function status() {
 // ---------- Hilfen ----------
 function befehl(exe, args, opt, melde) {
   return new Promise((ok, fehler) => {
+    // schon abgebrochen (z. B. waehrend des Entpackens)? Dann den naechsten Schritt gar nicht erst starten
+    if (opt && opt.signal && opt.signal.aborted) { fehler(new Error('cancelled')); return; }
     const p = spawn(exe, args, { windowsHide: true, ...opt });
     let rest = '';
     const zeile = (d) => {
@@ -180,6 +193,7 @@ async function einrichten() {
     }
     melde(1, 'Python 3.12', 0);
     await befehl(p.uv, ['python', 'install', '3.12'], { env: uvEnv(), signal: ac.signal }, (z) => melde(1, z, 0.5));
+    if (ac.signal.aborted) throw new Error('cancelled');
     if (!fs.existsSync(path.join(p.comfy, 'main.py'))) {
       const zip = path.join(p.basis, 'comfy.zip');
       await ladeDatei(COMFY_ZIP, zip, ac, (g) => melde(2, `${Math.round(g / 1e6)} MB`, 0.5));
@@ -201,6 +215,7 @@ async function einrichten() {
     melde(4, 'ComfyUI requirements', 0);
     await befehl(p.uv, ['pip', 'install', '--python', p.py, '-r', path.join(p.comfy, 'requirements.txt')],
       { env: uvEnv(), signal: ac.signal }, (z) => melde(4, z, 0.5));
+    if (ac.signal.aborted) throw new Error('cancelled');
     fs.mkdirSync(p.ausgabe, { recursive: true });
     fs.mkdirSync(p.eingabe, { recursive: true });
     fs.writeFileSync(p.bereit, JSON.stringify({ zeit: new Date().toISOString(), comfy: COMFY_ZIP }));
@@ -224,6 +239,7 @@ async function stimmeEinrichten(ac, melde) {
   melde('Downloading the voice model (~3 GB)');
   await befehl(p.stimmePy, ['-c', "from chatterbox.mtl_tts import ChatterboxMultilingualTTS as C; C.from_pretrained(device='cpu')"],
     { env: { ...process.env, PYTHONUTF8: '1', HF_HOME: p.hf }, signal: ac.signal }, melde);
+  if (ac.signal.aborted) throw new Error('cancelled');
   fs.writeFileSync(p.stimmeBereit, JSON.stringify({ zeit: new Date().toISOString() }));
 }
 
@@ -269,11 +285,14 @@ async function modellHolen(id) {
 }
 
 // Was laeuft gerade? (fuer die Rueckfrage beim Schliessen)
+const wolkeAuftraege = new Set(); // laufen bei Higgsfield, nicht auf der Grafikkarte
+const gpuAuftrag = (k) => k.startsWith('auftrag:') && !wolkeAuftraege.has(k);
 function beschaeftigt() {
   const k = [...laufend.keys()];
-  return { auftraege: k.filter((x) => x.startsWith('auftrag:')).length, laden: k.filter((x) => x === 'einrichten' || x.startsWith('modell:')).length };
+  return { auftraege: k.filter((x) => x.startsWith('auftrag:')).length, gpu: k.filter(gpuAuftrag).length, laden: k.filter((x) => x === 'einrichten' || x.startsWith('modell:')).length };
 }
 function abbrechen(vorgang) { const ac = laufend.get(vorgang); if (ac) ac.abort(); }
+const beschaeftigtMit = (vorgang) => laufend.has(vorgang);
 
 // ---------- Motor (ComfyUI) ----------
 async function comfyStarten() {
@@ -313,7 +332,7 @@ function stoppen() {
 
 // Grafikspeicher fuer den Chat freigeben: Motor entlaedt seine Modelle, Stimmen-Dienst geht aus
 async function frei() {
-  if (stimme && ![...laufend.keys()].some((k) => k.startsWith('auftrag:'))) { baumWeg(stimme.proz); stimme = null; }
+  if (stimme && ![...laufend.keys()].some(gpuAuftrag)) { baumWeg(stimme.proz); stimme = null; }
   await comfyFrei();
 }
 async function comfyFrei() {
@@ -417,8 +436,14 @@ function auftrag(a, vorVramFrei) {
   const key = 'auftrag:' + a.id;
   const ac = new AbortController();
   laufend.set(key, ac);
-  const kopf = { vorgang: key, art: KATALOG[a.modell] ? KATALOG[a.modell].art : null, modell: a.modell, prompt: a.prompt || '', vonAgent: !!a.vonAgent };
+  const km = KATALOG[a.modell];
+  const kopf = { vorgang: key, art: km ? km.art : null, modell: a.modell, prompt: a.prompt || '', vonAgent: !!a.vonAgent, wolke: !!(km && km.wolke) };
   const melde = (x) => sende('studio', { ...kopf, ...x });
+  if (km && km.wolke) {
+    // Cloud: sofort los, ohne auf die Grafikkarte zu warten
+    wolkeAuftraege.add(key);
+    return wolkeAusfuehren(a, ac, melde).finally(() => { laufend.delete(key); wolkeAuftraege.delete(key); });
+  }
   melde({ text: 'Waiting…', wartet: true });
   let gestartet = false;
   const lauf = kette.then(() => { if (ac.signal.aborted) return { fehler: 'cancelled' }; gestartet = true; return ausfuehren(a, vorVramFrei, ac, melde); });
@@ -445,7 +470,8 @@ async function ausfuehren(a, vorVramFrei, ac, melde) {
       await mitAbbruch(comfyStarten(), ac); // der Motor startet im Hintergrund weiter, der naechste Auftrag ist dann schneller
       const wa = { ...a };
       if (a.bildDatei) wa.bild = eingabeBild(a.bildDatei, a.modell === 'esrgan-x4');
-      dateien = await comfyLauf(workflow(wa), ac, melde);
+      // die Kopie im Eingabe-Ordner wird danach nicht mehr gebraucht
+      try { dateien = await comfyLauf(workflow(wa), ac, melde); } finally { if (wa.bild) fs.rm(path.join(P().eingabe, wa.bild), { force: true }, () => {}); }
     }
     melde({ fertig: true, dateien, dauer: Date.now() - t0 });
     return { dateien };
@@ -507,6 +533,90 @@ async function comfyLauf(wf, ac, melde) {
     return aus;
   } finally {
     try { ws.close(); } catch {}
+  }
+}
+
+// ---------- Cloud-Video (Higgsfield) ----------
+function higgsFehler(status, j, roh) {
+  const d = j && j.detail;
+  const text = typeof d === 'string' ? d : Array.isArray(d) ? d.map((x) => (x && (x.msg || x.message)) || JSON.stringify(x)).join('; ') : d && d.message ? d.message : String(roh || '').slice(0, 200);
+  if (status === 401) return 'Higgsfield did not accept the API key – check it under Models → Accounts';
+  if (status === 403) return 'Higgsfield: ' + (text || 'not enough balance, or the key expired');
+  if (status === 429) return 'Higgsfield is busy (too many jobs) – try again in a minute';
+  if (status === 423 || status === 503) return 'This Higgsfield model is not available right now';
+  return `Higgsfield error (HTTP ${status})${text ? ': ' + text : ''}`;
+}
+const BILDTYP = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
+
+async function wolkeAusfuehren(a, ac, melde) {
+  const t0 = Date.now();
+  try {
+    const m = KATALOG[a.modell];
+    const key = schluessel(m.wolke);
+    if (!key) throw new Error('Add your Higgsfield API key under Models → Accounts first');
+    // der Schluessel wird so gesendet, wie Higgsfield ihn anzeigt ("id:secret")
+    const kopf = { authorization: 'Key ' + key.trim(), 'content-type': 'application/json', 'user-agent': 'Glowline' };
+    const rufe = async (url, opt) => {
+      const r = await fetch(url, { ...opt, headers: { ...kopf, ...((opt && opt.headers) || {}) }, signal: ac.signal });
+      const roh = await r.text();
+      let j = null;
+      try { j = JSON.parse(roh); } catch {}
+      if (!r.ok) throw Object.assign(new Error(higgsFehler(r.status, j, roh)), { status: r.status });
+      return j || {};
+    };
+    melde({ text: 'Sending to Higgsfield…', prozent: 0 });
+    let bildUrl = null;
+    if (a.bildDatei) {
+      const typ = BILDTYP[path.extname(String(a.bildDatei)).toLowerCase()];
+      if (!typ) throw new Error('The start image must be PNG, JPG or WebP');
+      if (!fs.existsSync(a.bildDatei)) throw new Error('Image not found');
+      melde({ text: 'Uploading the start image…' });
+      const u = await rufe(HIGGS + '/files/generate-upload-url', { method: 'POST', body: JSON.stringify({ content_type: typ }) });
+      if (!u.upload_url || !u.public_url) throw new Error('Higgsfield sent no upload address');
+      // Hochladen direkt in den Speicher: ohne Higgsfield-Schluessel, nur mit den vorgegebenen Kopfzeilen
+      const put = await fetch(u.upload_url, { method: 'PUT', headers: u.upload_headers || { 'Content-Type': typ }, body: fs.readFileSync(a.bildDatei), signal: ac.signal });
+      if (!put.ok) throw new Error(`Uploading the start image failed (HTTP ${put.status})`);
+      bildUrl = u.public_url;
+    }
+    const [min, max] = m.sekunden;
+    const body = { prompt: String(a.prompt || ''), duration: Math.min(max, Math.max(min, Math.round(+a.sekunden || 5))), resolution: a.aufloesung === '480p' ? '480p' : '720p', generate_audio: a.ton !== false };
+    if (bildUrl) body.image_url = bildUrl; // Bildformat kommt dann vom Startbild
+    else body.aspect_ratio = ['16:9', '9:16', '1:1', '4:3', '3:4'].includes(a.seitenverhaeltnis) ? a.seitenverhaeltnis : '16:9';
+    const start = await rufe(HIGGS + m.pfad + (bildUrl ? '/image-to-video' : '/text-to-video'), {
+      method: 'POST', body: JSON.stringify(body), headers: { 'idempotency-key': require('crypto').randomUUID() },
+    });
+    if (!start.request_id && !start.status_url) throw new Error('Higgsfield did not accept the job');
+    const statusUrl = start.status_url || `${HIGGS}/requests/${start.request_id}/status`;
+    const abbruchUrl = start.cancel_url || `${HIGGS}/requests/${start.request_id}/cancel`;
+    // Cancel: in der Warteschlange von Higgsfield kostenlos zurueckgenommen, danach nur nicht mehr abgeholt
+    ac.signal.addEventListener('abort', () => { fetch(abbruchUrl, { method: 'POST', headers: kopf }).catch(() => {}); }, { once: true });
+    let warten = 2000, j = start;
+    const ab = Date.now();
+    while (!['completed', 'failed', 'nsfw', 'canceled', 'cancelled'].includes(j.status)) {
+      if (Date.now() - ab > 30 * 60000) throw new Error('Higgsfield took longer than 30 minutes – check your Higgsfield dashboard');
+      const sek = Math.round((Date.now() - ab) / 1000);
+      melde(j.status === 'in_progress'
+        ? { text: 'Generating at Higgsfield…', prozent: Math.min(95, Math.round((sek / 150) * 100)), schritt: '' }
+        : { text: 'Queued at Higgsfield…', prozent: 0 });
+      await mitAbbruch(new Promise((ok) => setTimeout(ok, warten + Math.random() * 500)), ac);
+      warten = Math.min(10000, warten * 1.5);
+      // kurze Netz- oder Serverfehler (5xx, 429): einfach weiter abfragen, alles andere ist endgueltig
+      try { j = await rufe(statusUrl, { method: 'GET' }); } catch (e) { if (ac.signal.aborted || (e.status && e.status < 500 && e.status !== 429)) throw e; }
+    }
+    if (j.status === 'nsfw') throw new Error('Higgsfield blocked this prompt or image (content filter). Nothing was charged.');
+    if (j.status !== 'completed') throw new Error(j.status === 'failed' ? 'Higgsfield could not create the video' + (j.error ? ': ' + j.error : '') + '. Nothing was charged.' : 'cancelled');
+    const url = j.video && j.video.url;
+    if (!url) throw new Error('Higgsfield finished but sent no video');
+    melde({ text: 'Downloading the video…', prozent: 98 });
+    const ziel = path.join(P().ausgabe, 'video', `higgsfield_${Date.now()}.mp4`);
+    await ladeDatei(url, ziel, ac, () => {});
+    const dateien = [ziel];
+    melde({ fertig: true, dateien, dauer: Date.now() - t0 });
+    return { dateien };
+  } catch (e) {
+    const fehler = ac.signal.aborted ? 'cancelled' : e.message;
+    melde({ fertig: true, fehler });
+    return { fehler };
   }
 }
 
@@ -572,6 +682,6 @@ function galerie() {
   geh(p.ausgabe);
   return aus.sort((a, b) => b.zeit - a.zeit).slice(0, 200);
 }
-const inAusgabe = (datei) => { const r = path.relative(P().ausgabe, path.resolve(datei)); return r && !r.startsWith('..') && !path.isAbsolute(r); };
+const inAusgabe = (datei) => { if (typeof datei !== 'string' || !datei) return false; const r = path.relative(P().ausgabe, path.resolve(datei)); return r && !r.startsWith('..') && !path.isAbsolute(r); };
 
-module.exports = { KATALOG, init, status, beschaeftigt, einrichten, modellHolen, abbrechen, auftrag, galerie, stoppen, comfyFrei, frei, inAusgabe, P, comfyStarten };
+module.exports = { KATALOG, init, status, beschaeftigt, beschaeftigtMit, einrichten, modellHolen, abbrechen, auftrag, galerie, stoppen, comfyFrei, frei, inAusgabe, P, comfyStarten };

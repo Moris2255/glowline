@@ -345,3 +345,56 @@ details.denken div { max-height: 220px; overflow-y: auto; padding: 6px 0 0 12px;
 body[data-ansicht="studio"] #leiste .feld:not(#f-strom):not(#f-vram),
 body[data-ansicht="studio"] #modell-info, body[data-ansicht="studio"] #letzte { display: none; }
 body[data-ansicht="studio"] #f-vram { display: flex; }
+
+/* ---------- Einrichtungs-Assistent ---------- */
+#einrichtung { position: fixed; inset: 0; z-index: 30; -webkit-app-region: no-drag; display: flex; align-items: center; justify-content: center; padding: 28px; background: #000c; }
+.ein-fenster { width: min(760px, 100%); max-height: 100%; display: flex; flex-direction: column; background: var(--bg2); border: 1px solid var(--linie); border-radius: 16px; box-shadow: 0 30px 90px #000e; overflow: hidden; }
+.ein-fenster .bib-kopf { gap: 10px; }
+.ein-logo { width: 18px; height: 18px; }
+#ein-zu { width: 30px; height: 30px; border-radius: 8px; color: var(--leise); }
+#ein-zu:hover { background: var(--bg3); color: var(--text); }
+#ein-inhalt { padding: 18px 22px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; scrollbar-width: thin; }
+.ein-text { margin: 0; color: var(--leise); line-height: 1.5; }
+.ein-system { display: flex; flex-wrap: wrap; gap: 6px; }
+.ein-chip { font-size: 11px; padding: 3px 9px; border: 1px solid var(--linie); border-radius: 20px; color: var(--text); background: var(--bg3); }
+.ein-chip.aus { color: var(--gelb); }
+.ein-wahl { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+.ein-karte, .ein-stufe { position: relative; display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 14px 16px; border: 1px solid var(--linie); border-radius: 12px; background: var(--bg); }
+.ein-karte:hover, .ein-stufe:hover { border-color: #4a4d53; }
+.ein-karte:disabled { opacity: .5; cursor: wait; }
+.ein-karte b, .ein-stufe b { color: var(--weiss); font-size: 14px; }
+.ein-karte span, .ein-stufe span { color: var(--leise); font-size: 12px; line-height: 1.45; }
+.ein-karte em, .ein-stufe em { position: absolute; top: 10px; right: 12px; font-style: normal; font-size: 10px; color: var(--gruen); }
+.ein-karte.empfohlen { border-color: #2f5a45; }
+.ein-schritt { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--leise); margin-top: 4px; }
+.ein-stufen { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.ein-stufe { padding: 11px 12px; }
+.ein-stufe b { font-size: 13px; }
+.ein-stufe.an { border-color: var(--gruen); background: var(--bg3); }
+.ein-frei span { color: var(--leise); line-height: 1.45; }
+.ein-liste { display: flex; flex-direction: column; border: 1px solid var(--linie); border-radius: 12px; overflow: hidden; }
+.ein-zeile { display: flex; align-items: center; gap: 11px; padding: 9px 13px; border-top: 1px solid var(--linie); background: var(--bg); }
+.ein-zeile:first-child { border-top: 0; }
+.ein-zeile input { accent-color: var(--gruen); margin: 0; }
+.ein-zeile.aus .ein-z-text, .ein-zeile.aus .ein-gb, .ein-zeile.gesperrt { opacity: .45; }
+.ein-fest { width: 13px; text-align: center; color: var(--sehrleise); }
+.ein-z-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ein-z-text b { font-weight: 600; color: var(--text); }
+.ein-z-text small { font-size: 11px; color: var(--leise); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ein-zeile.fehler small { color: var(--rot); white-space: normal; }
+.ein-gb { font: 11px var(--mono); color: var(--leise); white-space: nowrap; }
+.ein-gb.da { color: var(--gruen); font-family: var(--sans); }
+.ein-status { width: 14px; text-align: center; color: var(--sehrleise); }
+.ein-zeile.fertig .ein-status, .ein-zeile.da .ein-status { color: var(--gruen); }
+.ein-zeile.fehler .ein-status { color: var(--rot); }
+.ein-dreh { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--linie); border-top-color: var(--gruen); border-radius: 50%; animation: ein-dreh 0.8s linear infinite; }
+@keyframes ein-dreh { to { transform: rotate(360deg); } }
+.ein-balken { height: 3px; margin-top: 5px; border-radius: 2px; background: var(--bg3); overflow: hidden; }
+.ein-balken i { display: block; height: 100%; background: var(--gruen); transition: width .3s; }
+.ein-fuss { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.ein-fuss .s-los { margin-top: 0; min-width: 110px; }
+.ein-summe { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ein-summe b { color: var(--weiss); }
+.ein-summe span { font-size: 11px; color: var(--leise); }
+.ein-summe.warn span { color: var(--rot); }
+@media (max-width: 620px) { .ein-wahl, .ein-stufen { grid-template-columns: 1fr; } }

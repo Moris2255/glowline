@@ -12,12 +12,13 @@ const WEG_ANFRAGE = new Set(['host', 'content-length', 'connection', 'accept-enc
 const WEG_ANTWORT = new Set(['content-encoding', 'content-length', 'transfer-encoding', 'connection']);
 
 // Cloud-Anbieter nur mit Komma ("openai,gpt-5"), damit lokale Namen wie "openai/gpt-oss-20b" lokal bleiben
-const WOLKE = /^(abo|chatgpt|anthropic|openai|openrouter|gemini),(.+)$/;
+const WOLKEN_IDS = ['abo', 'chatgpt', 'anthropic', 'openai', 'openrouter', 'gemini', 'deepseek', 'groq', 'mistral', 'xai'];
+const WOLKE = new RegExp(`^(${WOLKEN_IDS.join('|')}),(.+)$`);
 function teileModell(name) {
   const m = /^(ollama|lmstudio)[,/](.+)$/.exec(name) || WOLKE.exec(name);
   return m ? { backend: m[1], model: m[2] } : { backend: null, model: name };
 }
-const istWolke = (b) => /^(abo|chatgpt|anthropic|openai|openrouter|gemini)$/.test(b);
+const istWolke = (b) => WOLKEN_IDS.includes(b);
 
 function liesKoerper(req) {
   return new Promise((ok, fehler) => {
@@ -51,6 +52,10 @@ class StatsProxy extends EventEmitter {
   }
 
   async handle(req, res) {
+    // Browser schicken immer einen Origin mit (bei DNS-Rebinding auch einen fremden Host). Solche Anfragen nie
+    // weiterreichen, sonst koennte eine Webseite ueber Glowline die eigenen API-Schluessel benutzen.
+    const host = String(req.headers.host || '').replace(/:\d+$/, '');
+    if (req.headers.origin || !/^(127\.0\.0\.1|localhost|\[::1\])$/i.test(host)) { res.writeHead(403).end(); return; }
     const url = new URL(req.url, 'http://lokal');
     let pfad = url.pathname, tab = null, backend = 'auto';
     const s = /^\/s\/([^/]+)\/([^/]+)(\/.*)?$/.exec(pfad);

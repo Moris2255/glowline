@@ -43,4 +43,11 @@ contextBridge.exposeInMainWorld('api', {
   clipRead: () => ipcRenderer.invoke('clip:read'),
   clipWrite: (t) => ipcRenderer.send('clip:write', t),
   setTitle: (t) => ipcRenderer.send('win:title', t),
+  onConfig: (cb) => ipcRenderer.on('config', (_e, c) => cb(c)),
+  einrichtungSystem: () => ipcRenderer.invoke('einrichtung:system'),
+  einrichtungPlan: (w) => ipcRenderer.invoke('einrichtung:plan', w),
+  einrichtungStart: (w) => ipcRenderer.invoke('einrichtung:start', w),
+  einrichtungStand: () => ipcRenderer.invoke('einrichtung:stand'),
+  einrichtungAbbrechen: () => ipcRenderer.send('einrichtung:abbrechen'),
+  onEinrichtung: (cb) => ipcRenderer.on('einrichtung', (_e, s) => cb(s)),
 });

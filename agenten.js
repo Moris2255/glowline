@@ -70,7 +70,7 @@ function starten(studio, vorVramFrei, version) {
     const st = studio.status();
     if (name === 'studio_status') {
       if (!st.eingerichtet) return text('Glowline Studio is not set up yet. Ask the user to open Studio in Glowline (tool menu) and click "Set up".');
-      return text(Object.values(st.modelle).map((m) => `${m.id} (${m.art}): ${m.name} – ${m.da ? 'ready' : 'not downloaded'}`).join('\n'));
+      return text(Object.values(st.modelle).filter((m) => !m.wolke).map((m) => `${m.id} (${m.art}): ${m.name} – ${m.da ? 'ready' : 'not downloaded'}`).join('\n'));
     }
     if (!st.eingerichtet) return text('Glowline Studio is not set up yet. Ask the user to open Studio in Glowline and click "Set up".', true);
     const da = (art) => Object.values(st.modelle).filter((m) => m.art === art && m.da).map((m) => m.id);

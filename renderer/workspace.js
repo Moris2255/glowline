@@ -276,8 +276,13 @@ $('#chat-neu').addEventListener('click', () => {
 const KONTEN = [
   { id: 'anthropic', name: 'Anthropic API', wo: 'Claude Code, OpenCode, Chat', link: 'https://console.anthropic.com/settings/keys' },
   { id: 'openai', name: 'OpenAI API', wo: 'Codex, OpenCode, Chat', link: 'https://platform.openai.com/api-keys' },
-  { id: 'openrouter', name: 'OpenRouter', wo: 'OpenCode, Chat – hundreds of models with one key', link: 'https://openrouter.ai/keys' },
-  { id: 'gemini', name: 'Google Gemini', wo: 'OpenCode, Chat', link: 'https://aistudio.google.com/apikey' },
+  { id: 'openrouter', name: 'OpenRouter', wo: 'OpenCode, Qwen Code, Chat – hundreds of models with one key', link: 'https://openrouter.ai/keys' },
+  { id: 'gemini', name: 'Google Gemini', wo: 'OpenCode, Qwen Code, Chat', link: 'https://aistudio.google.com/apikey' },
+  { id: 'deepseek', name: 'DeepSeek', wo: 'OpenCode, Qwen Code, Chat', link: 'https://platform.deepseek.com/api_keys' },
+  { id: 'groq', name: 'Groq', wo: 'OpenCode, Qwen Code, Chat – very fast', link: 'https://console.groq.com/keys' },
+  { id: 'mistral', name: 'Mistral', wo: 'OpenCode, Qwen Code, Chat', link: 'https://console.mistral.ai/api-keys' },
+  { id: 'xai', name: 'xAI (Grok)', wo: 'OpenCode, Qwen Code, Chat', link: 'https://console.x.ai' },
+  { id: 'higgsfield', name: 'Higgsfield', wo: 'Studio → Video: cloud video models (Seedance, Wan 3.0). Paste the whole key (id:secret)', link: 'https://open.higgsfield.ai/api-keys' },
   { id: 'huggingface', name: 'Hugging Face', wo: 'Downloads of gated models (optional)', link: 'https://huggingface.co/settings/tokens' },
 ];
 

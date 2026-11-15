@@ -17,8 +17,8 @@ const SPRACHEN = [['de', 'German'], ['en', 'English'], ['fr', 'French'], ['es', 
 const studioZustand = {
   bereich: 'bild', st: null, galerie: [], auswahl: null,
   felder: {
-    bild: { modell: '', prompt: '', format: 0, seed: '' },
-    video: { prompt: '', negativ: '', format: 0, sekunden: 5, bild: null },
+    bild: { modell: '', prompt: '', format: 1, seed: '' }, // 1 = 16:9
+    video: { modell: '', prompt: '', negativ: '', format: 0, sekunden: 5, bild: null, ton: true },
     upscale: { bild: null },
     stimme: { prompt: '', sprache: 'de', probe: null, erlaubt: false, ausdruck: 0.5 },
   },
@@ -98,17 +98,39 @@ function zeichneRechts() {
 function aktualisiereLauf() {
   const lauf = laufenderAuftrag();
   const k = document.querySelector('#studio-rechts .s-lauf');
-  if (lauf && !lauf.fertig && k && k.dataset.v === lauf.vorgang && !!k.dataset.wartet === !!lauf.wartet) {
-    k.querySelector('b').textContent = lauf.wartet ? 'Waiting for the GPU…' : lauf.text || 'Working…';
-    k.querySelector('.s-balken i').style.width = (lauf.prozent || 0) + '%';
-    k.querySelector('small').textContent = laufZeile(lauf);
-  } else zeichneRechts();
-  for (const t of document.querySelectorAll('#studio-rechts .s-kachel.lauf')) {
-    const a = sz.auftraege.get(t.dataset.v);
-    if (a) t.firstChild.textContent = a.wartet ? '…' : (a.prozent || 0) + '%';
+  if (lauf && !lauf.fertig) {
+    if (k && k.dataset.v === lauf.vorgang && !!k.dataset.wartet === !!lauf.wartet) {
+      k.querySelector('b').textContent = lauf.wartet ? 'Waiting for the GPU…' : lauf.text || 'Working…';
+      k.querySelector('.s-balken i').style.width = (lauf.prozent || 0) + '%';
+      k.querySelector('small').textContent = laufZeile(lauf);
+    } else return zeichneRechts();
+  }
+  // sonst bleibt die Vorschau stehen (ein angesehenes Video/Audio wuerde sonst immer neu starten)
+  const kacheln = new Map([...document.querySelectorAll('#studio-rechts .s-kachel.lauf')].map((t) => [t.dataset.v, t]));
+  for (const a of sz.auftraege.values()) {
+    if (a.art !== sz.bereich || a.fertig) continue;
+    const t = kacheln.get(a.vorgang);
+    if (!t) return zeichneRechts(); // neuer Auftrag: Kachel fehlt noch
+    t.firstChild.textContent = a.wartet ? '…' : (a.prozent || 0) + '%';
   }
 }
 const laufZeile = (l) => [l.schritt ? 'Step ' + l.schritt : '', dauer(Date.now() - (l.start || Date.now()))].filter(Boolean).join(' · ');
+
+// Zwei Klicks: erst "Sure?", dann ausfuehren. Gilt 4 s und uebersteht Neuzeichnen (Zustand in sz.sicher).
+function sicherKnopf(text, schluessel, aktion) {
+  const b = elem('button', 'm-knopf', text);
+  const offen = () => !!sz.sicher && sz.sicher.k === schluessel && Date.now() - sz.sicher.zeit < 4000;
+  const zurueck = (ms) => setTimeout(() => { if (b.isConnected && !b.disabled && !offen()) { b.classList.remove('sicher'); b.textContent = text; } }, ms);
+  if (offen()) { b.classList.add('sicher'); b.textContent = 'Sure?'; zurueck(4100 - (Date.now() - sz.sicher.zeit)); }
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!offen()) { sz.sicher = { k: schluessel, zeit: Date.now() }; b.classList.add('sicher'); b.textContent = 'Sure?'; zurueck(4100); return; }
+    sz.sicher = null;
+    aktion(b);
+  });
+  return b;
+}
+const abbrechenMit = (vorgang) => (b) => { b.disabled = true; b.classList.remove('sicher'); b.textContent = 'Cancelling…'; window.api.studioAbbrechen(vorgang); };
 
 // ---------- Einrichten (einmalig) ----------
 function zeichneEinrichtung(box) {
@@ -123,8 +145,7 @@ function zeichneEinrichtung(box) {
     i.style.width = (l.prozent || 0) + '%';
     b.appendChild(i);
     k.append(b, elem('small', null, `Step ${(l.schritt || 0) + 1} of ${l.schritte || 5}: ${l.titel || 'Starting'}${l.text ? ' – ' + l.text : ''}`));
-    const ab = elem('button', 'm-knopf', 'Cancel');
-    ab.addEventListener('click', () => { ab.disabled = true; ab.textContent = 'Cancelling…'; window.api.studioAbbrechen('einrichten'); });
+    const ab = sicherKnopf('Cancel', 'abbruch:einrichten', abbrechenMit('einrichten'));
     k.appendChild(ab);
   } else {
     if (l && l.fehler) k.appendChild(elem('small', 's-fehler', l.fehler === 'cancelled' ? 'Setup cancelled.' : 'Setup failed: ' + l.fehler));
@@ -140,11 +161,9 @@ function zeichneEinrichtung(box) {
 function modelleFuer(bereich) { return Object.values(sz.st.modelle).filter((m) => m.art === bereich); }
 function aktivesModell(bereich) {
   const liste = modelleFuer(bereich);
-  if (bereich === 'bild') {
-    const gew = liste.find((m) => m.id === sz.felder.bild.modell);
-    return gew || liste.find((m) => m.da) || liste[0];
-  }
-  return liste[0];
+  const gew = liste.find((m) => m.id === sz.felder[bereich].modell);
+  // ohne Wahl: lieber ein lokales (kostenloses) Modell als ein Cloud-Modell
+  return gew || liste.find((m) => m.da && !m.wolke) || liste.find((m) => m.da) || liste[0];
 }
 
 function modellKarte(m, gewaehlt, waehle) {
@@ -154,7 +173,14 @@ function modellKarte(m, gewaehlt, waehle) {
   t.append(elem('b', null, m.name), elem('small', null, `${m.info} · ${m.lizenz}`));
   k.appendChild(t);
   const l = sz.laden.get('modell:' + m.id);
-  if (m.da) k.appendChild(elem('span', 's-m-status', '✓ ready'));
+  if (m.da) k.appendChild(elem('span', 's-m-status', m.wolke ? '✓ key added' : '✓ ready'));
+  else if (m.wolke) {
+    // Cloud-Modell: kein Download, nur ein API-Schluessel
+    const d = elem('button', 'm-knopf', 'Add key');
+    d.title = 'Paste your Higgsfield API key under Models → Accounts';
+    d.addEventListener('click', (e) => { e.stopPropagation(); oeffneBib('konten'); });
+    k.appendChild(d);
+  }
   else if (l && !l.fertig) {
     const s = elem('div', 's-m-laden');
     const b = elem('div', 's-balken klein');
@@ -162,8 +188,7 @@ function modellKarte(m, gewaehlt, waehle) {
     i.style.width = (l.prozent || 0) + '%';
     b.appendChild(i);
     s.append(b, elem('small', null, l.prozent != null ? l.prozent + '%' : (l.text || 'Installing…').slice(0, 40)));
-    const ab = elem('button', 'm-knopf', 'Cancel');
-    ab.addEventListener('click', (e) => { e.stopPropagation(); ab.disabled = true; ab.textContent = 'Cancelling…'; window.api.studioAbbrechen('modell:' + m.id); });
+    const ab = sicherKnopf('Cancel', 'abbruch:modell:' + m.id, abbrechenMit('modell:' + m.id));
     s.appendChild(ab);
     k.appendChild(s);
   } else {
@@ -262,16 +287,27 @@ function zeichneFelder(box) {
     box.appendChild(feld('Prompt', promptFeld(f, 'A red fox runs through deep snow at sunset, slow tracking shot…', 'video')));
     box.appendChild(feld('Start image (optional)', dateiFeld(f, 'bild', 'bild', 'Animate an image')));
     box.appendChild(feld('Format', formatWahl('video', f)));
+    // Laenge: lokal 1–5 s, Cloud-Modelle haben eigene Grenzen
+    const [min, max] = m.sekunden || [1, 5];
+    f.sekunden = Math.min(max, Math.max(min, f.sekunden));
     const r = elem('input');
-    r.type = 'range'; r.min = 1; r.max = 5; r.step = 1; r.value = f.sekunden;
+    r.type = 'range'; r.min = min; r.max = max; r.step = 1; r.value = f.sekunden;
     const w = elem('b', null, f.sekunden + ' s');
     r.addEventListener('input', () => { f.sekunden = +r.value; w.textContent = r.value + ' s'; });
     const z = elem('div', 's-regler'); z.append(r, w);
     box.appendChild(feld('Length', z));
-    const n = elem('textarea');
-    n.rows = 2; n.dataset.k = 'negativ'; n.value = f.negativ; n.placeholder = 'blurry, low quality, static, distorted…'; n.spellcheck = false;
-    n.addEventListener('input', () => { f.negativ = n.value; });
-    box.appendChild(feld('Avoid (optional)', n));
+    if (m.wolke) {
+      const c = elem('label', 's-erlaubt');
+      const x = elem('input'); x.type = 'checkbox'; x.checked = f.ton !== false;
+      x.addEventListener('change', () => { f.ton = x.checked; });
+      c.append(x, elem('span', null, 'With sound'));
+      box.appendChild(c);
+    } else {
+      const n = elem('textarea');
+      n.rows = 2; n.dataset.k = 'negativ'; n.value = f.negativ; n.placeholder = 'blurry, low quality, static, distorted…'; n.spellcheck = false;
+      n.addEventListener('input', () => { f.negativ = n.value; });
+      box.appendChild(feld('Avoid (optional)', n));
+    }
   } else if (b === 'upscale') {
     box.appendChild(feld('Image', dateiFeld(f, 'bild', 'bild', 'Pick an image')));
   } else if (b === 'stimme') {
@@ -295,13 +331,14 @@ function zeichneFelder(box) {
     const z = elem('div', 's-regler'); z.append(r, w);
     box.appendChild(feld('Expressiveness', z));
   }
-  const los = elem('button', 's-los', BEREICHE[b].knopf);
+  const los = elem('button', 's-los', BEREICHE[b].knopf + (m.wolke ? ' (paid)' : ''));
   los.id = 'studio-los';
   los.addEventListener('click', starte);
   box.appendChild(los);
   box.appendChild(elem('div', 's-fuss', b === 'stimme'
     ? 'Only clone voices you are allowed to use. Generated audio is for your own projects.'
-    : 'Runs on your GPU. Language models are unloaded while Studio works.'));
+    : m.wolke ? 'Runs on Higgsfield’s servers and is paid from your Higgsfield balance (per second of video). Cancel is free only while the job is still queued. The start image is uploaded to Higgsfield.'
+      : 'Runs on your GPU. Language models are unloaded while Studio works.'));
   zeichneKnopfStudio();
 }
 
@@ -310,7 +347,7 @@ function zeichneKnopfStudio() {
   if (!k) return;
   const b = sz.bereich, f = sz.felder[b], m = aktivesModell(b);
   let grund = '';
-  if (!m || !m.da) grund = 'Download the model first';
+  if (!m || !m.da) grund = m && m.wolke ? 'Add your Higgsfield API key first (Models → Accounts)' : 'Download the model first';
   else if ((b === 'bild' || b === 'video' || b === 'stimme') && !f.prompt.trim()) grund = b === 'stimme' ? 'Type a text first' : 'Write a prompt first';
   else if (b === 'upscale' && !f.bild) grund = 'Pick an image first';
   else if (b === 'stimme' && f.probe && !f.erlaubt) grund = 'Confirm the voice permission first';
@@ -326,17 +363,23 @@ function starte() {
   const id = String(Date.now()) + (++sz.nr);
   const a = { id, modell: m.id };
   if (b === 'bild') { const [, w, h] = FORMATE.bild[f.format]; Object.assign(a, { prompt: f.prompt.trim(), breite: w, hoehe: h, seed: f.seed }); }
-  if (b === 'video') { const [, w, h] = FORMATE.video[f.format]; Object.assign(a, { prompt: f.prompt.trim(), negativ: f.negativ.trim(), breite: w, hoehe: h, sekunden: f.sekunden, bildDatei: f.bild }); }
+  if (b === 'video') {
+    const [name, w, h] = FORMATE.video[f.format];
+    Object.assign(a, { prompt: f.prompt.trim(), negativ: f.negativ.trim(), breite: w, hoehe: h, sekunden: f.sekunden, bildDatei: f.bild });
+    // Cloud: Seitenverhaeltnis + Aufloesung statt Pixel ("Fast 16:9" = 480p)
+    if (m.wolke) Object.assign(a, { seitenverhaeltnis: name.replace('Fast ', ''), aufloesung: name.startsWith('Fast') ? '480p' : '720p', ton: f.ton !== false });
+  }
   if (b === 'upscale') a.bildDatei = f.bild;
   if (b === 'stimme') Object.assign(a, { prompt: f.prompt.trim(), sprache: f.sprache, bildDatei: f.probe, ausdruck: f.ausdruck });
-  sz.auftraege.set('auftrag:ui' + id, { vorgang: 'auftrag:ui' + id, art: b, modell: m.id, prompt: a.prompt || '', text: 'Waiting…', start: Date.now() });
+  sz.auftraege.set('auftrag:ui' + id, { vorgang: 'auftrag:ui' + id, art: b, modell: m.id, prompt: a.prompt || '', text: m.wolke ? 'Sending to Higgsfield…' : 'Waiting…', start: Date.now(), wolke: !!m.wolke });
   sz.auswahl = { vorgang: 'auftrag:ui' + id };
   window.api.studioAuftrag(a);
   zeichneStudio();
 }
 
 // ---------- Prompt verbessern (mit dem Chat-Modell) ----------
-const studioRechnet = () => [...sz.auftraege.values()].some((a) => !a.fertig);
+// nur Auftraege auf der eigenen Grafikkarte zaehlen (Cloud-Videos laufen bei Higgsfield)
+const studioRechnet = () => [...sz.auftraege.values()].some((a) => !a.fertig && !a.wolke);
 function verbessere(modus, f) {
   if (studioRechnet()) { hinweis('Available when the current job is done'); return; }
   const model = chatModell();
@@ -399,8 +442,7 @@ function zeichneVorschau(box) {
     bal.appendChild(i);
     k.append(bal, elem('small', null, laufZeile(lauf)));
     if (lauf.prompt) k.appendChild(elem('p', null, lauf.prompt.slice(0, 220)));
-    const ab = elem('button', 'm-knopf', 'Cancel');
-    ab.addEventListener('click', () => { ab.disabled = true; ab.textContent = 'Cancelling…'; window.api.studioAbbrechen(lauf.vorgang); });
+    const ab = sicherKnopf('Cancel', 'abbruch:' + lauf.vorgang, abbrechenMit(lauf.vorgang));
     k.appendChild(ab);
     buehne.appendChild(k);
   } else if (lauf && lauf.fehler) {
@@ -418,24 +460,12 @@ function zeichneVorschau(box) {
       // ein schon vergroessertes Bild nochmal x4 waere riesig (z. B. 21504 × 12288)
       if (!/[\\/]upscale[\\/]/.test(datei)) knopf('Upscale →', () => { sz.felder.upscale.bild = datei; zeigeStudio('upscale'); });
     }
-    // "Sure?" merken, damit es ein Neuzeichnen uebersteht (4 s gueltig)
-    const sicher = () => sz.loeschen && sz.loeschen.datei === datei && Date.now() - sz.loeschen.zeit < 4000;
-    const weg = knopf(sicher() ? 'Sure?' : 'Delete', async () => {
-      if (!sicher()) {
-        sz.loeschen = { datei, zeit: Date.now() };
-        weg.classList.add('sicher'); weg.textContent = 'Sure?';
-        zurueck(4100);
-        return;
-      }
-      sz.loeschen = null;
-      await window.api.studioWegwerfen(datei);
+    leiste.appendChild(sicherKnopf('Delete', 'loeschen:' + datei, async () => {
+      if (!(await window.api.studioWegwerfen(datei).catch(() => false))) { hinweis('Could not delete this file'); return; }
       sz.auswahl = null;
       hinweis('Moved to the recycle bin');
       ladeStudio();
-    });
-    // nach 4 s wieder "Delete" (auch wenn der Knopf zwischendurch neu gebaut wurde)
-    function zurueck(ms) { setTimeout(() => { if (weg.isConnected && !sicher()) { weg.classList.remove('sicher'); weg.textContent = 'Delete'; } }, ms); }
-    if (sicher()) { weg.classList.add('sicher'); zurueck(4100 - (Date.now() - sz.loeschen.zeit)); }
+    }));
     buehne.appendChild(leiste);
   } else {
     const l = elem('div', 'chat-leer');
@@ -484,7 +514,7 @@ window.api.onStudio((p) => {
     if (!p.wartet) neu.wartet = false;
     if (alt.wartet && !p.wartet) neu.start = Date.now();
     sz.auftraege.set(p.vorgang, neu);
-    if (!alt.vorgang) { const v = document.querySelector('.s-verbessern'); if (v) { v.disabled = true; v.title = 'Available when the current job is done'; } }
+    if (!alt.vorgang && !p.wolke) { const v = document.querySelector('.s-verbessern'); if (v) { v.disabled = true; v.title = 'Available when the current job is done'; } }
     if (p.vonAgent && !alt.vorgang) {
       if (ansicht !== 'studio') hinweis('A coding agent started a Studio job');
       // Auftrag eines Agenten zeigen, wenn gerade nichts Eigenes laeuft

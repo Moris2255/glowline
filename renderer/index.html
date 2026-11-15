@@ -98,13 +98,20 @@
     <button data-tool="claude"><b>Claude Code</b><small>Anthropic API</small></button>
     <button data-tool="codex"><b>Codex</b><small>Responses API</small></button>
     <button data-tool="opencode"><b>OpenCode</b><small>OpenAI API</small></button>
+    <button data-tool="antigravity"><b>Antigravity</b><small>Google account</small></button>
+    <button class="klapp" data-klapp="agenten"><span><b>More agents</b><small>Gemini CLI, Qwen Code, Copilot, Droid, Cline</small></span><i class="pfeil">›</i></button>
+    <button class="unter" data-g="agenten" data-tool="gemini"><b>Gemini CLI</b><small>Google account</small></button>
+    <button class="unter" data-g="agenten" data-tool="qwen"><b>Qwen Code</b><small>your model, local or cloud</small></button>
+    <button class="unter" data-g="agenten" data-tool="copilot"><b>GitHub Copilot</b><small>GitHub account</small></button>
+    <button class="unter" data-g="agenten" data-tool="droid"><b>Droid</b><small>Factory account</small></button>
+    <button class="unter" data-g="agenten" data-tool="cline"><b>Cline</b><small>Cline account</small></button>
     <div class="m-gruppe">More</div>
     <button class="klapp" data-klapp="workspace"><span><b>Workspace</b><small>chat and prompt helper</small></span><i class="pfeil">›</i></button>
     <button class="unter" data-g="workspace" data-modus="chat"><b>Chat</b><small>talk to any model, local or cloud</small></button>
     <button class="unter" data-g="workspace" data-modus="video"><b>Prompt helper</b><small>video, image, voice and coding prompts</small></button>
     <button class="klapp" data-klapp="studio"><span><b>Studio</b><small>images, video, upscale and voice</small></span><i class="pfeil">›</i></button>
     <button class="unter" data-g="studio" data-studio="bild"><b>Images</b><small>FLUX.2 klein, Z-Image</small></button>
-    <button class="unter" data-g="studio" data-studio="video"><b>Video</b><small>Wan 2.2, text or image to video</small></button>
+    <button class="unter" data-g="studio" data-studio="video"><b>Video</b><small>Wan 2.2 local, Higgsfield cloud</small></button>
     <button class="unter" data-g="studio" data-studio="upscale"><b>Upscale</b><small>4× sharper images</small></button>
     <button class="unter" data-g="studio" data-studio="stimme"><b>Voice</b><small>speech and voice cloning</small></button>
     <div class="m-gruppe">Folder</div>
@@ -142,6 +149,7 @@
         <b>Models</b>
         <div class="bib-tabs"><button data-tab="meine" class="an">My models</button><button data-tab="laden">Download</button><button data-tab="konten">Accounts</button></div>
         <div class="platz"></div>
+        <button id="bib-express" class="m-knopf" title="Let Glowline pick and install models that fit your PC">Express setup</button>
         <button id="bib-zu" title="Close (Esc)">✕</button>
       </div>
       <div id="bib-meine" class="bib-seite">
@@ -166,6 +174,19 @@
     </div>
   </div>
 
+  <!-- Einrichtungs-Assistent (erster Start, sonst Models → Express setup) -->
+  <div id="einrichtung" class="versteckt">
+    <div class="ein-fenster">
+      <div class="bib-kopf">
+        <img src="logo.png" alt="" class="ein-logo">
+        <b id="ein-titel">Welcome to Glowline</b>
+        <div class="platz"></div>
+        <button id="ein-zu" title="Close (Esc)">✕</button>
+      </div>
+      <div id="ein-inhalt"></div>
+    </div>
+  </div>
+
   <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
@@ -173,5 +194,6 @@
   <script src="app.js"></script>
   <script src="workspace.js"></script>
   <script src="studio.js"></script>
+  <script src="einrichtung.js"></script>
 </body>
 </html>
