@@ -146,7 +146,7 @@ async function chatSenden({ id, model: modellId, system, nachrichten }) {
     if (w && w.nurWerkzeug) throw new Error(`${w.name} works only inside ${WERKZEUG[w.nurWerkzeug]}. For chat, add an API key under Models → Accounts or pick a local model.`);
     const msgs = (Array.isArray(nachrichten) ? nachrichten : []).filter((m) => m && /^(user|assistant)$/.test(m.role)).map((m) => ({ role: m.role, content: String(m.content) }));
     // lokales Modell: der Studio-Motor gibt vorher den Grafikspeicher frei
-    if (!w) await Promise.race([studio.comfyFrei(), new Promise((ok) => setTimeout(ok, 1500))]);
+    if (!w) await Promise.race([studio.frei(), new Promise((ok) => setTimeout(ok, 1500))]);
     const anthropic = w && w.format === 'anthropic';
     const url = `http://127.0.0.1:${cfg.port}/s/chat/${b}` + (anthropic ? '/v1/messages' : '/v1/chat/completions');
     const body = anthropic
@@ -444,13 +444,14 @@ async function baueBefehl(tool, modellId, tab) {
       gewaehlt = `g-${backend}/${model}`;
     } else modelle[model] = modelle[model] || { name: model, limit: { context: 128000, output: 16000 } };
     const oc = { $schema: 'https://opencode.ai/config.json', provider, model: gewaehlt };
-    if (mitStudio) oc.mcp = { 'glowline-studio': { type: 'remote', url: agenten.url(), enabled: true } };
+    // timeout gilt auch fuer Werkzeug-Aufrufe (Videos dauern Minuten)
+    if (mitStudio) oc.mcp = { 'glowline-studio': { type: 'remote', url: agenten.url(), enabled: true, timeout: 1800000 } };
     env.OPENCODE_CONFIG_CONTENT = JSON.stringify(oc);
     // --standalone: eigener Server, sonst nimmt OpenCode 2 den Hintergrund-Dienst ohne unsere Einstellungen
     zeile = `& ${q(exe)} --standalone`;
   }
 
-  if (tool === 'codex' && zeile && mitStudio) zeile += ` -c ${q(`mcp_servers.glowline_studio.url="${agenten.url()}"`)}`;
+  if (tool === 'codex' && zeile && mitStudio) zeile += ` -c ${q(`mcp_servers.glowline_studio.url="${agenten.url()}"`)} -c mcp_servers.glowline_studio.tool_timeout_sec=1800`;
   const args = zeile ? ['-NoLogo', '-NoProfile', '-NoExit', '-Command', zeile] : ['-NoLogo'];
   if (exe && /\.ps1$/i.test(exe)) args.splice(2, 0, '-ExecutionPolicy', 'Bypass');
   return { file: 'powershell.exe', args, env };
@@ -793,6 +794,17 @@ async function testLauf(ordner) {
       console.log('STIMME', JSON.stringify(await warteAuftrag(1200)));
       await warte(1500);
       await bild('s-stimme-fertig');
+    }
+    if (was.includes('laden')) {
+      // gespielter Download: Karte zeigt Fortschritt, Eingabefelder werden dabei nicht neu gebaut
+      await js(`zeigeStudio('bild')`);
+      await warte(1200);
+      await js(`sz.laden.set('modell:z-image', { prozent: 0 }); zeichneStudio(); document.querySelector('#studio-links textarea').merker = 1`);
+      for (const pr of [10, 42]) { win.webContents.send('studio', { vorgang: 'modell:z-image', prozent: pr }); await warte(400); }
+      console.log('LADEN', await js(`JSON.stringify({ balken: document.querySelector('.s-modell[data-m="z-image"] .s-balken i').style.width, text: document.querySelector('.s-modell[data-m="z-image"] .s-m-laden small').textContent, feldBleibt: document.querySelector('#studio-links textarea').merker === 1 })`));
+      await bild('s-laden');
+      win.webContents.send('studio', { vorgang: 'modell:z-image', fertig: true, fehler: 'cancelled' });
+      await warte(800);
     }
     if (was.includes('abbruch')) {
       // 1) Abbrechen, waehrend der Motor startet  2) Abbrechen mitten im Generieren

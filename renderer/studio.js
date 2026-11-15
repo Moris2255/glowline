@@ -149,6 +149,7 @@ function aktivesModell(bereich) {
 
 function modellKarte(m, gewaehlt, waehle) {
   const k = elem('div', 's-modell' + (gewaehlt ? ' an' : '') + (m.da ? ' da' : ''));
+  k.dataset.m = m.id;
   const t = elem('div', 's-m-text');
   t.append(elem('b', null, m.name), elem('small', null, `${m.info} · ${m.lizenz}`));
   k.appendChild(t);
@@ -410,7 +411,8 @@ function zeichneVorschau(box) {
     knopf('Show in folder', () => window.api.studioZeigen(datei));
     if (artVon(datei) === 'bild') {
       knopf('Animate →', () => { sz.felder.video.bild = datei; zeigeStudio('video'); });
-      knopf('Upscale →', () => { sz.felder.upscale.bild = datei; zeigeStudio('upscale'); });
+      // ein schon vergroessertes Bild nochmal x4 waere riesig (z. B. 21504 × 12288)
+      if (!/[\\/]upscale[\\/]/.test(datei)) knopf('Upscale →', () => { sz.felder.upscale.bild = datei; zeigeStudio('upscale'); });
     }
     const weg = knopf('Delete', async () => {
       if (!weg.classList.contains('sicher')) { weg.classList.add('sicher'); weg.textContent = 'Sure?'; return; }
@@ -483,7 +485,17 @@ window.api.onStudio((p) => {
   // nicht bei jedem Schritt alles neu zeichnen
   if (ansicht !== 'studio' || Date.now() - studioZeichnen < 250) return;
   studioZeichnen = Date.now();
-  if (p.vorgang.startsWith('auftrag:')) aktualisiereLauf(); else zeichneStudio();
+  if (p.vorgang.startsWith('auftrag:')) aktualisiereLauf();
+  else if (p.vorgang.startsWith('modell:') && ladeFortschritt(p.vorgang.slice(7))) return;
+  else zeichneStudio();
 });
+function ladeFortschritt(id) {
+  const s = document.querySelector(`#studio-links .s-modell[data-m="${id}"] .s-m-laden`);
+  const l = sz.laden.get('modell:' + id);
+  if (!s || !l) return false;
+  s.querySelector('.s-balken i').style.width = (l.prozent || 0) + '%';
+  s.querySelector('small').textContent = l.prozent != null ? l.prozent + '%' : (l.text || 'Installing…').slice(0, 40);
+  return true;
+}
 // Laufzeit im Fortschritt aktuell halten
 setInterval(() => { const l = ansicht === 'studio' && laufenderAuftrag(); if (l && !l.fertig) aktualisiereLauf(); }, 1000);

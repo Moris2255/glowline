@@ -52,6 +52,7 @@ const KATALOG = {
 let basis = null, sende = () => {};
 let comfy = null, stimme = null;
 const laufend = new Map(); // Vorgang -> AbortController
+const dateiLaedt = new Map(); // Zieldatei -> laufender Download (Modelle teilen sich Dateien)
 // Wartet auf ein Versprechen, bricht aber sofort ab, wenn der Nutzer "Cancel" drueckt
 function mitAbbruch(versprechen, ac) {
   if (ac.signal.aborted) return Promise.reject(new Error('cancelled'));
@@ -131,6 +132,7 @@ async function ladeDatei(url, ziel, ac, fortschritt, kopf) {
   let schon = 0;
   try { schon = fs.statSync(teil).size; } catch {}
   const r = await fetch(url, { signal: ac.signal, headers: { 'user-agent': 'Glowline', ...(kopf || {}), ...(schon ? { range: `bytes=${schon}-` } : {}) }, redirect: 'follow' });
+  if (r.status === 416 && schon) { fs.renameSync(teil, ziel); return; }
   if (!r.ok) throw new Error(`Download failed (HTTP ${r.status})`);
   const weiter = r.status === 206;
   if (!weiter) schon = 0;
@@ -242,11 +244,18 @@ async function modellHolen(id) {
       const gesamt = m.dateien.reduce((s, d) => s + d.groesse, 0);
       let vorher = gesamt - fehlt.reduce((s, d) => s + d.groesse, 0);
       for (const d of fehlt) {
-        const url = `${HF}/${d.repo}/resolve/main/${d.pfad.split('/').map(encodeURIComponent).join('/')}`;
-        await ladeDatei(url, path.join(p.modelle, d.ziel, path.basename(d.pfad)), ac, (g) => {
-          const jetzt = vorher + g;
-          melde({ completed: jetzt, total: gesamt, prozent: Math.min(100, Math.round((jetzt / gesamt) * 100)) });
-        });
+        const ziel = path.join(p.modelle, d.ziel, path.basename(d.pfad));
+        // laedt ein anderes Modell diese Datei gerade? Dann darauf warten statt dieselbe .part-Datei doppelt zu schreiben
+        while (dateiLaedt.has(ziel)) await mitAbbruch(dateiLaedt.get(ziel).catch(() => {}), ac);
+        if (!fs.existsSync(ziel)) {
+          const url = `${HF}/${d.repo}/resolve/main/${d.pfad.split('/').map(encodeURIComponent).join('/')}`;
+          const laden = ladeDatei(url, ziel, ac, (g) => {
+            const jetzt = vorher + g;
+            melde({ completed: jetzt, total: gesamt, prozent: Math.min(100, Math.round((jetzt / gesamt) * 100)) });
+          });
+          dateiLaedt.set(ziel, laden);
+          try { await laden; } finally { dateiLaedt.delete(ziel); }
+        }
         vorher += d.groesse;
       }
     }
@@ -296,6 +305,11 @@ function stoppen() {
   if (stimme) { baumWeg(stimme.proz); stimme = null; }
 }
 
+// Grafikspeicher fuer den Chat freigeben: Motor entlaedt seine Modelle, Stimmen-Dienst geht aus
+async function frei() {
+  if (stimme && ![...laufend.keys()].some((k) => k.startsWith('auftrag:'))) { baumWeg(stimme.proz); stimme = null; }
+  await comfyFrei();
+}
 async function comfyFrei() {
   try { await fetch(`http://127.0.0.1:${COMFY_PORT}/free`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ unload_models: true, free_memory: true }) }); } catch {}
 }
@@ -371,9 +385,21 @@ function workflow(a) {
   throw new Error('Unknown model');
 }
 
+// Breite/Hoehe aus dem PNG-Kopf (reicht fuer die Groessen-Bremse beim Upscaling)
+function pngGroesse(datei) {
+  try {
+    const fd = fs.openSync(datei, 'r'), b = Buffer.alloc(24);
+    fs.readSync(fd, b, 0, 24, 0);
+    fs.closeSync(fd);
+    return b.toString('latin1', 12, 16) === 'IHDR' ? { w: b.readUInt32BE(16), h: b.readUInt32BE(20) } : null;
+  } catch { return null; }
+}
+
 // Bild in den Eingabe-Ordner kopieren (ComfyUI liest nur von dort)
-function eingabeBild(datei) {
+function eingabeBild(datei, upscale) {
   if (!datei || !fs.existsSync(datei)) throw new Error('Image not found');
+  const g = upscale && pngGroesse(datei);
+  if (g && g.w * g.h > 4.5e6) throw new Error(`This image is already large (${g.w} × ${g.h}). 4× would be ${g.w * 4} × ${g.h * 4} – too big`);
   const name = `glowline_${Date.now()}${path.extname(datei).toLowerCase() || '.png'}`;
   fs.copyFileSync(datei, path.join(P().eingabe, name));
   return name;
@@ -408,10 +434,11 @@ async function ausfuehren(a, vorVramFrei, ac, melde) {
     let dateien;
     if (m.art === 'stimme') dateien = await stimmeAuftrag(a, ac, melde);
     else {
+      if (stimme) { baumWeg(stimme.proz); stimme = null; } // Stimme braucht ~3 GB, die fehlen sonst
       melde({ text: comfy && comfy.bereit ? 'Starting…' : 'Starting the engine…', prozent: 0 });
       await mitAbbruch(comfyStarten(), ac); // der Motor startet im Hintergrund weiter, der naechste Auftrag ist dann schneller
       const wa = { ...a };
-      if (a.bildDatei) wa.bild = eingabeBild(a.bildDatei);
+      if (a.bildDatei) wa.bild = eingabeBild(a.bildDatei, a.modell === 'esrgan-x4');
       dateien = await comfyLauf(workflow(wa), ac, melde);
     }
     melde({ fertig: true, dateien, dauer: Date.now() - t0 });
@@ -442,6 +469,7 @@ async function comfyLauf(wf, ac, melde) {
     else if (d.type === 'execution_error') fehler(new Error(x.exception_message || 'Generation failed'));
     else if (d.type === 'execution_interrupted') fehler(new Error('cancelled'));
   };
+  ws.onclose = () => fehler(new Error('The engine stopped unexpectedly (maybe out of graphics memory)'));
   const stopp = () => {
     // aus der Warteschlange der Engine nehmen und laufende Berechnung unterbrechen
     if (promptId) fetch(`http://127.0.0.1:${COMFY_PORT}/queue`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ delete: [promptId] }) }).catch(() => {});
@@ -540,4 +568,4 @@ function galerie() {
 }
 const inAusgabe = (datei) => { const r = path.relative(P().ausgabe, path.resolve(datei)); return r && !r.startsWith('..') && !path.isAbsolute(r); };
 
-module.exports = { KATALOG, init, status, einrichten, modellHolen, abbrechen, auftrag, galerie, stoppen, comfyFrei, inAusgabe, P, comfyStarten };
+module.exports = { KATALOG, init, status, einrichten, modellHolen, abbrechen, auftrag, galerie, stoppen, comfyFrei, frei, inAusgabe, P, comfyStarten };
