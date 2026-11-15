@@ -135,7 +135,9 @@ el.addEventListener('contextmenu', async (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && document.querySelector('.menue:not(.versteckt)')) { schliesseMenues(); e.preventDefault(); }
+  if (e.key !== 'Escape') return;
+  if (document.querySelector('.menue:not(.versteckt)')) { schliesseMenues(); e.preventDefault(); }
+  else if (!$('#bib').classList.contains('versteckt')) { schliesseBib(); e.preventDefault(); }
 });
 
 // ---------------- Menues ----------------
@@ -168,28 +170,35 @@ $('#ordner-wahl').addEventListener('click', async () => {
   if (p) starteSitzung({ cwd: p });
 });
 
+// Kleines Menue an der Leiste: nur Favoriten + Knopf zum grossen Modellfenster
 $('#modell-chip').addEventListener('click', async () => {
   const offen = !$('#modelle').classList.contains('versteckt');
   schliesseMenues();
   if (offen) return;
   $('#modelle').classList.remove('versteckt');
   $('#modell-chip').classList.add('offen');
-  $('#m-suche').value = '';
   $('#m-fuss').textContent = sitzung && sitzung.tool === 'claude'
     ? 'Click a model to switch it right inside Claude Code (/model)'
     : 'Click a model to restart the session with it';
-  zeichneModelle();
-  $('#m-suche').focus();
+  zeichneFavoriten();
   liste = await window.api.models();
-  zeichneModelle();
+  zeichneFavoriten();
 });
-$('#m-suche').addEventListener('input', zeichneModelle);
-$('#m-neu').addEventListener('click', async () => { liste = null; zeichneModelle(); liste = await window.api.models(); zeichneModelle(); });
+$('#m-alle').addEventListener('click', () => oeffneBib('meine'));
 
 const sortiere = (a) => [...a].sort((x, y) => (y.loaded - x.loaded) || x.name.localeCompare(y.name));
+const fav = () => cfg.favoriten || [];
+const alleModelle = () => (liste ? [...liste.ollama.models, ...liste.lmstudio.models] : []);
+const aktuellesModell = () => (sitzung ? sitzung.model : cfg.defaultModel);
+const gb = (b) => (b < 1e9 ? zahl(b / 1e6, 0) + ' MB' : zahl(b / 1e9, 1) + ' GB');
+const bibOffen = () => !$('#bib').classList.contains('versteckt');
+const elem = (tag, klasse, text) => { const e = document.createElement(tag); if (klasse) e.className = klasse; if (text != null) e.textContent = text; return e; };
+const gruppe = (box, text) => box.appendChild(elem('div', 'm-gruppe', text));
+const leer = (box, text) => box.appendChild(elem('div', 'm-leer', text));
 
 function waehleModell(id) {
   schliesseMenues();
+  $('#bib').classList.add('versteckt');
   if (!sitzung || sitzung.beendet || sitzung.tool === 'shell') return starteSitzung({ model: id, tool: sitzung && sitzung.tool === 'shell' ? cfg.defaultTool : undefined });
   if (sitzung.tool === 'claude') {
     // Claude Code kann das Modell im laufenden Gespraech wechseln
@@ -205,59 +214,23 @@ function waehleModell(id) {
   }
 }
 
-// Favoriten, Hugging-Face-Suche und laufende Downloads
-const fav = () => cfg.favoriten || [];
-let hf = { q: '', laedt: false, ergebnisse: null, fehler: null, offen: null, dateien: null };
-let hfTimer = null;
-const pulls = new Map(); // Ollama-Name -> { status, completed, total }
-const menueOffen = () => !$('#modelle').classList.contains('versteckt');
-const gb = (b) => (b < 1e9 ? zahl(b / 1e6, 0) + ' MB' : zahl(b / 1e9, 1) + ' GB');
-
+// alles neu zeichnen, was gerade sichtbar ist
 function zeichneModelle() {
-  const box = $('#m-liste');
-  const scroll = box.scrollTop;
-  if (!liste) { box.innerHTML = '<div class="m-leer">Loading models…</div>'; return; }
-  const such = $('#m-suche').value.trim().toLowerCase();
-  const aktuell = sitzung ? sitzung.model : cfg.defaultModel;
-  const passt = (m) => !such || m.name.toLowerCase().includes(such);
-  box.innerHTML = '';
-  const gruppe = (text) => { const k = document.createElement('div'); k.className = 'm-gruppe'; k.textContent = text; box.appendChild(k); };
-  const leer = (text) => { const l = document.createElement('div'); l.className = 'm-leer'; l.textContent = text; box.appendChild(l); };
-
-  const alle = [...liste.ollama.models, ...liste.lmstudio.models];
-  const favs = alle.filter((m) => fav().includes(m.id) && passt(m));
-  if (favs.length) {
-    gruppe('★ Favorites');
-    for (const m of sortiere(favs)) box.appendChild(modellZeile(m, aktuell));
-  }
-  for (const [name, g] of [['Ollama', liste.ollama], ['LM Studio', liste.lmstudio]]) {
-    const geladen = g.models.filter((m) => m.loaded).length;
-    gruppe(`${name} · ${g.online ? g.models.length + ' models' + (geladen ? `, ${geladen} loaded` : '') : 'offline'}`);
-    for (const m of sortiere(g.models)) if (!fav().includes(m.id) && passt(m)) box.appendChild(modellZeile(m, aktuell));
-    if (!g.online) leer(name === 'LM Studio' ? 'LM Studio server is not running (in LM Studio: Developer → Start Server).' : 'Ollama is not running.');
-  }
-
-  if (pulls.size) {
-    gruppe('Downloading');
-    for (const [name, p] of pulls) box.appendChild(downloadZeile(name, p));
-  }
-
-  gruppe('Hugging Face');
-  if (!liste.ollama.online) leer('Downloads need Ollama running.');
-  else if (such.length < 2) leer('Type a name in the search box to find GGUF models on Hugging Face.');
-  else {
-    if (hf.q !== such) sucheHf(such);
-    if (hf.laedt) leer('Searching Hugging Face…');
-    else if (hf.fehler) leer('Hugging Face: ' + hf.fehler);
-    else if (!hf.ergebnisse.length) leer('No GGUF models found.');
-    else for (const r of hf.ergebnisse) hfZeilen(box, r, alle);
-  }
-  box.scrollTop = scroll;
+  if (!$('#modelle').classList.contains('versteckt')) zeichneFavoriten();
+  if (bibOffen()) zeichneBib();
 }
 
-function modellZeile(m, aktuell) {
-  const z = document.createElement('div');
-  z.className = 'm-zeile' + (m.id === aktuell ? ' aktuell' : '');
+function zeichneFavoriten() {
+  const box = $('#m-liste');
+  if (!liste) { box.innerHTML = '<div class="m-leer">Loading models…</div>'; return; }
+  box.innerHTML = '';
+  const favs = sortiere(alleModelle().filter((m) => fav().includes(m.id)));
+  for (const m of favs) box.appendChild(modellZeile(m));
+  if (!favs.length) leer(box, 'No favorites yet. Open “All models” below and click ☆ next to the models you use most.');
+}
+
+function modellZeile(m) {
+  const z = elem('div', 'm-zeile' + (m.id === aktuellesModell() ? ' aktuell' : ''));
   const info = [m.params, m.quant, m.size ? gb(m.size) : null].filter(Boolean).join(' · ');
   const vram = m.loaded && m.vram ? `${gb(m.vram)} VRAM${m.ctx ? ' · ' + kurz(m.ctx) + ' ctx' : ''}` : '';
   z.innerHTML = '<span class="punkt"></span><span class="m-name"></span><span class="m-info"></span><button class="m-stern"></button><button class="m-knopf"></button>';
@@ -292,113 +265,238 @@ function modellZeile(m, aktuell) {
   return z;
 }
 
-function downloadText(p) {
-  if (p.total) return `${Math.floor((p.completed / p.total) * 100)}% · ${gb(p.completed)} / ${gb(p.total)}`;
-  return p.status || 'starting…';
+// ---------------- Grosses Modellfenster ----------------
+let bibTab = 'meine';
+
+async function oeffneBib(tab) {
+  schliesseMenues();
+  $('#bib').classList.remove('versteckt');
+  zeigeTab(tab || bibTab);
+  liste = await window.api.models();
+  if (bibOffen()) zeichneBib();
 }
-
-function downloadZeile(name, p) {
-  const z = document.createElement('div');
-  z.className = 'm-zeile m-pull';
-  z.dataset.name = name;
-  z.innerHTML = '<span class="punkt an"></span><span class="m-name"></span><span class="m-info"></span><span></span><button class="m-knopf">Cancel</button><div class="m-fortschritt"><i></i></div>';
-  z.querySelector('.m-name').textContent = name.replace(/^hf\.co\//, '');
-  z.title = name;
-  z.querySelector('.m-info').textContent = downloadText(p);
-  z.querySelector('.m-fortschritt i').style.width = (p.total ? (p.completed / p.total) * 100 : 0) + '%';
-  z.querySelector('.m-knopf').addEventListener('click', (e) => { e.stopPropagation(); window.api.pullCancel(name); });
-  return z;
+function schliesseBib() { $('#bib').classList.add('versteckt'); term.focus(); }
+function zeigeTab(tab) {
+  bibTab = tab;
+  for (const b of document.querySelectorAll('.bib-tabs button')) b.classList.toggle('an', b.dataset.tab === tab);
+  $('#bib-meine').classList.toggle('versteckt', tab !== 'meine');
+  $('#bib-laden').classList.toggle('versteckt', tab !== 'laden');
+  zeichneBib();
+  (tab === 'meine' ? $('#b-suche') : $('#hf-suche')).focus();
 }
+function zeichneBib() {
+  if (bibTab === 'meine') zeichneMeine(); else zeichneLaden();
+  zeichneDownloads();
+}
+for (const b of document.querySelectorAll('.bib-tabs button')) b.addEventListener('click', () => zeigeTab(b.dataset.tab));
+$('#bib-zu').addEventListener('click', schliesseBib);
+$('#bib').addEventListener('mousedown', (e) => { if (e.target.id === 'bib') schliesseBib(); });
+$('#b-suche').addEventListener('input', zeichneMeine);
+$('#b-neu').addEventListener('click', async () => { liste = null; zeichneMeine(); liste = await window.api.models(); zeichneMeine(); });
 
-function hfZeilen(box, r, alle) {
-  const z = document.createElement('div');
-  z.className = 'm-zeile';
-  z.innerHTML = '<span class="punkt"></span><span class="m-name"></span><span class="m-info"></span><span></span><button class="m-knopf"></button>';
-  z.querySelector('.m-name').textContent = r.repo;
-  z.querySelector('.m-info').textContent = '↓ ' + kurz(r.downloads);
-  z.title = 'huggingface.co/' + r.repo;
-  const offen = hf.offen === r.repo;
-  z.querySelector('.m-knopf').textContent = offen ? 'Hide' : 'Get';
-  const umschalten = async () => {
-    if (hf.offen === r.repo) { hf.offen = null; return zeichneModelle(); }
-    hf.offen = r.repo;
-    hf.dateien = null;
-    zeichneModelle();
-    let d;
-    try { d = await window.api.hfFiles(r.repo); } catch (e) { d = { fehler: e.message }; }
-    if (hf.offen === r.repo) { hf.dateien = d; zeichneModelle(); }
-  };
-  z.addEventListener('click', umschalten);
-  box.appendChild(z);
-  if (!offen) return;
-
-  const q = document.createElement('div');
-  q.className = 'm-quants';
-  if (!hf.dateien) q.textContent = 'Loading files…';
-  else if (hf.dateien.fehler) q.textContent = 'Could not load files: ' + hf.dateien.fehler;
-  else if (!hf.dateien.length) q.textContent = 'No GGUF files in this repo.';
-  else {
-    const vram = status.gpu ? status.gpu.total * 1024 * 1024 : 0;
-    const vorhanden = new Set(alle.map((m) => m.name.toLowerCase()));
-    for (const f of hf.dateien) {
-      const name = `hf.co/${r.repo}:${f.quant}`;
-      const b = document.createElement('button');
-      const da = vorhanden.has(name.toLowerCase());
-      b.className = 'm-quant' + (vram && f.size < vram * 0.92 ? ' passt' : '') + (da ? ' da' : '');
-      b.textContent = `${f.quant} · ${gb(f.size)}${da ? ' ✓' : ''}`;
-      b.title = da ? 'Already downloaded' : (vram && f.size < vram * 0.92 ? 'Fits in your VRAM' : 'Larger than your VRAM – runs partly on the CPU (slower)') + '\nClick to download with Ollama';
-      b.disabled = da || pulls.has(name);
-      b.addEventListener('click', (e) => { e.stopPropagation(); starteDownload(name); });
-      q.appendChild(b);
-    }
+function zeichneMeine() {
+  const box = $('#b-liste');
+  const scroll = box.scrollTop;
+  if (!liste) { box.innerHTML = '<div class="m-leer">Loading models…</div>'; return; }
+  const such = $('#b-suche').value.trim().toLowerCase();
+  box.innerHTML = '';
+  for (const [name, g] of [['Ollama', liste.ollama], ['LM Studio', liste.lmstudio]]) {
+    const geladen = g.models.filter((m) => m.loaded).length;
+    gruppe(box, `${name} · ${g.online ? g.models.length + ' models' + (geladen ? `, ${geladen} loaded` : '') : 'offline'}`);
+    const ms = sortiere(g.models.filter((m) => !such || m.name.toLowerCase().includes(such)));
+    for (const m of ms) box.appendChild(modellZeile(m));
+    if (!g.online) leer(box, name === 'LM Studio' ? 'LM Studio server is not running (in LM Studio: Developer → Start Server).' : 'Ollama is not running.');
+    else if (!ms.length) leer(box, such ? 'No match.' : 'No models yet – get some in the Download tab.');
   }
-  box.appendChild(q);
+  box.scrollTop = scroll;
 }
 
-function sucheHf(q) {
-  hf = { q, laedt: true, ergebnisse: null, fehler: null, offen: null, dateien: null };
+// ---------------- Download von Hugging Face ----------------
+// Ziele: wohin ein Modell geladen wird. Weitere Konnektoren kommen hier dazu.
+const ZIELE = [
+  {
+    id: 'ollama', name: 'Ollama',
+    bereit: () => !!(liste && liste.ollama.online),
+    info: () => 'Ollama downloads and stores it',
+    aus: 'Ollama is not running – start it first',
+  },
+  {
+    id: 'lmstudio', name: 'LM Studio',
+    bereit: () => !!(liste && liste.lmstudio.ordner),
+    info: () => liste.lmstudio.ordner.replace(/^[A-Z]:\\Users\\[^\\]+/i, '~'),
+    aus: 'LM Studio models folder not found',
+  },
+];
+const zielId = () => (ZIELE.some((z) => z.id === cfg.downloadZiel) ? cfg.downloadZiel : 'ollama');
+const zielName = (id) => (ZIELE.find((z) => z.id === id) || { name: id }).name;
+let hf = { q: '', laedt: false, ergebnisse: null, fehler: null, repo: null, dateien: null };
+let hfTimer = null;
+const downloads = new Map(); // key -> { ziel, repo, quant, status, completed, total }
+const fehlerText = (e) => String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+
+$('#hf-suche').addEventListener('input', () => {
+  const q = $('#hf-suche').value.trim();
   clearTimeout(hfTimer);
+  if (q.length < 2) { hf = { ...hf, q: '', laedt: false, ergebnisse: null, fehler: null }; return zeichneLaden(); }
+  hf = { ...hf, q, laedt: true, fehler: null };
+  zeichneLaden();
   hfTimer = setTimeout(async () => {
-    let ergebnisse = null, fehler = null;
-    try { ergebnisse = await window.api.hfSearch(q); } catch (e) { fehler = String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
+    let ergebnisse = [], fehler = null;
+    try { ergebnisse = await window.api.hfSearch(q); } catch (e) { fehler = fehlerText(e); }
     if (hf.q !== q) return;
-    hf.ergebnisse = ergebnisse || [];
-    hf.fehler = fehler;
-    hf.laedt = false;
-    if (menueOffen()) zeichneModelle();
-  }, 450);
+    Object.assign(hf, { ergebnisse, fehler, laedt: false });
+    zeichneLaden();
+  }, 400);
+});
+
+function zeichneLaden() {
+  zeichneZiele();
+  zeichneTreffer();
+  zeichneDetails();
 }
 
-function starteDownload(name) {
-  if (pulls.has(name)) return;
-  pulls.set(name, { status: 'starting…', completed: 0, total: 0 });
-  window.api.pull(name);
-  hinweis('Downloading ' + name.replace(/^hf\.co\//, ''));
-  zeichneModelle();
+function zeichneZiele() {
+  const box = $('#ziele');
+  box.innerHTML = '';
+  for (const z of ZIELE) {
+    const b = elem('button', 'ziel' + (z.id === zielId() ? ' an' : ''));
+    const ok = z.bereit();
+    b.innerHTML = '<span class="punkt"></span><b></b><small></small>';
+    b.querySelector('.punkt').classList.toggle('an', ok);
+    b.querySelector('b').textContent = z.name;
+    b.querySelector('small').textContent = ok ? z.info() : z.aus;
+    b.addEventListener('click', () => {
+      cfg.downloadZiel = z.id;
+      window.api.setConfig({ downloadZiel: z.id });
+      zeichneLaden();
+    });
+    box.appendChild(b);
+  }
+  const bald = elem('div', 'ziel bald');
+  bald.innerHTML = '<span></span><b>More connectors</b><small>coming later</small>';
+  box.appendChild(bald);
 }
 
-window.api.onPull(async (p) => {
-  if (!pulls.has(p.name)) return;
+function zeichneTreffer() {
+  const box = $('#hf-treffer');
+  const scroll = box.scrollTop;
+  box.innerHTML = '';
+  if (!hf.q) return leer(box, 'Type a model name above, e.g. “qwen3 8b” or “gemma”. Only GGUF models are shown – those run in Ollama and LM Studio.');
+  if (hf.laedt) return leer(box, 'Searching Hugging Face…');
+  if (hf.fehler) return leer(box, 'Hugging Face: ' + hf.fehler);
+  if (!hf.ergebnisse.length) return leer(box, 'No GGUF models found.');
+  for (const r of hf.ergebnisse) {
+    const z = elem('div', 'm-zeile treffer' + (r.repo === hf.repo ? ' an' : ''));
+    z.innerHTML = '<span class="m-name"></span><span class="m-info"></span>';
+    z.querySelector('.m-name').textContent = r.repo;
+    z.querySelector('.m-info').textContent = '↓ ' + kurz(r.downloads);
+    z.title = 'huggingface.co/' + r.repo + '\n' + zahl(r.downloads) + ' downloads';
+    z.addEventListener('click', () => waehleRepo(r.repo));
+    box.appendChild(z);
+  }
+  box.scrollTop = scroll;
+}
+
+async function waehleRepo(repo) {
+  hf.repo = repo;
+  hf.dateien = null;
+  zeichneLaden();
+  let d;
+  try { d = await window.api.hfFiles(repo); } catch (e) { d = { fehler: fehlerText(e) }; }
+  if (hf.repo === repo) { hf.dateien = d; zeichneLaden(); }
+}
+
+function zeichneDetails() {
+  const box = $('#hf-details');
+  const scroll = box.scrollTop;
+  box.innerHTML = '';
+  if (!hf.repo) return leer(box, 'Pick a model on the left to see the available sizes.');
+  box.appendChild(elem('div', 'd-kopf', hf.repo));
+  if (!hf.dateien) return leer(box, 'Loading files…');
+  if (hf.dateien.fehler) return leer(box, 'Could not load files: ' + hf.dateien.fehler);
+  if (!hf.dateien.length) return leer(box, 'No GGUF files in this repo.');
+  const ziel = zielId();
+  const bereit = ZIELE.find((z) => z.id === ziel).bereit();
+  const vram = status.gpu ? status.gpu.total * 1024 * 1024 : 0;
+  const ollamaNamen = new Set(((liste && liste.ollama.models) || []).map((m) => m.name.toLowerCase()));
+  box.appendChild(elem('div', 'd-hinweis', 'Smaller = faster and less memory, larger = better quality. Q4_K_M is a good default.'));
+  for (const f of hf.dateien) {
+    const z = elem('div', 'quant');
+    const passt = vram && f.size < vram * 0.92;
+    z.append(elem('b', null, f.quant), elem('span', 'q-groesse', gb(f.size)),
+      elem('span', 'tag' + (passt ? ' passt' : ''), !vram ? '' : passt ? 'fits your VRAM' : 'partly on CPU (slower)'));
+    const key = `${ziel}|${hf.repo}|${f.quant}`;
+    const da = ziel === 'ollama' ? ollamaNamen.has(`hf.co/${hf.repo}:${f.quant}`.toLowerCase()) : f.lmstudio;
+    const knopf = elem('button', 'm-knopf');
+    if (da) { knopf.textContent = '✓ In ' + zielName(ziel); knopf.disabled = true; }
+    else if (downloads.has(key)) { knopf.textContent = 'Downloading…'; knopf.disabled = true; }
+    else if (ziel === 'ollama' && f.files.length > 1) { knopf.textContent = 'Split file'; knopf.disabled = true; knopf.title = 'Ollama cannot download split GGUF files – choose LM Studio as the target'; }
+    else if (!bereit) { knopf.textContent = 'Target offline'; knopf.disabled = true; }
+    else {
+      knopf.textContent = '↓ ' + zielName(ziel);
+      knopf.title = 'Download to ' + zielName(ziel);
+      knopf.addEventListener('click', () => starteDownload(f));
+    }
+    z.appendChild(knopf);
+    box.appendChild(z);
+  }
+  box.scrollTop = scroll;
+}
+
+function starteDownload(f) {
+  const ziel = zielId();
+  const key = `${ziel}|${hf.repo}|${f.quant}`;
+  if (downloads.has(key)) return;
+  downloads.set(key, { ziel, repo: hf.repo, quant: f.quant, status: 'starting…', completed: 0, total: f.size });
+  window.api.download({ key, ziel, repo: hf.repo, quant: f.quant, files: f.files, total: f.size });
+  hinweis(`Downloading ${f.quant} to ${zielName(ziel)}`);
+  zeichneBib();
+}
+
+const prozent = (d) => (d.total ? Math.min(100, (d.completed / d.total) * 100) : 0);
+const downloadText = (d) => (d.total && d.completed ? `${Math.floor(prozent(d))}% · ${gb(d.completed)} / ${gb(d.total)}` : d.status || 'starting…');
+
+function zeichneDownloads() {
+  const box = $('#bib-downloads');
+  box.innerHTML = '';
+  if (!downloads.size) return;
+  for (const [key, d] of downloads) {
+    const z = elem('div', 'dl');
+    z.dataset.key = key;
+    z.innerHTML = '<span class="m-name"></span><span class="m-info"></span><button class="m-knopf">Cancel</button><div class="m-fortschritt"><i></i></div>';
+    z.querySelector('.m-name').textContent = `${d.repo} · ${d.quant} → ${zielName(d.ziel)}`;
+    z.querySelector('.m-info').textContent = downloadText(d);
+    z.querySelector('.m-fortschritt i').style.width = prozent(d) + '%';
+    z.querySelector('.m-knopf').addEventListener('click', () => window.api.downloadCancel(key));
+    box.appendChild(z);
+  }
+}
+
+window.api.onDownload(async (p) => {
+  const d = downloads.get(p.key);
+  if (!d) return;
   if (!p.fertig) {
-    Object.assign(pulls.get(p.name), p);
-    // nur die Fortschrittszeile aktualisieren, nicht das ganze Menue
-    const z = [...document.querySelectorAll('.m-pull')].find((x) => x.dataset.name === p.name);
+    Object.assign(d, p);
+    // nur die Fortschrittszeile aktualisieren
+    const z = [...document.querySelectorAll('.dl')].find((x) => x.dataset.key === p.key);
     if (z) {
-      const d = pulls.get(p.name);
       z.querySelector('.m-info').textContent = downloadText(d);
-      z.querySelector('.m-fortschritt i').style.width = (d.total ? (d.completed / d.total) * 100 : 0) + '%';
+      z.querySelector('.m-fortschritt i').style.width = prozent(d) + '%';
     }
     return;
   }
-  pulls.delete(p.name);
-  const kurzName = p.name.replace(/^hf\.co\//, '');
+  downloads.delete(p.key);
   if (p.status === 'success') {
-    hinweis('Downloaded ' + kurzName);
+    hinweis(`Downloaded ${d.quant} to ${zielName(d.ziel)}`);
+    if (d.ziel === 'lmstudio' && hf.repo === d.repo && Array.isArray(hf.dateien)) {
+      const f = hf.dateien.find((x) => x.quant === d.quant);
+      if (f) f.lmstudio = true;
+    }
     liste = await window.api.models();
   } else {
     hinweis(p.fehler === 'cancelled' ? 'Download cancelled' : 'Download failed: ' + p.fehler);
   }
-  if (menueOffen()) zeichneModelle();
+  zeichneModelle();
 });
 
 // ---------------- Messwerte ----------------

@@ -27,10 +27,11 @@ Glowline starts a small measuring proxy on `127.0.0.1:3460`. The coding tools ta
 
 Models can be loaded/unloaded from the model menu. Press **F11** for fullscreen.
 
-### Favorites and Hugging Face
+### Favorites and downloads
 
-- Click the ☆ next to a model to pin it to the **Favorites** group at the top of the model menu.
-- Type a name into the model search to also search **Hugging Face** for GGUF models. Click **Get** on a repo to see all quantizations with their size (the ones that fit into your VRAM are highlighted), then click one to download it through Ollama (`hf.co/<repo>:<quant>`). Downloads show their progress and can be cancelled.
+- The model button in the bar only shows your **favorites**. Click **All models & downloads** to open the big model window.
+- **My models** lists everything from Ollama and LM Studio. Click ☆ to add a model to your favorites, Load/Unload it, or click it to switch.
+- **Download** gets GGUF models from Hugging Face: 1) choose where it goes (Ollama or LM Studio), 2) search, 3) pick a model and a size. Sizes that fit your VRAM are marked. Ollama downloads it itself (`hf.co/<repo>:<quant>`); for LM Studio, Glowline saves the file into the LM Studio models folder. Downloads show progress and can be cancelled.
 
 ## Requirements
 

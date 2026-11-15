@@ -19,6 +19,9 @@ const STANDARD = {
   defaultTool: 'claude',
   lastDir: HOME,
   ohneDenken: [], // Modelle ohne "Denken"-Unterstuetzung
+  favoriten: [], // Modell-IDs fuer das kleine Modellmenue
+  downloadZiel: 'ollama', // wohin Hugging-Face-Downloads gehen: ollama | lmstudio
+  lmstudioModelsDir: '', // leer = Standardordner von LM Studio
   fontSize: 14,
   // Geschaetzte Claude-API-Preise (USD pro Mio. Tokens) fuer die Anzeige "Gespart"
   preise: { eingabe: 3.75, cache: 0.3, ausgabe: 15 },
@@ -75,6 +78,7 @@ async function holeJson(url, opt = {}) {
 
 async function modellListe() {
   const aus = { ollama: { online: false, models: [] }, lmstudio: { online: false, models: [] } };
+  aus.lmstudio.ordner = fs.existsSync(path.dirname(lmModellOrdner())) ? lmModellOrdner() : null;
   const O = cfg.backends.ollama, L = cfg.backends.lmstudio;
   await Promise.all([
     (async () => {
@@ -225,19 +229,28 @@ async function baueBefehl(tool, modellId, tab) {
   return { file: 'powershell.exe', args, env };
 }
 
-// ---------- Hugging Face + Downloads (ueber Ollama: "hf.co/<repo>:<quant>") ----------
+// ---------- Hugging Face + Downloads ----------
+// Ziele: Ollama laedt selbst ("hf.co/<repo>:<quant>"), fuer LM Studio legt Glowline die GGUF-Datei in dessen Modellordner.
 const HF = 'https://huggingface.co';
 const QUANT = /(?:^|[-_.])((?:UD-)?I?Q\d(?:_[A-Z0-9]+)*|F16|BF16|F32)(?:-\d{5}-of-\d{5})?\.gguf$/i;
-const downloads = new Map(); // Name -> AbortController
+const REPO = /^[\w.-]+\/[\w.-]+$/;
+const downloads = new Map(); // key -> AbortController
+
+function lmModellOrdner() {
+  if (cfg.lmstudioModelsDir) return cfg.lmstudioModelsDir;
+  let home = path.join(HOME, '.lmstudio');
+  try { const p = fs.readFileSync(path.join(HOME, '.lmstudio-home-pointer'), 'utf8').trim(); if (p) home = p; } catch {}
+  return path.join(home, 'models');
+}
 
 async function hfSuche(q) {
-  const r = await holeJson(`${HF}/api/models?search=${encodeURIComponent(q)}&filter=gguf&sort=downloads&direction=-1&limit=20`, { zeit: 12000 });
+  const r = await holeJson(`${HF}/api/models?search=${encodeURIComponent(q)}&filter=gguf&sort=downloads&direction=-1&limit=30`, { zeit: 12000 });
   return r.map((m) => ({ repo: m.id || m.modelId, downloads: m.downloads || 0 }));
 }
 
-// Alle Quantisierungen eines Repos mit Groesse (mehrteilige Dateien werden zusammengezaehlt)
+// Alle Quantisierungen eines Repos mit Groesse und Dateien (mehrteilige Dateien werden zusammengezaehlt)
 async function hfDateien(repo) {
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('invalid repo');
+  if (!REPO.test(repo)) throw new Error('invalid repo');
   const r = await holeJson(`${HF}/api/models/${repo}/tree/main?recursive=true`, { zeit: 15000 });
   const quants = new Map();
   for (const f of r) {
@@ -245,44 +258,95 @@ async function hfDateien(repo) {
     const m = QUANT.exec(f.path.split('/').pop());
     if (!m) continue;
     const q = m[1].toUpperCase();
-    quants.set(q, (quants.get(q) || 0) + ((f.lfs && f.lfs.size) || f.size || 0));
+    const e = quants.get(q) || { quant: q, size: 0, files: [] };
+    e.size += (f.lfs && f.lfs.size) || f.size || 0;
+    e.files.push(f.path);
+    quants.set(q, e);
   }
-  return [...quants].map(([quant, size]) => ({ quant, size })).sort((a, b) => a.size - b.size);
+  const ordner = path.join(lmModellOrdner(), ...repo.split('/'));
+  return [...quants.values()]
+    .map((e) => ({ ...e, lmstudio: e.files.every((p) => fs.existsSync(path.join(ordner, path.basename(p)))) }))
+    .sort((a, b) => a.size - b.size);
 }
 
-async function modellHolen(name) {
-  if (downloads.has(name)) return;
+async function herunterladen(d) {
+  const { key, ziel, repo, quant } = d || {};
+  if (!key || downloads.has(key)) return;
   const ac = new AbortController();
-  downloads.set(name, ac);
-  const melde = (o) => sende('pull', { name, ...o });
+  downloads.set(key, ac);
+  const melde = (o) => sende('download', { key, ...o });
   try {
-    const r = await fetch(cfg.backends.ollama + '/api/pull', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model: name, stream: true }), signal: ac.signal,
-    });
-    if (!r.ok) throw new Error(`HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
-    const dec = new TextDecoder();
-    let puffer = '', zuletzt = 0;
-    for await (const stueck of r.body) {
-      puffer += dec.decode(stueck, { stream: true });
-      let i;
-      while ((i = puffer.indexOf('\n')) >= 0) {
-        const zeile = puffer.slice(0, i).trim();
-        puffer = puffer.slice(i + 1);
-        if (!zeile) continue;
-        const d = JSON.parse(zeile);
-        if (d.error) throw new Error(d.error);
-        if (Date.now() - zuletzt > 250) {
-          zuletzt = Date.now();
-          melde({ status: d.status, completed: d.completed || 0, total: d.total || 0 });
-        }
-      }
-    }
+    if (!REPO.test(repo) || !/^[\w-]+$/.test(quant)) throw new Error('invalid model');
+    if (ziel === 'ollama') await ollamaHolen(`hf.co/${repo}:${quant}`, ac, melde);
+    else if (ziel === 'lmstudio') await dateienHolen(repo, d.files, d.total, path.join(lmModellOrdner(), ...repo.split('/')), ac, melde);
+    else throw new Error('unknown target');
     melde({ status: 'success', fertig: true });
   } catch (e) {
     melde({ status: 'error', fertig: true, fehler: ac.signal.aborted ? 'cancelled' : e.message });
   } finally {
-    downloads.delete(name);
+    downloads.delete(key);
+  }
+}
+
+async function ollamaHolen(name, ac, melde) {
+  const r = await fetch(cfg.backends.ollama + '/api/pull', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: name, stream: true }), signal: ac.signal,
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
+  const dec = new TextDecoder();
+  let puffer = '', zuletzt = 0;
+  for await (const stueck of r.body) {
+    puffer += dec.decode(stueck, { stream: true });
+    let i;
+    while ((i = puffer.indexOf('\n')) >= 0) {
+      const zeile = puffer.slice(0, i).trim();
+      puffer = puffer.slice(i + 1);
+      if (!zeile) continue;
+      const d = JSON.parse(zeile);
+      if (d.error) throw new Error(d.error);
+      if (Date.now() - zuletzt > 250) {
+        zuletzt = Date.now();
+        melde({ status: d.status, completed: d.completed || 0, total: d.total || 0 });
+      }
+    }
+  }
+}
+
+// GGUF-Dateien direkt von Hugging Face in einen Ordner laden (erst als .part, dann umbenennen)
+async function dateienHolen(repo, dateien, gesamt, ordner, ac, melde) {
+  if (!Array.isArray(dateien) || !dateien.length || dateien.some((p) => typeof p !== 'string' || !/\.gguf$/i.test(p) || p.includes('..'))) throw new Error('invalid files');
+  fs.mkdirSync(ordner, { recursive: true });
+  let fertig = 0, zuletzt = 0;
+  try {
+    for (const p of dateien) {
+      const ziel = path.join(ordner, path.basename(p));
+      if (fs.existsSync(ziel)) { fertig += fs.statSync(ziel).size; continue; }
+      const teil = ziel + '.part';
+      const r = await fetch(`${HF}/${repo}/resolve/main/${p.split('/').map(encodeURIComponent).join('/')}`, { signal: ac.signal });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const ws = fs.createWriteStream(teil);
+      try {
+        for await (const stueck of r.body) {
+          fertig += stueck.length;
+          if (!ws.write(stueck)) await new Promise((ok) => ws.once('drain', ok));
+          if (Date.now() - zuletzt > 250) {
+            zuletzt = Date.now();
+            melde({ status: 'downloading', completed: fertig, total: gesamt || 0 });
+          }
+        }
+        await new Promise((ok, nein) => ws.end((e) => (e ? nein(e) : ok())));
+      } catch (e) {
+        ws.destroy();
+        if (!ws.closed) await new Promise((ok) => ws.once('close', ok));
+        fs.rmSync(teil, { force: true });
+        throw e;
+      }
+      fs.renameSync(teil, ziel);
+    }
+  } finally {
+    // leere Ordner nach Abbruch wieder wegraeumen
+    for (const o of [ordner, path.dirname(ordner)]) try { fs.rmdirSync(o); } catch {}
   }
 }
 
@@ -318,8 +382,8 @@ ipcMain.on('pty:kill', (_e, id) => { const p = ptys.get(id); if (p) { try { p.ki
 
 ipcMain.handle('models:list', () => modellListe());
 ipcMain.handle('models:load', (_e, id, laden) => modellLaden(id, laden));
-ipcMain.on('models:pull', (_e, name) => modellHolen(name));
-ipcMain.on('models:pullCancel', (_e, name) => { const ac = downloads.get(name); if (ac) ac.abort(); });
+ipcMain.on('download:start', (_e, d) => herunterladen(d));
+ipcMain.on('download:cancel', (_e, key) => { const ac = downloads.get(key); if (ac) ac.abort(); });
 ipcMain.handle('hf:search', (_e, q) => hfSuche(q));
 ipcMain.handle('hf:files', (_e, repo) => hfDateien(repo));
 ipcMain.handle('config:get', () => cfg);
@@ -421,27 +485,42 @@ async function testLauf(ordner) {
   st({ phase: 'ende', id: 900001, status: 'ok', eingabe: 48000, ausgabe: 400, ttft: 0.3, tps: 77.7, neu: 1200, prefill: 4000 });
   await warte(600);
   console.log('ENDE', await js(`document.querySelector('#tps').textContent + ' | ' + document.querySelector('#runde').textContent + ' | ' + document.querySelector('#spitze-text').textContent`));
-  // Modellmenue: Favorit setzen, Hugging Face suchen, Download starten und wieder abbrechen
-  await js(`document.querySelector('#modell-chip').click()`);
+  // Modellfenster: Favorit setzen, Favoriten-Menue, Download nach LM Studio (Testordner) und Ollama (abbrechen)
+  await js(`oeffneBib('meine')`);
   await warte(2500);
-  await js(`document.querySelector('#m-liste .m-zeile .m-stern').click()`);
+  await js(`document.querySelector('#b-liste .m-zeile .m-stern').click()`);
   await warte(500);
-  await bild('9-favorit');
-  await js(`const i = document.querySelector('#m-suche'); i.value = 'qwen3 0.6b'; i.dispatchEvent(new Event('input'))`);
-  await warte(5000);
-  await bild('10-hf-suche');
-  await js(`[...document.querySelectorAll('#m-liste .m-zeile')].find((z) => z.querySelector('.m-name').textContent === 'unsloth/Qwen3-0.6B-GGUF').click()`);
-  await warte(4000);
-  console.log('QUANTS', await js(`[...document.querySelectorAll('.m-quant')].map((b) => b.textContent).join(' | ')`));
-  await bild('11-hf-dateien');
-  await js(`[...document.querySelectorAll('.m-quant')].find((b) => b.textContent.startsWith('Q4_K_M')).click()`);
-  await warte(6000);
-  console.log('DOWNLOAD', await js(`[...document.querySelectorAll('.m-pull .m-info')].map((x) => x.textContent).join(' | ')`));
-  await bild('12-download');
-  await js(`document.querySelector('.m-pull .m-knopf').click()`);
+  await bild('9-alle-modelle');
+  await js(`schliesseBib(); document.querySelector('#modell-chip').click()`);
+  await warte(1500);
+  console.log('FAVORITEN', await js(`document.querySelectorAll('#m-liste .m-zeile').length`));
+  await bild('10-favoriten');
+  const lmTest = path.join(ordner, 'lmstudio-models');
+  await js(`window.api.setConfig({ lmstudioModelsDir: ${JSON.stringify(lmTest)} }).then((c) => Object.assign(cfg, c))`);
+  await js(`oeffneBib('laden')`);
   await warte(2000);
-  console.log('NACH ABBRUCH', await js(`document.querySelectorAll('.m-pull').length + ' | ' + document.querySelector('#hinweis').textContent`));
-  await bild('13-abgebrochen');
+  await js(`[...document.querySelectorAll('.ziel')].find((b) => b.textContent.startsWith('LM Studio')).click()`);
+  await js(`const i = document.querySelector('#hf-suche'); i.value = 'qwen3 0.6b'; i.dispatchEvent(new Event('input'))`);
+  await warte(5000);
+  await js(`[...document.querySelectorAll('#hf-treffer .m-zeile')].find((z) => z.querySelector('.m-name').textContent === 'unsloth/Qwen3-0.6B-GGUF').click()`);
+  await warte(4000);
+  await bild('11-download-lmstudio');
+  await js(`document.querySelector('#hf-details .quant .m-knopf:not(:disabled)').click()`);
+  await warte(3000);
+  await bild('12-laeuft');
+  for (let i = 0; i < 120 && (await js('downloads.size')); i++) await warte(1000);
+  const lmDateien = fs.existsSync(lmTest) ? fs.readdirSync(lmTest, { recursive: true }).join(', ') : 'nichts';
+  console.log('LMSTUDIO', lmDateien, '|', await js(`document.querySelector('#hinweis').textContent + ' | ' + document.querySelector('#hf-details .quant .m-knopf').textContent`));
+  await bild('13-lmstudio-fertig');
+  await js(`[...document.querySelectorAll('.ziel')].find((b) => b.textContent.startsWith('Ollama')).click()`);
+  await warte(500);
+  await js(`[...document.querySelectorAll('#hf-details .quant')].find((z) => z.querySelector('b').textContent === 'Q4_K_M').querySelector('.m-knopf').click()`);
+  await warte(6000);
+  console.log('OLLAMA', await js(`[...document.querySelectorAll('.dl .m-info')].map((x) => x.textContent).join(' | ')`));
+  await bild('14-ollama');
+  await js(`document.querySelector('.dl .m-knopf').click()`);
+  await warte(2000);
+  console.log('NACH ABBRUCH', await js(`downloads.size + ' | ' + document.querySelector('#hinweis').textContent`));
   app.quit();
 }
 

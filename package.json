@@ -1,8 +1,8 @@
 {
   "name": "glowline",
   "productName": "Glowline",
-  "version": "1.4.0",
-  "description": "Glowline â€“ Terminal fuer lokale KI-Modelle mit Live-Geschwindigkeitsleiste",
+  "version": "1.5.0",
+  "description": "Glowline Ã¢â‚¬â€œ Terminal fuer lokale KI-Modelle mit Live-Geschwindigkeitsleiste",
   "author": "Moris2255",
   "main": "main.js",
   "private": true,
@@ -25,7 +25,7 @@
   "build": {
     "appId": "com.glowline.app",
     "productName": "Glowline",
-    "copyright": "© 2026 Moris2255",
+    "copyright": "Â© 2026 Moris2255",
     "directories": {
       "output": "dist",
       "buildResources": "build"

@@ -81,14 +81,40 @@
     <div class="m-fuss">Switching restarts the session</div>
   </div>
 
-  <!-- Modelle -->
+  <!-- Modelle: kleines Menue mit Favoriten -->
   <div id="modelle" class="menue versteckt">
-    <div class="m-kopf">
-      <input id="m-suche" placeholder="Search models or Hugging Face…" spellcheck="false">
-      <button id="m-neu" title="Refresh">⟳</button>
-    </div>
+    <div class="m-gruppe">★ Favorites</div>
     <div id="m-liste"></div>
+    <button id="m-alle">All models &amp; downloads<span>⤢</span></button>
     <div class="m-fuss" id="m-fuss">Click a model to switch</div>
+  </div>
+
+  <!-- Grosses Modellfenster -->
+  <div id="bib" class="versteckt">
+    <div class="bib-fenster">
+      <div class="bib-kopf">
+        <b>Models</b>
+        <div class="bib-tabs"><button data-tab="meine" class="an">My models</button><button data-tab="laden">Download</button></div>
+        <div class="platz"></div>
+        <button id="bib-zu" title="Close (Esc)">✕</button>
+      </div>
+      <div id="bib-meine" class="bib-seite">
+        <div class="bib-leiste"><input id="b-suche" placeholder="Filter your models…" spellcheck="false"><button id="b-neu" title="Refresh">⟳</button></div>
+        <div id="b-liste" class="bib-scroll"></div>
+      </div>
+      <div id="bib-laden" class="bib-seite versteckt">
+        <div class="bib-schritt"><span class="nr">1</span>Download to</div>
+        <div id="ziele" class="ziele"></div>
+        <div class="bib-schritt"><span class="nr">2</span>Find a model on Hugging Face</div>
+        <div class="bib-leiste"><input id="hf-suche" placeholder="Search Hugging Face, e.g. qwen3 8b" spellcheck="false"></div>
+        <div class="bib-schritt"><span class="nr">3</span>Pick a model, then a size</div>
+        <div class="bib-zwei">
+          <div id="hf-treffer" class="bib-scroll"></div>
+          <div id="hf-details" class="bib-scroll"></div>
+        </div>
+      </div>
+      <div id="bib-downloads"></div>
+    </div>
   </div>
 
   <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>

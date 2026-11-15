@@ -110,13 +110,59 @@ body.vollbild .term { top: 10px; }
 .m-leer { padding: 10px 14px; color: var(--sehrleise); font-size: 12px; }
 .m-stern { color: var(--sehrleise); font-size: 14px; width: 20px; padding: 0; line-height: 1; }
 .m-stern:hover, .m-stern.an { color: var(--weiss); }
-.m-pull { cursor: default; }
-.m-fortschritt { grid-column: 2 / -1; height: 3px; border-radius: 2px; background: var(--bg3); overflow: hidden; margin-top: -4px; }
+.m-fortschritt { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: var(--bg3); overflow: hidden; }
 .m-fortschritt i { display: block; height: 100%; width: 0; background: var(--weiss); transition: width .3s; }
-.m-quants { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 14px 10px 34px; font-size: 11px; color: var(--sehrleise); }
-.m-quant { font: 11px var(--mono); padding: 3px 8px; border: 1px solid var(--linie); border-radius: 6px; color: var(--leise); }
-.m-quant.passt { color: var(--text); border-color: #3a3d43; }
-.m-quant:hover:not(:disabled) { color: var(--weiss); border-color: var(--leise); background: var(--bg3); }
+#m-alle { display: flex; justify-content: space-between; align-items: center; margin: 6px 10px 2px; padding: 9px 12px; border: 1px solid var(--linie); border-radius: 9px; color: var(--text); font-size: 12px; }
+#m-alle span { color: var(--leise); }
+#m-alle:hover { background: var(--bg3); border-color: #3a3d43; }
+
+/* ---------- Grosses Modellfenster ---------- */
+#bib { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 28px; background: #000b; }
+.bib-fenster { width: min(1120px, 100%); height: min(780px, 100%); display: flex; flex-direction: column; background: var(--bg2); border: 1px solid var(--linie); border-radius: 16px; box-shadow: 0 30px 90px #000e; overflow: hidden; }
+.bib-kopf { display: flex; align-items: center; gap: 18px; padding: 12px 14px 12px 20px; border-bottom: 1px solid var(--linie); }
+.bib-kopf > b { font-size: 14px; color: var(--weiss); }
+.bib-tabs { display: flex; gap: 3px; padding: 3px; background: var(--bg); border: 1px solid var(--linie); border-radius: 10px; }
+.bib-tabs button { padding: 5px 14px; border-radius: 7px; color: var(--leise); font-size: 12px; }
+.bib-tabs button:hover { color: var(--text); }
+.bib-tabs button.an { background: var(--bg3); color: var(--weiss); }
+#bib-zu { width: 30px; height: 30px; border-radius: 8px; color: var(--leise); }
+#bib-zu:hover { background: var(--bg3); color: var(--text); }
+.bib-seite { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.bib-leiste { display: flex; gap: 6px; padding: 10px 20px; }
+.bib-leiste input { flex: 1; font: 13px var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--linie); border-radius: 8px; padding: 9px 12px; outline: none; }
+.bib-leiste input:focus { border-color: #4a4d53; }
+.bib-leiste button { width: 38px; border: 1px solid var(--linie); border-radius: 8px; color: var(--leise); }
+.bib-leiste button:hover { color: var(--text); background: var(--bg3); }
+.bib-scroll { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--bg3) transparent; }
+#b-liste { flex: 1; padding: 0 6px 10px; }
+.bib-schritt { display: flex; align-items: center; gap: 9px; padding: 14px 20px 0; font: 600 12px var(--sans); color: var(--text); }
+.nr { width: 19px; height: 19px; border-radius: 50%; background: var(--bg3); border: 1px solid var(--linie); color: var(--leise); font-size: 11px; display: grid; place-items: center; }
+.ziele { display: flex; gap: 10px; padding: 10px 20px 0; }
+.ziel { display: grid; grid-template-columns: 8px auto; column-gap: 9px; row-gap: 3px; align-items: center; text-align: left; padding: 10px 14px; min-width: 230px; border: 1px solid var(--linie); border-radius: 10px; }
+.ziel b { font-size: 13px; color: var(--text); }
+.ziel small { grid-column: 2; font: 11px var(--mono); color: var(--sehrleise); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+button.ziel:hover { background: var(--bg3); }
+.ziel.an { border-color: var(--weiss); background: var(--bg3); }
+.ziel.an b { color: var(--weiss); }
+.ziel.bald { border-style: dashed; opacity: .55; min-width: 0; }
+.bib-zwei { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1.15fr; margin: 10px 20px 14px; border: 1px solid var(--linie); border-radius: 12px; overflow: hidden; background: var(--bg); }
+#hf-treffer { border-right: 1px solid var(--linie); padding: 4px 0; }
+#hf-details { padding: 4px 0; }
+.treffer { grid-template-columns: 1fr auto; }
+.treffer.an { background: var(--bg3); }
+.treffer.an .m-name { color: var(--weiss); font-weight: 600; }
+.d-kopf { padding: 10px 16px 2px; font: 600 12px var(--mono); color: var(--weiss); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-hinweis { padding: 2px 16px 8px; font-size: 11px; color: var(--sehrleise); }
+.quant { display: grid; grid-template-columns: 120px 70px 1fr auto; align-items: center; gap: 10px; padding: 5px 12px 5px 16px; font: 12px var(--mono); }
+.quant:hover { background: var(--bg2); }
+.quant b { font-weight: 600; color: var(--text); }
+.q-groesse { color: var(--leise); text-align: right; }
+.tag { font: 11px var(--sans); color: var(--sehrleise); }
+.tag.passt { color: var(--gruen); }
+.quant .m-knopf { min-width: 128px; }
+#bib-downloads { border-top: 1px solid var(--linie); padding: 8px 20px 12px; }
+#bib-downloads:empty { display: none; }
+.dl { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 4px 12px; padding: 4px 0; }
 .m-quant:disabled { opacity: .45; cursor: default; }
 .m-fuss { padding: 8px 14px; border-top: 1px solid var(--linie); font-size: 11px; color: var(--sehrleise); margin-top: 4px; }
 
@@ -124,3 +170,4 @@ body.vollbild .term { top: 10px; }
 @media (max-width: 1360px) { #f-gespart, .feld:has(#runde) { display: none; } }
 @media (max-width: 1220px) { #f-vram, .feld:has(#ausgabe) { display: none; } .tacho { width: 170px; } }
 @media (max-width: 1000px) { .tacho, .backends, .feld:has(#kontext) { display: none; } }
+@media (max-width: 900px) { .bib-zwei { grid-template-columns: 1fr; } #hf-treffer { border-right: 0; border-bottom: 1px solid var(--linie); } .ziel { min-width: 0; flex: 1; } .ziel.bald { display: none; } }
