@@ -27,6 +27,11 @@ Glowline starts a small measuring proxy on `127.0.0.1:3460`. The coding tools ta
 
 Models can be loaded/unloaded from the model menu. Press **F11** for fullscreen.
 
+### Favorites and Hugging Face
+
+- Click the ☆ next to a model to pin it to the **Favorites** group at the top of the model menu.
+- Type a name into the model search to also search **Hugging Face** for GGUF models. Click **Get** on a repo to see all quantizations with their size (the ones that fit into your VRAM are highlighted), then click one to download it through Ollama (`hf.co/<repo>:<quant>`). Downloads show their progress and can be cancelled.
+
 ## Requirements
 
 - Windows 10/11

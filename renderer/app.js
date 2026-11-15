@@ -205,49 +205,201 @@ function waehleModell(id) {
   }
 }
 
+// Favoriten, Hugging-Face-Suche und laufende Downloads
+const fav = () => cfg.favoriten || [];
+let hf = { q: '', laedt: false, ergebnisse: null, fehler: null, offen: null, dateien: null };
+let hfTimer = null;
+const pulls = new Map(); // Ollama-Name -> { status, completed, total }
+const menueOffen = () => !$('#modelle').classList.contains('versteckt');
+const gb = (b) => (b < 1e9 ? zahl(b / 1e6, 0) + ' MB' : zahl(b / 1e9, 1) + ' GB');
+
 function zeichneModelle() {
   const box = $('#m-liste');
+  const scroll = box.scrollTop;
   if (!liste) { box.innerHTML = '<div class="m-leer">Loading models…</div>'; return; }
   const such = $('#m-suche').value.trim().toLowerCase();
   const aktuell = sitzung ? sitzung.model : cfg.defaultModel;
+  const passt = (m) => !such || m.name.toLowerCase().includes(such);
   box.innerHTML = '';
+  const gruppe = (text) => { const k = document.createElement('div'); k.className = 'm-gruppe'; k.textContent = text; box.appendChild(k); };
+  const leer = (text) => { const l = document.createElement('div'); l.className = 'm-leer'; l.textContent = text; box.appendChild(l); };
+
+  const alle = [...liste.ollama.models, ...liste.lmstudio.models];
+  const favs = alle.filter((m) => fav().includes(m.id) && passt(m));
+  if (favs.length) {
+    gruppe('★ Favorites');
+    for (const m of sortiere(favs)) box.appendChild(modellZeile(m, aktuell));
+  }
   for (const [name, g] of [['Ollama', liste.ollama], ['LM Studio', liste.lmstudio]]) {
-    const kopf = document.createElement('div');
-    kopf.className = 'm-gruppe';
     const geladen = g.models.filter((m) => m.loaded).length;
-    kopf.textContent = `${name} · ${g.online ? g.models.length + ' models' + (geladen ? `, ${geladen} loaded` : '') : 'offline'}`;
-    box.appendChild(kopf);
-    for (const m of sortiere(g.models)) {
-      if (such && !m.name.toLowerCase().includes(such)) continue;
-      const z = document.createElement('div');
-      z.className = 'm-zeile' + (m.id === aktuell ? ' aktuell' : '');
-      const info = [m.params, m.quant, m.size ? zahl(m.size / 1e9, 1) + ' GB' : null].filter(Boolean).join(' · ');
-      const vram = m.loaded && m.vram ? `${zahl(m.vram / 1e9, 1)} GB VRAM${m.ctx ? ' · ' + kurz(m.ctx) + ' ctx' : ''}` : '';
-      z.innerHTML = `<span class="punkt ${m.loaded ? 'an' : ''}"></span><span class="m-name"></span><span class="m-info"></span><button class="m-knopf"></button>`;
-      z.querySelector('.m-name').textContent = m.name;
-      z.querySelector('.m-info').textContent = vram || info;
-      z.title = m.id + (info ? '\n' + info : '');
-      const knopf = z.querySelector('.m-knopf');
-      knopf.textContent = m.loaded ? 'Unload' : 'Load';
-      knopf.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        knopf.disabled = true;
-        knopf.textContent = m.loaded ? 'unloading…' : 'loading…';
-        await window.api.loadModel(m.id, !m.loaded);
-        liste = await window.api.models();
-        zeichneModelle();
-      });
-      z.addEventListener('click', () => waehleModell(m.id));
-      box.appendChild(z);
-    }
-    if (!g.online) {
-      const l = document.createElement('div');
-      l.className = 'm-leer';
-      l.textContent = name === 'LM Studio' ? 'LM Studio server is not running (in LM Studio: Developer → Start Server).' : 'Ollama is not running.';
-      box.appendChild(l);
+    gruppe(`${name} · ${g.online ? g.models.length + ' models' + (geladen ? `, ${geladen} loaded` : '') : 'offline'}`);
+    for (const m of sortiere(g.models)) if (!fav().includes(m.id) && passt(m)) box.appendChild(modellZeile(m, aktuell));
+    if (!g.online) leer(name === 'LM Studio' ? 'LM Studio server is not running (in LM Studio: Developer → Start Server).' : 'Ollama is not running.');
+  }
+
+  if (pulls.size) {
+    gruppe('Downloading');
+    for (const [name, p] of pulls) box.appendChild(downloadZeile(name, p));
+  }
+
+  gruppe('Hugging Face');
+  if (!liste.ollama.online) leer('Downloads need Ollama running.');
+  else if (such.length < 2) leer('Type a name in the search box to find GGUF models on Hugging Face.');
+  else {
+    if (hf.q !== such) sucheHf(such);
+    if (hf.laedt) leer('Searching Hugging Face…');
+    else if (hf.fehler) leer('Hugging Face: ' + hf.fehler);
+    else if (!hf.ergebnisse.length) leer('No GGUF models found.');
+    else for (const r of hf.ergebnisse) hfZeilen(box, r, alle);
+  }
+  box.scrollTop = scroll;
+}
+
+function modellZeile(m, aktuell) {
+  const z = document.createElement('div');
+  z.className = 'm-zeile' + (m.id === aktuell ? ' aktuell' : '');
+  const info = [m.params, m.quant, m.size ? gb(m.size) : null].filter(Boolean).join(' · ');
+  const vram = m.loaded && m.vram ? `${gb(m.vram)} VRAM${m.ctx ? ' · ' + kurz(m.ctx) + ' ctx' : ''}` : '';
+  z.innerHTML = '<span class="punkt"></span><span class="m-name"></span><span class="m-info"></span><button class="m-stern"></button><button class="m-knopf"></button>';
+  z.querySelector('.punkt').classList.toggle('an', !!m.loaded);
+  z.querySelector('.m-name').textContent = m.name;
+  z.querySelector('.m-info').textContent = vram || info;
+  z.title = m.id + (info ? '\n' + info : '');
+  const istFav = fav().includes(m.id);
+  const stern = z.querySelector('.m-stern');
+  stern.textContent = istFav ? '★' : '☆';
+  stern.classList.toggle('an', istFav);
+  stern.title = istFav ? 'Remove from favorites' : 'Add to favorites';
+  stern.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const f = new Set(fav());
+    if (f.has(m.id)) f.delete(m.id); else f.add(m.id);
+    cfg.favoriten = [...f];
+    window.api.setConfig({ favoriten: cfg.favoriten });
+    zeichneModelle();
+  });
+  const knopf = z.querySelector('.m-knopf');
+  knopf.textContent = m.loaded ? 'Unload' : 'Load';
+  knopf.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    knopf.disabled = true;
+    knopf.textContent = m.loaded ? 'unloading…' : 'loading…';
+    await window.api.loadModel(m.id, !m.loaded);
+    liste = await window.api.models();
+    zeichneModelle();
+  });
+  z.addEventListener('click', () => waehleModell(m.id));
+  return z;
+}
+
+function downloadText(p) {
+  if (p.total) return `${Math.floor((p.completed / p.total) * 100)}% · ${gb(p.completed)} / ${gb(p.total)}`;
+  return p.status || 'starting…';
+}
+
+function downloadZeile(name, p) {
+  const z = document.createElement('div');
+  z.className = 'm-zeile m-pull';
+  z.dataset.name = name;
+  z.innerHTML = '<span class="punkt an"></span><span class="m-name"></span><span class="m-info"></span><span></span><button class="m-knopf">Cancel</button><div class="m-fortschritt"><i></i></div>';
+  z.querySelector('.m-name').textContent = name.replace(/^hf\.co\//, '');
+  z.title = name;
+  z.querySelector('.m-info').textContent = downloadText(p);
+  z.querySelector('.m-fortschritt i').style.width = (p.total ? (p.completed / p.total) * 100 : 0) + '%';
+  z.querySelector('.m-knopf').addEventListener('click', (e) => { e.stopPropagation(); window.api.pullCancel(name); });
+  return z;
+}
+
+function hfZeilen(box, r, alle) {
+  const z = document.createElement('div');
+  z.className = 'm-zeile';
+  z.innerHTML = '<span class="punkt"></span><span class="m-name"></span><span class="m-info"></span><span></span><button class="m-knopf"></button>';
+  z.querySelector('.m-name').textContent = r.repo;
+  z.querySelector('.m-info').textContent = '↓ ' + kurz(r.downloads);
+  z.title = 'huggingface.co/' + r.repo;
+  const offen = hf.offen === r.repo;
+  z.querySelector('.m-knopf').textContent = offen ? 'Hide' : 'Get';
+  const umschalten = async () => {
+    if (hf.offen === r.repo) { hf.offen = null; return zeichneModelle(); }
+    hf.offen = r.repo;
+    hf.dateien = null;
+    zeichneModelle();
+    let d;
+    try { d = await window.api.hfFiles(r.repo); } catch (e) { d = { fehler: e.message }; }
+    if (hf.offen === r.repo) { hf.dateien = d; zeichneModelle(); }
+  };
+  z.addEventListener('click', umschalten);
+  box.appendChild(z);
+  if (!offen) return;
+
+  const q = document.createElement('div');
+  q.className = 'm-quants';
+  if (!hf.dateien) q.textContent = 'Loading files…';
+  else if (hf.dateien.fehler) q.textContent = 'Could not load files: ' + hf.dateien.fehler;
+  else if (!hf.dateien.length) q.textContent = 'No GGUF files in this repo.';
+  else {
+    const vram = status.gpu ? status.gpu.total * 1024 * 1024 : 0;
+    const vorhanden = new Set(alle.map((m) => m.name.toLowerCase()));
+    for (const f of hf.dateien) {
+      const name = `hf.co/${r.repo}:${f.quant}`;
+      const b = document.createElement('button');
+      const da = vorhanden.has(name.toLowerCase());
+      b.className = 'm-quant' + (vram && f.size < vram * 0.92 ? ' passt' : '') + (da ? ' da' : '');
+      b.textContent = `${f.quant} · ${gb(f.size)}${da ? ' ✓' : ''}`;
+      b.title = da ? 'Already downloaded' : (vram && f.size < vram * 0.92 ? 'Fits in your VRAM' : 'Larger than your VRAM – runs partly on the CPU (slower)') + '\nClick to download with Ollama';
+      b.disabled = da || pulls.has(name);
+      b.addEventListener('click', (e) => { e.stopPropagation(); starteDownload(name); });
+      q.appendChild(b);
     }
   }
+  box.appendChild(q);
 }
+
+function sucheHf(q) {
+  hf = { q, laedt: true, ergebnisse: null, fehler: null, offen: null, dateien: null };
+  clearTimeout(hfTimer);
+  hfTimer = setTimeout(async () => {
+    let ergebnisse = null, fehler = null;
+    try { ergebnisse = await window.api.hfSearch(q); } catch (e) { fehler = String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
+    if (hf.q !== q) return;
+    hf.ergebnisse = ergebnisse || [];
+    hf.fehler = fehler;
+    hf.laedt = false;
+    if (menueOffen()) zeichneModelle();
+  }, 450);
+}
+
+function starteDownload(name) {
+  if (pulls.has(name)) return;
+  pulls.set(name, { status: 'starting…', completed: 0, total: 0 });
+  window.api.pull(name);
+  hinweis('Downloading ' + name.replace(/^hf\.co\//, ''));
+  zeichneModelle();
+}
+
+window.api.onPull(async (p) => {
+  if (!pulls.has(p.name)) return;
+  if (!p.fertig) {
+    Object.assign(pulls.get(p.name), p);
+    // nur die Fortschrittszeile aktualisieren, nicht das ganze Menue
+    const z = [...document.querySelectorAll('.m-pull')].find((x) => x.dataset.name === p.name);
+    if (z) {
+      const d = pulls.get(p.name);
+      z.querySelector('.m-info').textContent = downloadText(d);
+      z.querySelector('.m-fortschritt i').style.width = (d.total ? (d.completed / d.total) * 100 : 0) + '%';
+    }
+    return;
+  }
+  pulls.delete(p.name);
+  const kurzName = p.name.replace(/^hf\.co\//, '');
+  if (p.status === 'success') {
+    hinweis('Downloaded ' + kurzName);
+    liste = await window.api.models();
+  } else {
+    hinweis(p.fehler === 'cancelled' ? 'Download cancelled' : 'Download failed: ' + p.fehler);
+  }
+  if (menueOffen()) zeichneModelle();
+});
 
 // ---------------- Messwerte ----------------
 function messwerte(kennung) {

@@ -189,6 +189,7 @@ async function baueBefehl(tool, modellId, tab) {
     let einst = {};
     try { einst = JSON.parse(fs.readFileSync(cfg.claude.settings, 'utf8')); } catch {}
     if (cfg.claude.hideStatusLine) einst.statusLine = { type: 'command', command: 'node -e ""', padding: 0 };
+    if (einst.spinnerTipsEnabled === undefined) einst.spinnerTipsEnabled = false; // weniger Text unter der Eingabe
     const einstPfad = path.join(app.getPath('userData'), 'claude-settings.json');
     fs.writeFileSync(einstPfad, JSON.stringify(einst, null, 2));
     a.push('--settings', q(einstPfad));
@@ -224,6 +225,67 @@ async function baueBefehl(tool, modellId, tab) {
   return { file: 'powershell.exe', args, env };
 }
 
+// ---------- Hugging Face + Downloads (ueber Ollama: "hf.co/<repo>:<quant>") ----------
+const HF = 'https://huggingface.co';
+const QUANT = /(?:^|[-_.])((?:UD-)?I?Q\d(?:_[A-Z0-9]+)*|F16|BF16|F32)(?:-\d{5}-of-\d{5})?\.gguf$/i;
+const downloads = new Map(); // Name -> AbortController
+
+async function hfSuche(q) {
+  const r = await holeJson(`${HF}/api/models?search=${encodeURIComponent(q)}&filter=gguf&sort=downloads&direction=-1&limit=20`, { zeit: 12000 });
+  return r.map((m) => ({ repo: m.id || m.modelId, downloads: m.downloads || 0 }));
+}
+
+// Alle Quantisierungen eines Repos mit Groesse (mehrteilige Dateien werden zusammengezaehlt)
+async function hfDateien(repo) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('invalid repo');
+  const r = await holeJson(`${HF}/api/models/${repo}/tree/main?recursive=true`, { zeit: 15000 });
+  const quants = new Map();
+  for (const f of r) {
+    if (f.type !== 'file' || !/\.gguf$/i.test(f.path) || /mmproj/i.test(f.path)) continue;
+    const m = QUANT.exec(f.path.split('/').pop());
+    if (!m) continue;
+    const q = m[1].toUpperCase();
+    quants.set(q, (quants.get(q) || 0) + ((f.lfs && f.lfs.size) || f.size || 0));
+  }
+  return [...quants].map(([quant, size]) => ({ quant, size })).sort((a, b) => a.size - b.size);
+}
+
+async function modellHolen(name) {
+  if (downloads.has(name)) return;
+  const ac = new AbortController();
+  downloads.set(name, ac);
+  const melde = (o) => sende('pull', { name, ...o });
+  try {
+    const r = await fetch(cfg.backends.ollama + '/api/pull', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: name, stream: true }), signal: ac.signal,
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
+    const dec = new TextDecoder();
+    let puffer = '', zuletzt = 0;
+    for await (const stueck of r.body) {
+      puffer += dec.decode(stueck, { stream: true });
+      let i;
+      while ((i = puffer.indexOf('\n')) >= 0) {
+        const zeile = puffer.slice(0, i).trim();
+        puffer = puffer.slice(i + 1);
+        if (!zeile) continue;
+        const d = JSON.parse(zeile);
+        if (d.error) throw new Error(d.error);
+        if (Date.now() - zuletzt > 250) {
+          zuletzt = Date.now();
+          melde({ status: d.status, completed: d.completed || 0, total: d.total || 0 });
+        }
+      }
+    }
+    melde({ status: 'success', fertig: true });
+  } catch (e) {
+    melde({ status: 'error', fertig: true, fehler: ac.signal.aborted ? 'cancelled' : e.message });
+  } finally {
+    downloads.delete(name);
+  }
+}
+
 function sende(kanal, ...a) {
   if (win && !win.isDestroyed()) win.webContents.send(kanal, ...a);
 }
@@ -256,6 +318,10 @@ ipcMain.on('pty:kill', (_e, id) => { const p = ptys.get(id); if (p) { try { p.ki
 
 ipcMain.handle('models:list', () => modellListe());
 ipcMain.handle('models:load', (_e, id, laden) => modellLaden(id, laden));
+ipcMain.on('models:pull', (_e, name) => modellHolen(name));
+ipcMain.on('models:pullCancel', (_e, name) => { const ac = downloads.get(name); if (ac) ac.abort(); });
+ipcMain.handle('hf:search', (_e, q) => hfSuche(q));
+ipcMain.handle('hf:files', (_e, repo) => hfDateien(repo));
 ipcMain.handle('config:get', () => cfg);
 ipcMain.handle('config:set', (_e, patch) => { cfg = mische(cfg, patch); speichereConfig(); return cfg; });
 ipcMain.handle('dir:pick', async (_e, start) => {
@@ -355,6 +421,27 @@ async function testLauf(ordner) {
   st({ phase: 'ende', id: 900001, status: 'ok', eingabe: 48000, ausgabe: 400, ttft: 0.3, tps: 77.7, neu: 1200, prefill: 4000 });
   await warte(600);
   console.log('ENDE', await js(`document.querySelector('#tps').textContent + ' | ' + document.querySelector('#runde').textContent + ' | ' + document.querySelector('#spitze-text').textContent`));
+  // Modellmenue: Favorit setzen, Hugging Face suchen, Download starten und wieder abbrechen
+  await js(`document.querySelector('#modell-chip').click()`);
+  await warte(2500);
+  await js(`document.querySelector('#m-liste .m-zeile .m-stern').click()`);
+  await warte(500);
+  await bild('9-favorit');
+  await js(`const i = document.querySelector('#m-suche'); i.value = 'qwen3 0.6b'; i.dispatchEvent(new Event('input'))`);
+  await warte(5000);
+  await bild('10-hf-suche');
+  await js(`[...document.querySelectorAll('#m-liste .m-zeile')].find((z) => z.querySelector('.m-name').textContent === 'unsloth/Qwen3-0.6B-GGUF').click()`);
+  await warte(4000);
+  console.log('QUANTS', await js(`[...document.querySelectorAll('.m-quant')].map((b) => b.textContent).join(' | ')`));
+  await bild('11-hf-dateien');
+  await js(`[...document.querySelectorAll('.m-quant')].find((b) => b.textContent.startsWith('Q4_K_M')).click()`);
+  await warte(6000);
+  console.log('DOWNLOAD', await js(`[...document.querySelectorAll('.m-pull .m-info')].map((x) => x.textContent).join(' | ')`));
+  await bild('12-download');
+  await js(`document.querySelector('.m-pull .m-knopf').click()`);
+  await warte(2000);
+  console.log('NACH ABBRUCH', await js(`document.querySelectorAll('.m-pull').length + ' | ' + document.querySelector('#hinweis').textContent`));
+  await bild('13-abgebrochen');
   app.quit();
 }
 

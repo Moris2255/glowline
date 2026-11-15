@@ -99,7 +99,7 @@ body.vollbild .term { top: 10px; }
 .m-kopf button:hover { color: var(--text); background: var(--bg3); }
 #m-liste { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--bg3) transparent; padding: 4px 0; }
 .m-gruppe { font: 11px var(--sans); color: var(--sehrleise); padding: 10px 14px 4px; }
-.m-zeile { display: grid; grid-template-columns: 10px 1fr auto auto; align-items: center; gap: 10px; padding: 6px 10px 6px 14px; cursor: pointer; }
+.m-zeile { display: grid; grid-template-columns: 10px 1fr auto auto auto; align-items: center; gap: 10px; padding: 6px 10px 6px 14px; cursor: pointer; }
 .m-zeile:hover { background: var(--bg3); }
 .m-zeile.aktuell .m-name { color: var(--weiss); font-weight: 600; }
 .m-name { font: 12px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -108,6 +108,16 @@ body.vollbild .term { top: 10px; }
 .m-knopf:hover { color: var(--text); border-color: var(--leise); }
 .m-knopf:disabled { opacity: .5; cursor: wait; }
 .m-leer { padding: 10px 14px; color: var(--sehrleise); font-size: 12px; }
+.m-stern { color: var(--sehrleise); font-size: 14px; width: 20px; padding: 0; line-height: 1; }
+.m-stern:hover, .m-stern.an { color: var(--weiss); }
+.m-pull { cursor: default; }
+.m-fortschritt { grid-column: 2 / -1; height: 3px; border-radius: 2px; background: var(--bg3); overflow: hidden; margin-top: -4px; }
+.m-fortschritt i { display: block; height: 100%; width: 0; background: var(--weiss); transition: width .3s; }
+.m-quants { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 14px 10px 34px; font-size: 11px; color: var(--sehrleise); }
+.m-quant { font: 11px var(--mono); padding: 3px 8px; border: 1px solid var(--linie); border-radius: 6px; color: var(--leise); }
+.m-quant.passt { color: var(--text); border-color: #3a3d43; }
+.m-quant:hover:not(:disabled) { color: var(--weiss); border-color: var(--leise); background: var(--bg3); }
+.m-quant:disabled { opacity: .45; cursor: default; }
 .m-fuss { padding: 8px 14px; border-top: 1px solid var(--linie); font-size: 11px; color: var(--sehrleise); margin-top: 4px; }
 
 @media (max-width: 1500px) { #f-strom, .balken { display: none; } }
