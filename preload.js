@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   spawn: (o) => ipcRenderer.invoke('pty:spawn', o),
@@ -24,6 +24,18 @@ contextBridge.exposeInMainWorld('api', {
   chatStopp: (id) => ipcRenderer.send('chat:stopp', id),
   onChat: (cb) => ipcRenderer.on('chat', (_e, p) => cb(p)),
   lmStart: () => ipcRenderer.invoke('lmstudio:start'),
+  studio: () => ipcRenderer.invoke('studio:status'),
+  studioEinrichten: () => ipcRenderer.send('studio:einrichten'),
+  studioModell: (id) => ipcRenderer.send('studio:modell', id),
+  studioAbbrechen: (v) => ipcRenderer.send('studio:abbrechen', v),
+  studioAuftrag: (a) => ipcRenderer.send('studio:auftrag', a),
+  studioGalerie: () => ipcRenderer.invoke('studio:galerie'),
+  studioWaehle: (art) => ipcRenderer.invoke('studio:waehle', art),
+  studioFreigeben: (f) => ipcRenderer.send('studio:freigeben', f),
+  studioZeigen: (f) => ipcRenderer.send('studio:zeigen', f),
+  studioWegwerfen: (f) => ipcRenderer.invoke('studio:wegwerfen', f),
+  onStudio: (cb) => ipcRenderer.on('studio', (_e, p) => cb(p)),
+  pfadVon: (datei) => webUtils.getPathForFile(datei),
   hfFiles: (repo) => ipcRenderer.invoke('hf:files', repo),
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (p) => ipcRenderer.invoke('config:set', p),

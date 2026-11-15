@@ -84,6 +84,7 @@ function zeigeWorkspace(modus) {
   ansicht = 'chat';
   if (modus) chat.modus = modus;
   el.classList.add('versteckt');
+  $('#studio').classList.add('versteckt');
   $('#chat').classList.remove('versteckt');
   $('#titel-text').innerHTML = '';
   $('#titel-text').append(elem('b', null, 'Workspace'), '  ·  ' + MODI[chat.modus].name);
@@ -95,6 +96,7 @@ function zeigeTerminal() {
   if (ansicht === 'terminal') return;
   ansicht = 'terminal';
   $('#chat').classList.add('versteckt');
+  $('#studio').classList.add('versteckt');
   el.classList.remove('versteckt');
   try { fit.fit(); } catch {}
   if (sitzung) {
@@ -178,6 +180,18 @@ function nachrichtElem(n) {
         zeigeTerminal();
         term.paste(ersterCode(n.content) || n.content);
         hinweis('Pasted – press Enter in the terminal to start');
+      });
+      fuss.appendChild(t);
+    }
+    // Prompt-Helfer -> direkt im Studio erzeugen
+    const ziel = { bild: 'bild', video: 'video', stimme: 'stimme' }[chat.modus];
+    if (ziel && ersterCode(n.content)) {
+      const t = elem('button', null, '→ Create in Studio');
+      t.addEventListener('click', () => {
+        const bloecke = [...n.content.matchAll(/```[^\n`]*\n?([\s\S]*?)```/g)].map((m) => m[1].trim());
+        sz.felder[ziel].prompt = ersterCode(n.content);
+        if (ziel === 'video' && bloecke[1]) sz.felder.video.negativ = bloecke[1];
+        zeigeStudio(ziel);
       });
       fuss.appendChild(t);
     }

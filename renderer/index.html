@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: glowline:; media-src glowline:">
   <title>Glowline</title>
   <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
   <link rel="stylesheet" href="style.css">
@@ -24,6 +24,17 @@
       <div class="chat-eingabe">
         <textarea id="chat-text" rows="1" spellcheck="false"></textarea>
         <button id="chat-los">Send</button>
+      </div>
+    </section>
+    <section id="studio" class="versteckt">
+      <div class="chat-kopf">
+        <div id="studio-tabs" class="chat-modi"></div>
+        <div class="platz"></div>
+        <button id="studio-ordner" title="Open the folder with all results">Open folder</button>
+      </div>
+      <div id="studio-haupt">
+        <div id="studio-links"></div>
+        <div id="studio-rechts"></div>
       </div>
     </section>
     <div id="hinweis" class="versteckt"></div>
@@ -92,7 +103,10 @@
     <button data-modus="chat"><b>Chat</b><small>talk to any model, local or cloud</small></button>
     <button data-modus="video"><b>Prompt helper</b><small>video, image, voice and coding prompts</small></button>
     <div class="m-gruppe">Studio</div>
-    <button class="bald" disabled><b>Images · Video · Voice · Upscale</b><small>coming soon – runs fully inside Glowline</small></button>
+    <button data-studio="bild"><b>Images</b><small>FLUX.2 klein, Z-Image</small></button>
+    <button data-studio="video"><b>Video</b><small>Wan 2.2, text or image to video</small></button>
+    <button data-studio="upscale"><b>Upscale</b><small>4× sharper images</small></button>
+    <button data-studio="stimme"><b>Voice</b><small>speech and voice cloning</small></button>
     <div class="m-gruppe">Folder</div>
     <button id="ordner-wahl"><b id="ordner-name">–</b><small>Click to choose another folder</small></button>
     <div class="m-fuss">Switching restarts the session</div>
@@ -158,5 +172,6 @@
   <script src="../node_modules/@xterm/addon-unicode11/lib/addon-unicode11.js"></script>
   <script src="app.js"></script>
   <script src="workspace.js"></script>
+  <script src="studio.js"></script>
 </body>
 </html>

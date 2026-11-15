@@ -22,11 +22,12 @@ function anzeigeName(voll) {
 }
 
 let cfg = {};
-let ansicht = 'terminal'; // terminal | chat
+let ansicht = 'terminal'; // terminal | chat | studio
+const imChat = () => ansicht === 'chat' || ansicht === 'studio'; // Studio nutzt das Chat-Modell fuer den Prompt-Helfer
 const BACKEND_NAME = { ollama: 'Ollama', lmstudio: 'LM Studio', abo: 'Claude subscription', chatgpt: 'ChatGPT account', anthropic: 'Anthropic API', openai: 'OpenAI API', openrouter: 'OpenRouter', gemini: 'Google Gemini' };
 const backendVon = (id) => (/^([a-z]+),/.exec(id || '') || [])[1] || 'ollama';
 const istWolkeId = (id) => /^(abo|chatgpt|anthropic|openai|openrouter|gemini),/.test(id || '');
-const aktiveKennung = () => (ansicht === 'chat' ? 'chat' : sitzung && sitzung.kennung);
+const aktiveKennung = () => (imChat() ? 'chat' : sitzung && sitzung.kennung);
 let liste = null; // Modell-Liste
 let status = { loaded: [] };
 let sitzung = null; // { id, kennung, tool, model, cwd, beendet }
@@ -189,7 +190,7 @@ function schliesseMenues() {
   for (const c of document.querySelectorAll('.chip')) c.classList.remove('offen');
   fokus();
 }
-function fokus() { if (ansicht === 'chat') $('#chat-text').focus(); else term.focus(); }
+function fokus() { if (ansicht === 'chat') $('#chat-text').focus(); else if (ansicht === 'terminal') term.focus(); }
 document.addEventListener('mousedown', (e) => {
   if (!e.target.closest('.menue') && !e.target.closest('.chip') && !e.target.closest('#f-gespart')) {
     if (document.querySelector('.menue:not(.versteckt)')) schliesseMenues();
@@ -202,6 +203,7 @@ $('#tool-chip').addEventListener('click', () => {
   if (offen) return;
   for (const b of document.querySelectorAll('#tools [data-tool]')) b.classList.toggle('an', ansicht === 'terminal' && !!sitzung && b.dataset.tool === sitzung.tool);
   for (const b of document.querySelectorAll('#tools [data-modus]')) b.classList.toggle('an', ansicht === 'chat' && b.dataset.modus === chat.modus);
+  for (const b of document.querySelectorAll('#tools [data-studio]')) b.classList.toggle('an', ansicht === 'studio' && b.dataset.studio === sz.bereich);
   $('#ordner-name').textContent = sitzung ? sitzung.cwd : cfg.lastDir;
   $('#tools').classList.remove('versteckt');
   $('#tool-chip').classList.add('offen');
@@ -225,6 +227,9 @@ for (const b of document.querySelectorAll('#tools [data-tool]')) {
 }
 for (const b of document.querySelectorAll('#tools [data-modus]')) {
   b.addEventListener('click', () => { schliesseMenues(); zeigeWorkspace(b.dataset.modus); });
+}
+for (const b of document.querySelectorAll('#tools [data-studio]')) {
+  b.addEventListener('click', () => { schliesseMenues(); zeigeStudio(b.dataset.studio); });
 }
 $('#ordner-wahl').addEventListener('click', async () => {
   const p = await window.api.pickDir(sitzung ? sitzung.cwd : cfg.lastDir);
@@ -256,7 +261,7 @@ function modellAnzeige(id) {
   const m = istWolkeId(id) && alleModelle().find((x) => x.id === id);
   return m ? m.name : anzeigeName(id).name;
 }
-const aktuellesModell = () => (ansicht === 'chat' ? cfg.chatModel || cfg.defaultModel : sitzung ? sitzung.model : cfg.defaultModel);
+const aktuellesModell = () => (imChat() ? cfg.chatModel || cfg.defaultModel : sitzung ? sitzung.model : cfg.defaultModel);
 const gb = (b) => (b < 1e9 ? zahl(b / 1e6, 0) + ' MB' : zahl(b / 1e9, 1) + ' GB');
 const bibOffen = () => !$('#bib').classList.contains('versteckt');
 const elem = (tag, klasse, text) => { const e = document.createElement(tag); if (klasse) e.className = klasse; if (text != null) e.textContent = text; return e; };
@@ -266,7 +271,7 @@ const leer = (box, text) => box.appendChild(elem('div', 'm-leer', text));
 function waehleModell(id) {
   schliesseMenues();
   $('#bib').classList.add('versteckt');
-  if (ansicht === 'chat') return setzeChatModell(id);
+  if (imChat()) return setzeChatModell(id);
   if (!sitzung || sitzung.beendet || sitzung.tool === 'shell') return starteSitzung({ model: id, tool: sitzung && sitzung.tool === 'shell' ? cfg.defaultTool : undefined });
   const gleicheQuelle = istWolkeId(id) ? backendVon(id) === backendVon(sitzung.model) : !istWolkeId(sitzung.model);
   if (sitzung.tool === 'claude' && gleicheQuelle) {
@@ -749,7 +754,7 @@ function zeichneLeiste() {
   $('#letzte').textContent = m && m.zuletzt && !l ? 'Last reply ' + vor(Date.now() - m.zuletzt) : '';
 
   // Prompt / Kontext
-  const modelId = ansicht === 'chat' ? aktuellesModell() || '' : (sitzung && sitzung.tool !== 'shell' && sitzung.model) || (m && m.model) || '';
+  const modelId = imChat() ? aktuellesModell() || '' : (sitzung && sitzung.tool !== 'shell' && sitzung.model) || (m && m.model) || '';
   const wolke = istWolkeId(modelId);
   const name = modelId.replace(/^[a-z]+,/, '');
   const backend = BACKEND_NAME[backendVon(modelId)] || 'Ollama';
@@ -778,7 +783,7 @@ function zeichneLeiste() {
   } else {
     $('#modell-info').textContent = sitzung && sitzung.tool === 'shell' ? 'PowerShell · no model' : 'No model active';
   }
-  $('#tool-name').textContent = ansicht === 'chat' ? MODI[chat.modus].name : sitzung ? WERKZEUG_NAME[sitzung.tool] : 'Tool';
+  $('#tool-name').textContent = ansicht === 'studio' ? 'Studio · ' + BEREICHE[sz.bereich].name : ansicht === 'chat' ? MODI[chat.modus].name : sitzung ? WERKZEUG_NAME[sitzung.tool] : 'Tool';
   $('#modell-name').textContent = modelId ? kurzName : 'no model';
   $('#modell-chip').title = (modelId || '') + '\nClick: manage models';
   $('#modell-punkt').classList.toggle('an', !!geladen);

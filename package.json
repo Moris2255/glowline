@@ -2,7 +2,7 @@
   "name": "glowline",
   "productName": "Glowline",
   "version": "2.0.0",
-  "description": "Glowline Ã¢â‚¬â€œ Terminal fuer lokale KI-Modelle mit Live-Geschwindigkeitsleiste",
+  "description": "Glowline - local AI workspace: terminal, chat and studio for local models",
   "author": "Moris2255",
   "main": "main.js",
   "private": true,
@@ -33,13 +33,18 @@
     "files": [
       "main.js",
       "proxy.js",
+      "konten.js",
+      "studio.js",
+      "agenten.js",
+      "stimme.py",
       "preload.js",
       "renderer/**",
       "build/icon.ico",
       "package.json"
     ],
     "asarUnpack": [
-      "node_modules/@lydell/**"
+      "node_modules/@lydell/**",
+      "stimme.py"
     ],
     "npmRebuild": false,
     "win": {

@@ -1,6 +1,6 @@
 // Glowline: minimales Terminal fuer lokale KI-Modelle (Claude Code, Codex, OpenCode)
 // mit Live-Leiste unten (tok/s, Prefill, erstes Token, Kontext, VRAM).
-const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu, screen, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu, screen, shell, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -8,6 +8,9 @@ const { execFile, spawn } = require('child_process');
 const pty = require('@lydell/node-pty');
 const { StatsProxy, teileModell, istWolke } = require('./proxy');
 const konten = require('./konten');
+const studio = require('./studio');
+const agenten = require('./agenten');
+const { Readable } = require('stream');
 
 const HOME = os.homedir();
 
@@ -142,6 +145,8 @@ async function chatSenden({ id, model: modellId, system, nachrichten }) {
     if (!model) throw new Error('No model selected');
     if (w && w.nurWerkzeug) throw new Error(`${w.name} works only inside ${WERKZEUG[w.nurWerkzeug]}. For chat, add an API key under Models → Accounts or pick a local model.`);
     const msgs = (Array.isArray(nachrichten) ? nachrichten : []).filter((m) => m && /^(user|assistant)$/.test(m.role)).map((m) => ({ role: m.role, content: String(m.content) }));
+    // lokales Modell: der Studio-Motor gibt vorher den Grafikspeicher frei
+    if (!w) await Promise.race([studio.comfyFrei(), new Promise((ok) => setTimeout(ok, 1500))]);
     const anthropic = w && w.format === 'anthropic';
     const url = `http://127.0.0.1:${cfg.port}/s/chat/${b}` + (anthropic ? '/v1/messages' : '/v1/chat/completions');
     const body = anthropic
@@ -383,6 +388,7 @@ async function baueBefehl(tool, modellId, tab) {
     }
   }
 
+  const mitStudio = studio.status().eingerichtet; // Agenten bekommen die Studio-Werkzeuge (MCP)
   if (tool === 'claude') {
     if (!wolke) Object.assign(env, cfg.claude.env, { ANTHROPIC_BASE_URL: basis, ANTHROPIC_AUTH_TOKEN: 'glowline' });
     // Abo: Claude Code meldet sich selbst an, der Proxy misst nur mit. API-Schluessel: setzt der Proxy ein.
@@ -397,6 +403,11 @@ async function baueBefehl(tool, modellId, tab) {
     const einstPfad = path.join(app.getPath('userData'), 'claude-settings.json');
     fs.writeFileSync(einstPfad, JSON.stringify(einst, null, 2));
     a.push('--settings', q(einstPfad));
+    if (mitStudio) {
+      const mcpPfad = path.join(app.getPath('userData'), 'claude-mcp.json');
+      fs.writeFileSync(mcpPfad, JSON.stringify({ mcpServers: { 'glowline-studio': { type: 'http', url: agenten.url() } } }, null, 2));
+      a.push('--mcp-config', q(mcpPfad));
+    }
     if (cfg.claude.systemPromptFile && fs.existsSync(cfg.claude.systemPromptFile)) a.push('--append-system-prompt-file', q(cfg.claude.systemPromptFile));
     if (cfg.claude.skipPermissions) a.push('--dangerously-skip-permissions');
     a.push('--model', q(wolke ? model : (backend || 'ollama') + ',' + model));
@@ -432,11 +443,14 @@ async function baueBefehl(tool, modellId, tab) {
       };
       gewaehlt = `g-${backend}/${model}`;
     } else modelle[model] = modelle[model] || { name: model, limit: { context: 128000, output: 16000 } };
-    env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ $schema: 'https://opencode.ai/config.json', provider, model: gewaehlt });
+    const oc = { $schema: 'https://opencode.ai/config.json', provider, model: gewaehlt };
+    if (mitStudio) oc.mcp = { 'glowline-studio': { type: 'remote', url: agenten.url(), enabled: true } };
+    env.OPENCODE_CONFIG_CONTENT = JSON.stringify(oc);
     // --standalone: eigener Server, sonst nimmt OpenCode 2 den Hintergrund-Dienst ohne unsere Einstellungen
     zeile = `& ${q(exe)} --standalone`;
   }
 
+  if (tool === 'codex' && zeile && mitStudio) zeile += ` -c ${q(`mcp_servers.glowline_studio.url="${agenten.url()}"`)}`;
   const args = zeile ? ['-NoLogo', '-NoProfile', '-NoExit', '-Command', zeile] : ['-NoLogo'];
   if (exe && /\.ps1$/i.test(exe)) args.splice(2, 0, '-ExecutionPolicy', 'Bypass');
   return { file: 'powershell.exe', args, env };
@@ -567,6 +581,36 @@ async function dateienHolen(repo, dateien, gesamt, ordner, ac, melde) {
   }
 }
 
+// Vor Bild/Video/Stimme: Sprachmodelle aus dem Grafikspeicher nehmen (8 GB reichen sonst nicht fuer beides)
+async function vramFrei() {
+  const r = await holeJson(cfg.backends.ollama + '/api/ps', { zeit: 1500 }).catch(() => null);
+  const weg = ((r && r.models) || []).map((m) => modellLaden('ollama,' + m.name, false).catch(() => {}));
+  const lm = statusSchleife.lms ? await lmModelle(cfg.backends.lmstudio).catch(() => null) : null;
+  for (const m of lm || []) if (m.loaded) weg.push(modellLaden(m.id, false).catch(() => {}));
+  await Promise.all(weg);
+}
+
+// glowline://datei?f=<Pfad>: nur Studio-Ergebnisse und Dateien, die man selbst ausgewaehlt hat
+const freigegeben = new Set();
+const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.flac': 'audio/flac', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4' };
+function dateiProtokoll() {
+  protocol.handle('glowline', (req) => {
+    const f = path.resolve(new URL(req.url).searchParams.get('f') || '.');
+    const typ = MIME[path.extname(f).toLowerCase()];
+    if (!(studio.inAusgabe(f) || freigegeben.has(f)) || !typ || !fs.existsSync(f)) return new Response('not found', { status: 404 });
+    const groesse = fs.statSync(f).size;
+    const r = /bytes=(\d*)-(\d*)/.exec(req.headers.get('range') || '');
+    if (r && groesse) {
+      const start = r[1] ? Math.min(+r[1], groesse - 1) : 0, ende = r[2] ? Math.min(+r[2], groesse - 1) : groesse - 1;
+      return new Response(Readable.toWeb(fs.createReadStream(f, { start, end: ende })), {
+        status: 206, headers: { 'content-type': typ, 'content-range': `bytes ${start}-${ende}/${groesse}`, 'accept-ranges': 'bytes', 'content-length': String(ende - start + 1) },
+      });
+    }
+    return new Response(Readable.toWeb(fs.createReadStream(f)), { headers: { 'content-type': typ, 'content-length': String(groesse), 'accept-ranges': 'bytes' } });
+  });
+}
+protocol.registerSchemesAsPrivileged([{ scheme: 'glowline', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } }]);
+
 function sende(kanal, ...a) {
   if (win && !win.isDestroyed()) win.webContents.send(kanal, ...a);
 }
@@ -610,6 +654,22 @@ ipcMain.on('download:start', (_e, d) => herunterladen(d));
 ipcMain.on('download:cancel', (_e, key) => { const ac = downloads.get(key); if (ac) ac.abort(); });
 ipcMain.handle('hf:search', (_e, q) => hfSuche(q));
 ipcMain.handle('hf:files', (_e, repo) => hfDateien(repo));
+ipcMain.handle('studio:status', () => studio.status());
+ipcMain.on('studio:einrichten', () => studio.einrichten());
+ipcMain.on('studio:modell', (_e, id) => studio.modellHolen(id));
+ipcMain.on('studio:abbrechen', (_e, v) => studio.abbrechen(v));
+ipcMain.on('studio:auftrag', (_e, a) => studio.auftrag({ ...a, id: 'ui' + String(a.id || Date.now()), vonAgent: false }, vramFrei));
+ipcMain.handle('studio:galerie', () => studio.galerie());
+ipcMain.handle('studio:waehle', async (_e, art) => {
+  const filter = art === 'audio' ? [{ name: 'Audio', extensions: ['wav', 'mp3', 'flac', 'ogg', 'm4a'] }] : [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }];
+  const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: filter });
+  if (r.canceled) return null;
+  freigegeben.add(path.resolve(r.filePaths[0]));
+  return r.filePaths[0];
+});
+ipcMain.on('studio:freigeben', (_e, f) => { if (typeof f === 'string' && /\.(png|jpe?g|webp|wav|mp3|flac|ogg|m4a)$/i.test(f)) freigegeben.add(path.resolve(f)); });
+ipcMain.on('studio:zeigen', (_e, f) => { if (f && studio.inAusgabe(f)) shell.showItemInFolder(f); else if (!f) { fs.mkdirSync(studio.P().ausgabe, { recursive: true }); shell.openPath(studio.P().ausgabe); } });
+ipcMain.handle('studio:wegwerfen', async (_e, f) => { if (!studio.inAusgabe(f)) return false; await shell.trashItem(f); return true; });
 ipcMain.handle('config:get', () => cfg);
 ipcMain.handle('config:set', (_e, patch) => { Object.assign(cfg, mische(cfg, patch)); speichereConfig(); return cfg; });
 ipcMain.handle('dir:pick', async (_e, start) => {
@@ -666,6 +726,76 @@ async function testLauf(ordner) {
   for (let i = 0; i < 60 && !(await js('!!window.glowlineBereit').catch(() => false)); i++) await warte(500);
   await warte(1000);
   await bild('1-start');
+  if (process.env.GLOWLINE_TEST_NUR === 'studio') {
+    // GLOWLINE_TEST_STUDIO=bild,upscale,video,stimme: welche Auftraege wirklich laufen sollen
+    const was = String(process.env.GLOWLINE_TEST_STUDIO || '').split(',').filter(Boolean);
+    const warteAuftrag = async (max) => {
+      for (let i = 0; i < max * 2; i++) {
+        const l = await js(`(() => { const l = laufenderAuftrag(); return l ? JSON.stringify({ f: !!l.fertig, t: l.text, p: l.prozent, e: l.fehler || null, d: l.dateien || null, z: l.dauer || null }) : 'null'; })()`);
+        const o = JSON.parse(l);
+        if (o && o.f) return o;
+        if (i % 20 === 0) console.log('  ...', l);
+        await warte(500);
+      }
+      return 'TIMEOUT';
+    };
+    for (const b of ['bild', 'video', 'upscale', 'stimme']) {
+      await js(`zeigeStudio('${b}')`);
+      await warte(1500);
+      await bild('s-' + b);
+      console.log('BEREICH', b, await js(`[...document.querySelectorAll('.s-modell')].map((m) => m.querySelector('b').textContent + ' [' + (m.querySelector('.s-m-status, .m-knopf') || {}).textContent + ']').join(' | ') + ' | Knopf: ' + (document.querySelector('#studio-los') ? document.querySelector('#studio-los').title || 'bereit' : document.querySelector('.s-einrichten b') && 'EINRICHTEN')`));
+    }
+    console.log('MENUE', await js(`(document.querySelector('#tool-chip').click(), [...document.querySelectorAll('#tools [data-studio] b')].map((x) => x.textContent).join(' | '))`));
+    await warte(600);
+    await bild('s-menue');
+    await js(`schliesseMenues()`);
+    if (process.env.GLOWLINE_TEST_MODELL) {
+      await js(`zeigeStudio('bild'); setzeChatModell(${JSON.stringify(process.env.GLOWLINE_TEST_MODELL)}); sz.felder.bild.prompt = 'ein Leuchtturm im Sturm bei Nacht'; zeichneStudio(); document.querySelector('.s-verbessern').click()`);
+      for (let i = 0; i < 120 && (await js('!!sz.verbessern')); i++) await warte(500);
+      console.log('VERBESSERT', (await js('sz.felder.bild.prompt')).slice(0, 300));
+      await bild('s-verbessert');
+    }
+    if (was.includes('bild')) {
+      const t0 = Date.now();
+      await js(`zeigeStudio('bild'); sz.felder.bild.prompt = sz.felder.bild.prompt.length > 40 ? sz.felder.bild.prompt : 'A lighthouse on a cliff in a storm at night, huge waves, dramatic light beam, cinematic photo'; sz.felder.bild.format = 1; zeichneStudio(); starte()`);
+      await warte(3000);
+      await bild('s-bild-laeuft');
+      const r = await warteAuftrag(600);
+      console.log('BILD', JSON.stringify(r), Math.round((Date.now() - t0) / 1000) + 's');
+      await warte(1500);
+      await bild('s-bild-fertig');
+      // gleich nochmal: Motor ist jetzt warm
+      const t1 = Date.now();
+      await js(`starte()`);
+      console.log('BILD2', JSON.stringify(await warteAuftrag(300)), Math.round((Date.now() - t1) / 1000) + 's');
+    }
+    if (was.includes('upscale')) {
+      await js(`(() => { const g = sz.galerie.find((x) => x.datei.includes(String.fromCharCode(92) + 'bild' + String.fromCharCode(92))); sz.felder.upscale.bild = g ? g.datei : null; })(); zeigeStudio('upscale')`);
+      await warte(1000);
+      await js(`starte()`);
+      console.log('UPSCALE', JSON.stringify(await warteAuftrag(300)));
+      await warte(1500);
+      await bild('s-upscale-fertig');
+    }
+    if (was.includes('video')) {
+      const t0 = Date.now();
+      await js(`zeigeStudio('video'); sz.felder.video.prompt = 'A red fox runs through deep snow at sunset, slow tracking shot, golden light, cinematic'; sz.felder.video.format = 3; sz.felder.video.sekunden = 2; zeichneStudio(); starte()`);
+      await warte(5000);
+      await bild('s-video-laeuft');
+      console.log('VIDEO', JSON.stringify(await warteAuftrag(1800)), Math.round((Date.now() - t0) / 1000) + 's');
+      await warte(2500);
+      await bild('s-video-fertig');
+    }
+    if (was.includes('stimme')) {
+      await js(`zeigeStudio('stimme'); sz.felder.stimme.prompt = 'Hallo! Das ist ein kurzer Test der neuen Stimme in Glowline.'; zeichneStudio(); starte()`);
+      console.log('STIMME', JSON.stringify(await warteAuftrag(1200)));
+      await warte(1500);
+      await bild('s-stimme-fertig');
+    }
+    console.log('GALERIE', await js('sz.galerie.length'));
+    app.quit();
+    return;
+  }
   if (process.env.GLOWLINE_TEST_NUR === 'workspace') {
     const fertig = async () => { for (let i = 0; i < 180 && (await js('!!chat.laeuft')); i++) await warte(500); };
     const letzte = () => js(`(() => { const v = verlauf(); const a = v[v.length - 1]; return (a.fehler ? 'FEHLER ' + a.fehler : a.content).slice(0, 260).split(String.fromCharCode(10)).join(' / '); })()`);
@@ -835,6 +965,9 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     try { await proxy.listen(cfg.port); } catch (e) {
       dialog.showErrorBox('Glowline', `Port ${cfg.port} is already in use (${e.code}). Set a different "port" in config.json.`);
     }
+    studio.init(process.env.GLOWLINE_STUDIO || cfg.studioOrdner || path.join(process.env.LOCALAPPDATA || app.getPath('userData'), 'Glowline', 'studio'), sende);
+    dateiProtokoll();
+    agenten.starten(studio, vramFrei, app.getVersion());
     fenster();
     statusSchleife();
     if (process.env.GLOWLINE_TEST) {
@@ -845,6 +978,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => {
     for (const p of ptys.values()) try { p.kill(); } catch {}
     if (gpuProzess) try { gpuProzess.kill(); } catch {}
+    studio.stoppen();
     app.quit();
   });
 }
