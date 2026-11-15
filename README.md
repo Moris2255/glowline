@@ -14,7 +14,7 @@ A minimal Windows terminal for running **Claude Code**, **Codex** and **OpenCode
 | **Prompt** | prompt tokens vs. the model's context window |
 | **Output / Turn** | tokens of the last reply, duration of the current turn |
 | **GPU power / VRAM** | live from `nvidia-smi` |
-| **Saved** | what the same tokens would have cost with a cloud model – click it to pick Claude Sonnet / Opus / Haiku, GPT-5 or enter your own model and prices |
+| **Saved costs** | what the same tokens would have cost with a cloud model – click it to pick Claude Sonnet / Opus / Haiku, GPT-5 or enter your own model and prices |
 
 ## How it works
 
@@ -56,4 +56,4 @@ Older installers are moved to `dist/alt/` automatically.
 
 ## Config
 
-`%APPDATA%\Glowline\config.json` – port, backends, default tool/model, the comparison model and token counter for "Saved", Claude Code environment.
+`%APPDATA%\Glowline\config.json` – port, backends, default tool/model, the comparison model and token counter for "Saved costs", Claude Code environment.

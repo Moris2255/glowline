@@ -624,7 +624,7 @@ async function testLauf(ordner) {
   await warte(600);
   console.log('ENDE', await js(`document.querySelector('#tps').textContent + ' | ' + document.querySelector('#runde').textContent + ' | ' + document.querySelector('#spitze-text').textContent`));
   // Vergleichsmodell fuer "Saved": Opus waehlen, dann eigene Preise
-  const gesp = () => js(`document.querySelector('#l-gespart').textContent + ' = ' + document.querySelector('#gespart').textContent`);
+  const gesp = () => js(`document.querySelector('#l-gespart').textContent + ' = ' + document.querySelector('#gespart').textContent + ' (' + document.querySelector('#f-gespart').title.slice(0, 70) + ')'`);
   console.log('PREIS SONNET', await gesp());
   await js(`document.querySelector('#f-gespart').click()`);
   await warte(500);

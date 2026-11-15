@@ -447,7 +447,7 @@ function zeichneZiele() {
     box.appendChild(b);
   }
   const bald = elem('div', 'ziel bald');
-  bald.innerHTML = '<span></span><b>More connectors</b><small>coming later</small>';
+  bald.innerHTML = '<span></span><b>More connectors</b><small>coming soon</small>';
   box.appendChild(bald);
 }
 
@@ -744,8 +744,7 @@ function zeichneLeiste() {
 
   $('#gespart').textContent = zahl(gespartJetzt(), 2) + ' $';
   const p = preise();
-  $('#l-gespart').textContent = 'Saved vs ' + String(p.name || 'custom').replace(/^Claude /, '');
-  $('#f-gespart').title = `What your local tokens would have cost with ${p.name || 'your model'}\n(${p.eingabe} $ input / ${p.cache} $ cached / ${p.ausgabe} $ output per 1M tokens)\nClick to choose the model or enter your own prices`;
+  $('#f-gespart').title = `Saved costs: what your local tokens would have cost with ${p.name || 'your model'}\n(${p.eingabe} $ input / ${p.cache} $ cached / ${p.ausgabe} $ output per 1M tokens)\nClick to choose the model or enter your own prices`;
 }
 
 // ---------------- Vergleichsmodell fuer "Saved" ----------------
