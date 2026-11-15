@@ -1,7 +1,7 @@
 {
   "name": "glowline",
   "productName": "Glowline",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Glowline Ã¢â‚¬â€œ Terminal fuer lokale KI-Modelle mit Live-Geschwindigkeitsleiste",
   "author": "Moris2255",
   "main": "main.js",

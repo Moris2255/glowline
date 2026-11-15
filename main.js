@@ -113,6 +113,10 @@ async function modellListe() {
       }
     })(),
   ]);
+  const la = process.env.LOCALAPPDATA || '';
+  aus.ollama.installiert = aus.ollama.online || fs.existsSync(path.join(la, 'Programs', 'Ollama', 'ollama.exe'))
+    || !!(await findeProgramm('ollama', await frischerPfad()));
+  aus.lmstudio.installiert = aus.lmstudio.online || fs.existsSync(path.join(HOME, '.lmstudio')) || fs.existsSync(path.join(la, 'Programs', 'LM Studio'));
   return aus;
 }
 
@@ -180,15 +184,75 @@ function sauberesEnv() {
 
 const q = (s) => "'" + String(s).replace(/'/g, "''") + "'"; // PowerShell-Zitat
 
+// ---------- Installierte Programme finden ----------
+// PATH frisch aus der Registry: so findet Glowline auch Programme, die erst nach dem Start installiert wurden
+function regPfad(schluessel) {
+  return new Promise((ok) => execFile('reg.exe', ['query', schluessel, '/v', 'Path'], { windowsHide: true, timeout: 3000 }, (e, so) => {
+    const m = /\sPath\s+REG_(?:EXPAND_)?SZ\s+(.*)/i.exec(String(so || ''));
+    ok(m ? m[1].trim().replace(/%([^%]+)%/g, (x, n) => process.env[n] ?? x) : '');
+  }));
+}
+async function frischerPfad() {
+  const [sys, nutzer] = await Promise.all([regPfad('HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'), regPfad('HKCU\\Environment')]);
+  const gesehen = new Set();
+  return [...sys.split(';'), ...nutzer.split(';'), ...(process.env.PATH || '').split(';')]
+    .map((p) => p.trim()).filter((p) => p && !gesehen.has(p.toLowerCase()) && gesehen.add(p.toLowerCase())).join(';');
+}
+function mitPfad(env, pfad) {
+  for (const k of Object.keys(env)) if (/^path$/i.test(k)) delete env[k];
+  env.Path = pfad;
+  return env;
+}
+// .exe/.cmd bevorzugt (eine .ps1 kann an der Ausfuehrungsrichtlinie scheitern)
+function findeProgramm(name, pfad) {
+  if ((process.env.GLOWLINE_TEST_FEHLT || '').split(',').includes(name)) return Promise.resolve(null);
+  return new Promise((ok) => execFile('where.exe', [name], { windowsHide: true, timeout: 5000, env: mitPfad({ ...process.env }, pfad) }, (e, so) => {
+    const pfade = String(so || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    ok(pfade.find((p) => /\.(exe|cmd)$/i.test(p)) || pfade.find((p) => /\.ps1$/i.test(p)) || null);
+  }));
+}
+async function werkzeugeInstalliert() {
+  const pfad = await frischerPfad();
+  const r = {};
+  await Promise.all(Object.keys(INSTALL).map(async (t) => { r[t] = !!(await findeProgramm(t, pfad)); }));
+  return r;
+}
+const INSTALL = {
+  claude: { name: 'Claude Code', befehl: 'irm https://claude.ai/install.ps1 | iex' },
+  codex: { name: 'Codex', befehl: 'npm install -g @openai/codex', node: true },
+  opencode: { name: 'OpenCode', befehl: 'npm install -g opencode-ai', node: true },
+};
+function installHinweis(tool) {
+  const i = INSTALL[tool];
+  const zeile = (text, farbe) => `Write-Host ${q(text)}${farbe ? ' -ForegroundColor ' + farbe : ''}`;
+  return [
+    zeile(''),
+    zeile(`${i.name} is not installed on this PC.`, 'Yellow'),
+    zeile('Install it right here by pasting this command:'),
+    zeile(''),
+    zeile('    ' + i.befehl, 'White'),
+    zeile(''),
+    i.node ? zeile('(this needs Node.js – get it at https://nodejs.org)', 'DarkGray') : null,
+    zeile(`When it is done, choose ${i.name} again in the tool menu (bottom right).`, 'DarkGray'),
+    zeile(''),
+  ].filter(Boolean).join('; ');
+}
+
 async function baueBefehl(tool, modellId, tab) {
-  const { backend, model } = teileModell(modellId || cfg.defaultModel);
+  const { backend, model } = teileModell(modellId || cfg.defaultModel || '');
   const basis = `http://127.0.0.1:${cfg.port}/s/${tab}/${backend || 'auto'}`;
-  const env = sauberesEnv();
+  const pfad = await frischerPfad();
+  const env = mitPfad(sauberesEnv(), pfad);
   let zeile = null;
+  let exe = null;
+  if (INSTALL[tool]) {
+    exe = await findeProgramm(tool, pfad);
+    if (!exe) return { file: 'powershell.exe', args: ['-NoLogo', '-NoProfile', '-NoExit', '-Command', installHinweis(tool)], env, fehlt: tool };
+  }
 
   if (tool === 'claude') {
     Object.assign(env, cfg.claude.env, { ANTHROPIC_BASE_URL: basis, ANTHROPIC_AUTH_TOKEN: 'glowline' });
-    const a = ['claude.cmd'];
+    const a = [q(exe)];
     // Eigene Einstellungsdatei: optionale Nutzer-Einstellungen + leere Statuszeile (die Werte zeigt ja Glowline unten an)
     let einst = {};
     try { einst = JSON.parse(fs.readFileSync(cfg.claude.settings, 'utf8')); } catch {}
@@ -203,7 +267,7 @@ async function baueBefehl(tool, modellId, tab) {
     zeile = '& ' + a.join(' ');
   } else if (tool === 'codex') {
     env.CODEX_OSS_BASE_URL = basis + '/v1';
-    zeile = `& codex --oss --local-provider ${backend === 'lmstudio' ? 'lmstudio' : 'ollama'} -m ${q(model)}`;
+    zeile = `& ${q(exe)} --oss --local-provider ${backend === 'lmstudio' ? 'lmstudio' : 'ollama'} -m ${q(model)}`;
   } else if (tool === 'opencode') {
     const liste = await modellListe();
     const modelle = {};
@@ -222,10 +286,11 @@ async function baueBefehl(tool, modellId, tab) {
       model: 'glowline/' + model,
     });
     // --standalone: eigener Server, sonst nimmt OpenCode 2 den Hintergrund-Dienst ohne unsere Einstellungen
-    zeile = '& opencode.cmd --standalone';
+    zeile = `& ${q(exe)} --standalone`;
   }
 
   const args = zeile ? ['-NoLogo', '-NoProfile', '-NoExit', '-Command', zeile] : ['-NoLogo'];
+  if (exe && /\.ps1$/i.test(exe)) args.splice(2, 0, '-ExecutionPolicy', 'Bypass');
   return { file: 'powershell.exe', args, env };
 }
 
@@ -233,7 +298,7 @@ async function baueBefehl(tool, modellId, tab) {
 // Ziele: Ollama laedt selbst ("hf.co/<repo>:<quant>"), fuer LM Studio legt Glowline die GGUF-Datei in dessen Modellordner.
 const HF = 'https://huggingface.co';
 const QUANT = /(?:^|[-_.])((?:UD-)?I?Q\d(?:_[A-Z0-9]+)*|F16|BF16|F32)(?:-\d{5}-of-\d{5})?\.gguf$/i;
-const REPO = /^[\w.-]+\/[\w.-]+$/;
+const REPO = /^[\w-][\w.-]*\/[\w-][\w.-]*$/;
 const downloads = new Map(); // key -> AbortController
 
 function lmModellOrdner() {
@@ -259,6 +324,9 @@ async function hfDateien(repo) {
     if (!m) continue;
     const q = m[1].toUpperCase();
     const e = quants.get(q) || { quant: q, size: 0, files: [] };
+    // nur Teile derselben aufgeteilten Datei (-00001-of-00003) gehoeren zusammen, sonst gilt die erste Datei
+    const teil = (p) => /-\d{5}-of-\d{5}\.gguf$/i.test(p);
+    if (e.files.length && !(teil(f.path) && teil(e.files[0]))) continue;
     e.size += (f.lfs && f.lfs.size) || f.size || 0;
     e.files.push(f.path);
     quants.set(q, e);
@@ -358,7 +426,7 @@ ipcMain.handle('pty:spawn', async (_e, o) => {
   const id = naechsteId++;
   const tab = 't' + id;
   const cwd = o.cwd && fs.existsSync(o.cwd) ? o.cwd : HOME;
-  const { file, args, env } = await baueBefehl(o.tool, o.model, tab);
+  const { file, args, env, fehlt } = await baueBefehl(o.tool, o.model, tab);
   const p = pty.spawn(file, args, { name: 'xterm-256color', cols: o.cols || 120, rows: o.rows || 30, cwd, env, useConpty: true });
   // Ausgabe buendeln, damit schnelle Modelle das Fenster nicht mit IPC fluten
   let puffer = '', geplant = false;
@@ -374,13 +442,14 @@ ipcMain.handle('pty:spawn', async (_e, o) => {
   if (o.tool && o.tool !== 'shell') cfg.defaultTool = o.tool;
   if (o.cwd) cfg.lastDir = cwd;
   speichereConfig();
-  return { id, tab, cwd };
+  return { id, tab, cwd, fehlt };
 });
 ipcMain.on('pty:write', (_e, id, d) => { const p = ptys.get(id); if (p) p.write(d); });
 ipcMain.on('pty:resize', (_e, id, c, r) => { const p = ptys.get(id); if (p && c > 0 && r > 0) try { p.resize(c, r); } catch {} });
 ipcMain.on('pty:kill', (_e, id) => { const p = ptys.get(id); if (p) { try { p.kill(); } catch {} ptys.delete(id); } });
 
 ipcMain.handle('models:list', () => modellListe());
+ipcMain.handle('tools:check', () => werkzeugeInstalliert());
 ipcMain.handle('models:load', (_e, id, laden) => modellLaden(id, laden));
 ipcMain.on('download:start', (_e, d) => herunterladen(d));
 ipcMain.on('download:cancel', (_e, key) => { const ac = downloads.get(key); if (ac) ac.abort(); });
@@ -442,6 +511,25 @@ async function testLauf(ordner) {
   for (let i = 0; i < 60 && !(await js('!!window.glowlineBereit').catch(() => false)); i++) await warte(500);
   await warte(1000);
   await bild('1-start');
+  if (process.env.GLOWLINE_TEST_NUR === 'installation') {
+    await js(`starteSitzung({ cwd: ${JSON.stringify(ordner)} })`);
+    await warte(4000);
+    console.log('OHNE SERVER', await js('sitzung && sitzung.beendet'));
+    await bild('2-ohne-server');
+    await js(`document.querySelector('#tool-chip').click()`);
+    await warte(2500);
+    console.log('MENUE', await js(`[...document.querySelectorAll('#tools [data-tool]')].map((b) => b.dataset.tool + ': ' + b.querySelector('small').textContent).join(' | ')`));
+    await bild('3-werkzeuge');
+    await js(`schliesseMenues(); starteSitzung({ tool: 'opencode', cwd: ${JSON.stringify(ordner)} })`);
+    await warte(5000);
+    await bild('4-fehlt');
+    await js(`oeffneBib('laden')`);
+    await warte(2500);
+    console.log('ZIELE', await js(`[...document.querySelectorAll('.ziel small')].map((x) => x.textContent).join(' | ')`));
+    await bild('5-ziele');
+    app.quit();
+    return;
+  }
   const modell = process.env.GLOWLINE_TEST_MODELL || null; // null = Standardmodell
   await js(`starteSitzung({ tool: 'claude', model: ${JSON.stringify(modell)}, cwd: ${JSON.stringify(ordner)} })`);
   await warte(12000);

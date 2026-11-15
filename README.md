@@ -30,10 +30,12 @@ Models can be loaded/unloaded from the model menu. Press **F11** for fullscreen.
 ### Favorites and downloads
 
 - The model button in the bar only shows your **favorites**. Click **All models & downloads** to open the big model window.
-- **My models** lists everything from Ollama and LM Studio. Click ☆ to add a model to your favorites, Load/Unload it, or click it to switch.
+- **My models** lists everything from Ollama and LM Studio with readable names (long Hugging Face names are shortened, the uploader is shown in grey, the full name is in the tooltip). Click ☆ to add a model to your favorites, Load/Unload it, or click it to switch.
 - **Download** gets GGUF models from Hugging Face: 1) choose where it goes (Ollama or LM Studio), 2) search, 3) pick a model and a size. Sizes that fit your VRAM are marked. Ollama downloads it itself (`hf.co/<repo>:<quant>`); for LM Studio, Glowline saves the file into the LM Studio models folder. Downloads show progress and can be cancelled.
 
 ## Requirements
+
+Glowline tells you what is missing: if a tool is not installed it shows the install command right in the terminal, and if no model server is installed or running it says so and links to Ollama / LM Studio.
 
 - Windows 10/11
 - [Ollama](https://ollama.com) and/or [LM Studio](https://lmstudio.ai) (server started)

@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('api', {
   downloadCancel: (key) => ipcRenderer.send('download:cancel', key),
   onDownload: (cb) => ipcRenderer.on('download', (_e, p) => cb(p)),
   hfSearch: (q) => ipcRenderer.invoke('hf:search', q),
+  tools: () => ipcRenderer.invoke('tools:check'),
   hfFiles: (repo) => ipcRenderer.invoke('hf:files', repo),
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (p) => ipcRenderer.invoke('config:set', p),

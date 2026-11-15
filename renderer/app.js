@@ -6,6 +6,21 @@ const kurz = (n) => (n == null ? '–' : n >= 1000 ? zahl(n / 1000, n >= 10000 ?
 const WERKZEUG_NAME = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', shell: 'PowerShell' };
 const TESTMODUS = new URLSearchParams(location.search).has('test');
 
+// Lesbarer Modellname: "hf.co/mradermacher/Foo-8B-abliterated-i1-GGUF:i1-Q4_K_M" -> "Foo-8B-abliterated" + Ersteller "mradermacher".
+// Die Quantisierung steht ohnehin in der Info daneben, der volle Name im Tooltip.
+const QUANT_TAG = /^(i1-)?(UD-)?(I?Q\d[\w]*|F16|BF16|F32)$|^latest$/i;
+function anzeigeName(voll) {
+  let n = String(voll || '').replace(/^(ollama|lmstudio),/, ''), quelle = '', tag = '';
+  const hf = /^hf\.co\/([^/]+)\/(.+)$/i.exec(n);
+  if (hf) [, quelle, n] = hf;
+  const i = n.lastIndexOf(':');
+  if (i > 0) { tag = n.slice(i + 1); n = n.slice(0, i); }
+  if (!hf) { const ns = /^(.+)\/([^/]+)$/.exec(n); if (ns) [, quelle, n] = ns; }
+  n = n.replace(/\.gguf$/i, '').replace(/[-_.]gguf$/i, '').replace(/[-_.]i1$/i, '');
+  if (tag && !QUANT_TAG.test(tag)) n += ':' + tag;
+  return { name: n || voll, quelle };
+}
+
 let cfg = {};
 let liste = null; // Modell-Liste
 let status = { loaded: [] };
@@ -56,20 +71,22 @@ window.api.onExit((id, code) => {
 async function starteSitzung(neu) {
   const tool = neu.tool || (sitzung && sitzung.tool) || cfg.defaultTool || 'claude';
   const model = neu.model || (sitzung && sitzung.model) || cfg.defaultModel || (tool !== 'shell' ? await standardModell() : null);
-  if (!model && tool !== 'shell') {
+  const cwd = neu.cwd || (sitzung && sitzung.cwd) || cfg.lastDir;
+  // ohne Modell: Hinweis zum Modell-Server - ausser das Werkzeug fehlt, dann zeigt das Terminal die Installationshilfe
+  if (!model && tool !== 'shell' && (await window.api.tools().catch(() => ({})))[tool] !== false) {
     if (sitzung && !sitzung.beendet) window.api.kill(sitzung.id);
     sitzung = { id: null, kennung: null, tool, model: null, cwd, beendet: true };
     term.reset();
-    term.write('\x1b[90m[No local model found. Start Ollama or LM Studio, then press Enter.]\x1b[0m\r\n');
+    term.write(keinModellText());
     zeichneLeiste();
     return;
   }
-  const cwd = neu.cwd || (sitzung && sitzung.cwd) || cfg.lastDir;
   if (sitzung && !sitzung.beendet) window.api.kill(sitzung.id);
   term.reset();
   try { fit.fit(); } catch {}
   const r = await window.api.spawn({ tool, model: tool === 'shell' ? null : model, cwd, cols: term.cols, rows: term.rows });
   sitzung = { id: r.id, kennung: r.tab, tool, model, cwd: r.cwd, beendet: false };
+  if (r.fehlt) hinweis(WERKZEUG_NAME[r.fehlt] + ' is not installed – see the terminal');
   if (tool !== 'shell') { cfg.defaultTool = tool; cfg.defaultModel = model; }
   cfg.lastDir = r.cwd;
   const ordner = r.cwd.replace(/^C:\\Users\\[^\\]+/i, '~');
@@ -82,6 +99,26 @@ async function starteSitzung(neu) {
   zeichneLeiste();
 }
 window.starteSitzung = starteSitzung;
+
+// Erklaerung, warum kein Modell da ist: nichts installiert, nicht gestartet oder noch keine Modelle
+function keinModellText() {
+  const o = (liste && liste.ollama) || {}, l = (liste && liste.lmstudio) || {};
+  const grau = (t) => '\x1b[90m' + t + '\x1b[0m\r\n', gelb = (t) => '\x1b[33m' + t + '\x1b[0m\r\n';
+  if (o.online || l.online) {
+    return gelb('No models yet.') + grau(`${o.online ? 'Ollama' : 'LM Studio'} is running but has no models. Click the model button (bottom right) →`)
+      + grau('“All models & downloads” → Download to get one, then press Enter here.');
+  }
+  if (o.installiert || l.installiert) {
+    const name = o.installiert ? 'Ollama' : 'LM Studio';
+    return gelb(`${name} is installed but not running.`)
+      + grau(`Start ${name}${name === 'LM Studio' ? ' and its server (Developer → Start Server)' : ''}, then press Enter here.`);
+  }
+  return gelb('Glowline needs a local model server, and none is installed.')
+    + grau('Install one of these (both are free), start it, then press Enter here:')
+    + grau('  • Ollama     https://ollama.com/download')
+    + grau('  • LM Studio  https://lmstudio.ai')
+    + grau('PowerShell works without one: pick it in the tool menu (bottom right).');
+}
 
 // Erstes geladenes Modell, sonst das erste verfuegbare
 async function standardModell() {
@@ -160,6 +197,15 @@ $('#tool-chip').addEventListener('click', () => {
   $('#ordner-name').textContent = sitzung ? sitzung.cwd : cfg.lastDir;
   $('#tools').classList.remove('versteckt');
   $('#tool-chip').classList.add('offen');
+  window.api.tools().then((da) => {
+    for (const b of document.querySelectorAll('#tools [data-tool]')) {
+      const fehlt = da[b.dataset.tool] === false;
+      b.classList.toggle('fehlt', fehlt);
+      const k = b.querySelector('small');
+      k.dataset.text = k.dataset.text || k.textContent;
+      k.textContent = fehlt ? 'not installed – click for install help' : k.dataset.text;
+    }
+  });
 });
 for (const b of document.querySelectorAll('#tools [data-tool]')) {
   b.addEventListener('click', () => { schliesseMenues(); starteSitzung({ tool: b.dataset.tool }); });
@@ -186,7 +232,7 @@ $('#modell-chip').addEventListener('click', async () => {
 });
 $('#m-alle').addEventListener('click', () => oeffneBib('meine'));
 
-const sortiere = (a) => [...a].sort((x, y) => (y.loaded - x.loaded) || x.name.localeCompare(y.name));
+const sortiere = (a) => [...a].sort((x, y) => (y.loaded - x.loaded) || anzeigeName(x.name).name.localeCompare(anzeigeName(y.name).name, 'en', { sensitivity: 'base' }));
 const fav = () => cfg.favoriten || [];
 const alleModelle = () => (liste ? [...liste.ollama.models, ...liste.lmstudio.models] : []);
 const aktuellesModell = () => (sitzung ? sitzung.model : cfg.defaultModel);
@@ -207,7 +253,7 @@ function waehleModell(id) {
     sitzung.model = id;
     cfg.defaultModel = id;
     window.api.setConfig({ defaultModel: id });
-    hinweis('Switched model: ' + id.replace(/^(ollama|lmstudio),/, ''));
+    hinweis('Switched model: ' + anzeigeName(id).name);
     zeichneLeiste();
   } else {
     starteSitzung({ model: id });
@@ -235,7 +281,10 @@ function modellZeile(m) {
   const vram = m.loaded && m.vram ? `${gb(m.vram)} VRAM${m.ctx ? ' · ' + kurz(m.ctx) + ' ctx' : ''}` : '';
   z.innerHTML = '<span class="punkt"></span><span class="m-name"></span><span class="m-info"></span><button class="m-stern"></button><button class="m-knopf"></button>';
   z.querySelector('.punkt').classList.toggle('an', !!m.loaded);
-  z.querySelector('.m-name').textContent = m.name;
+  const an = anzeigeName(m.name);
+  const nm = z.querySelector('.m-name');
+  nm.textContent = an.name;
+  if (an.quelle) nm.appendChild(elem('span', 'm-quelle', an.quelle));
   z.querySelector('.m-info').textContent = vram || info;
   z.title = m.id + (info ? '\n' + info : '');
   const istFav = fav().includes(m.id);
@@ -318,13 +367,13 @@ const ZIELE = [
     id: 'ollama', name: 'Ollama',
     bereit: () => !!(liste && liste.ollama.online),
     info: () => 'Ollama downloads and stores it',
-    aus: 'Ollama is not running – start it first',
+    aus: () => (liste && liste.ollama.installiert ? 'Ollama is not running – start it first' : 'Not installed – get it at ollama.com'),
   },
   {
     id: 'lmstudio', name: 'LM Studio',
     bereit: () => !!(liste && liste.lmstudio.ordner),
     info: () => liste.lmstudio.ordner.replace(/^[A-Z]:\\Users\\[^\\]+/i, '~'),
-    aus: 'LM Studio models folder not found',
+    aus: () => 'Not installed – get it at lmstudio.ai',
   },
 ];
 const zielId = () => (ZIELE.some((z) => z.id === cfg.downloadZiel) ? cfg.downloadZiel : 'ollama');
@@ -364,7 +413,7 @@ function zeichneZiele() {
     b.innerHTML = '<span class="punkt"></span><b></b><small></small>';
     b.querySelector('.punkt').classList.toggle('an', ok);
     b.querySelector('b').textContent = z.name;
-    b.querySelector('small').textContent = ok ? z.info() : z.aus;
+    b.querySelector('small').textContent = ok ? z.info() : z.aus();
     b.addEventListener('click', () => {
       cfg.downloadZiel = z.id;
       window.api.setConfig({ downloadZiel: z.id });
@@ -637,7 +686,7 @@ function zeichneLeiste() {
   }
 
   // Kopfzeile + Knoepfe
-  const kurzName = name.replace(/^hf\.co\/[^/]+\//, '');
+  const kurzName = anzeigeName(name).name;
   if (modelId) {
     const teile = [ausListe && ausListe.params, ausListe && ausListe.quant].filter(Boolean).join(', ');
     const gpuName = status.gpu ? status.gpu.name.replace(/^NVIDIA (GeForce )?/, '') : '';
