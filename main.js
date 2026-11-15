@@ -1,12 +1,13 @@
 // Glowline: minimales Terminal fuer lokale KI-Modelle (Claude Code, Codex, OpenCode)
 // mit Live-Leiste unten (tok/s, Prefill, erstes Token, Kontext, VRAM).
-const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu, screen, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { execFile, spawn } = require('child_process');
 const pty = require('@lydell/node-pty');
-const { StatsProxy, teileModell } = require('./proxy');
+const { StatsProxy, teileModell, istWolke } = require('./proxy');
+const konten = require('./konten');
 
 const HOME = os.homedir();
 
@@ -78,8 +79,9 @@ async function holeJson(url, opt = {}) {
   return r.json();
 }
 
-async function modellListe() {
-  const aus = { ollama: { online: false, models: [] }, lmstudio: { online: false, models: [] } };
+async function modellListe(mitWolke) {
+  const aus = { ollama: { online: false, models: [] }, lmstudio: { online: false, models: [] }, wolke: {} };
+  const wolke = mitWolke ? konten.wolkenListe().catch(() => ({})) : Promise.resolve({});
   aus.lmstudio.ordner = fs.existsSync(path.dirname(lmModellOrdner())) ? lmModellOrdner() : null;
   const O = cfg.backends.ollama, L = cfg.backends.lmstudio;
   await Promise.all([
@@ -107,6 +109,7 @@ async function modellListe() {
   aus.ollama.installiert = aus.ollama.online || fs.existsSync(path.join(la, 'Programs', 'Ollama', 'ollama.exe'))
     || !!(await findeProgramm('ollama', await frischerPfad()));
   aus.lmstudio.installiert = aus.lmstudio.online || fs.existsSync(path.join(HOME, '.lmstudio')) || fs.existsSync(path.join(la, 'Programs', 'LM Studio'));
+  aus.wolke = await wolke;
   return aus;
 }
 
@@ -123,6 +126,72 @@ async function lmModelle(L) {
       const r = await holeJson(L + '/v1/models', { zeit: 2500 });
       return (r.data || []).map((m) => ({ id: 'lmstudio,' + m.id, name: m.id, loaded: false }));
     } catch { return null; }
+  }
+}
+
+// ---------- Chat (eingebaut, ueber den Mess-Proxy -> Leiste misst mit) ----------
+const chats = new Map();
+async function chatSenden({ id, model: modellId, system, nachrichten }) {
+  const ac = new AbortController();
+  chats.set(id, ac);
+  const melde = (p) => sende('chat', { id, ...p });
+  try {
+    const { backend, model } = teileModell(String(modellId || ''));
+    const b = backend || 'ollama';
+    const w = konten.WOLKEN[b];
+    if (!model) throw new Error('No model selected');
+    if (w && w.nurWerkzeug) throw new Error(`${w.name} works only inside ${WERKZEUG[w.nurWerkzeug]}. For chat, add an API key under Models → Accounts or pick a local model.`);
+    const msgs = (Array.isArray(nachrichten) ? nachrichten : []).filter((m) => m && /^(user|assistant)$/.test(m.role)).map((m) => ({ role: m.role, content: String(m.content) }));
+    const anthropic = w && w.format === 'anthropic';
+    const url = `http://127.0.0.1:${cfg.port}/s/chat/${b}` + (anthropic ? '/v1/messages' : '/v1/chat/completions');
+    const body = anthropic
+      ? { model, max_tokens: 8192, stream: true, ...(system ? { system } : {}), messages: msgs }
+      : { model, stream: true, stream_options: { include_usage: true }, messages: [...(system ? [{ role: 'system', content: system }] : []), ...msgs] };
+    const r = await fetch(url, {
+      method: 'POST', signal: ac.signal,
+      headers: { 'content-type': 'application/json', authorization: 'Bearer glowline', 'x-api-key': 'glowline', 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      let m = t;
+      try { const j = JSON.parse(t); m = (j.error && (j.error.message || j.error)) || j.message || t; } catch {}
+      throw new Error(String(m).slice(0, 400) || 'HTTP ' + r.status);
+    }
+    const dec = new TextDecoder();
+    let puffer = '', text = '', denken = '', zuletzt = 0;
+    // manche Modelle schreiben ihr Denken als <think>...</think> in den Text
+    const trenne = () => {
+      const m = /^\s*<think>([\s\S]*?)(?:<\/think>\s*([\s\S]*))?$/.exec(text);
+      return m ? { text: m[2] || '', denken: denken + m[1] } : { text, denken };
+    };
+    for await (const stueck of r.body) {
+      puffer += dec.decode(stueck, { stream: true });
+      let i;
+      while ((i = puffer.indexOf('\n')) >= 0) {
+        const z = puffer.slice(0, i).trim();
+        puffer = puffer.slice(i + 1);
+        if (!z.startsWith('data:')) continue;
+        const roh = z.slice(5).trim();
+        if (roh === '[DONE]') continue;
+        let d;
+        try { d = JSON.parse(roh); } catch { continue; }
+        if (anthropic) {
+          if (d.type === 'content_block_delta' && d.delta) { text += d.delta.text || ''; denken += d.delta.thinking || ''; }
+          if (d.type === 'error') throw new Error((d.error && d.error.message) || 'error');
+        } else if (Array.isArray(d.choices) && d.choices[0]) {
+          const dl = d.choices[0].delta || {};
+          text += dl.content || '';
+          denken += dl.reasoning_content || dl.reasoning || '';
+        }
+      }
+      if (Date.now() - zuletzt > 60) { zuletzt = Date.now(); melde(trenne()); }
+    }
+    melde({ ...trenne(), fertig: true });
+  } catch (e) {
+    melde({ fertig: true, fehler: ac.signal.aborted ? 'stopped' : e.message });
+  } finally {
+    chats.delete(id);
   }
 }
 
@@ -162,6 +231,7 @@ function lms(args) {
 
 async function modellLaden(id, laden) {
   const { backend, model } = teileModell(id);
+  if (istWolke(backend)) return 'ok';
   if (backend === 'lmstudio') return lms(laden ? ['load', model, '-y'] : ['unload', model]);
   const r = await fetch(cfg.backends.ollama + '/api/generate', {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -271,6 +341,11 @@ const INSTALL = {
   codex: { name: 'Codex', befehl: 'npm install -g @openai/codex', node: true },
   opencode: { name: 'OpenCode', befehl: 'npm install -g opencode-ai', node: true },
 };
+const WERKZEUG = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', shell: 'PowerShell' };
+function meldung(env, zeilen) {
+  const text = ['', ...zeilen, ''].map((t, i) => `Write-Host ${q(t)}${i === 1 ? ' -ForegroundColor Yellow' : i > 1 && t ? ' -ForegroundColor DarkGray' : ''}`).join('; ');
+  return { file: 'powershell.exe', args: ['-NoLogo', '-NoProfile', '-NoExit', '-Command', text], env };
+}
 function installHinweis(tool) {
   const i = INSTALL[tool];
   const zeile = (text, farbe) => `Write-Host ${q(text)}${farbe ? ' -ForegroundColor ' + farbe : ''}`;
@@ -299,8 +374,20 @@ async function baueBefehl(tool, modellId, tab) {
     if (!exe) return { file: 'powershell.exe', args: ['-NoLogo', '-NoProfile', '-NoExit', '-Command', installHinweis(tool)], env, fehlt: tool };
   }
 
+  const wolke = istWolke(backend) ? konten.WOLKEN[backend] : null;
+  if (wolke) {
+    const passt = { claude: ['abo', 'anthropic'], codex: ['chatgpt', 'openai'], opencode: ['anthropic', 'openai', 'openrouter', 'gemini'] }[tool];
+    if (passt && !passt.includes(backend)) {
+      const wo = wolke.nurWerkzeug ? WERKZEUG[wolke.nurWerkzeug] : 'OpenCode or Chat';
+      return meldung(env, [`${wolke.name} models work in ${wo}, not in ${WERKZEUG[tool]}.`, 'Pick another model (bottom right) or switch the tool.']);
+    }
+  }
+
   if (tool === 'claude') {
-    Object.assign(env, cfg.claude.env, { ANTHROPIC_BASE_URL: basis, ANTHROPIC_AUTH_TOKEN: 'glowline' });
+    if (!wolke) Object.assign(env, cfg.claude.env, { ANTHROPIC_BASE_URL: basis, ANTHROPIC_AUTH_TOKEN: 'glowline' });
+    // Abo: Claude Code meldet sich selbst an, der Proxy misst nur mit. API-Schluessel: setzt der Proxy ein.
+    else if (backend === 'abo') env.ANTHROPIC_BASE_URL = basis;
+    else Object.assign(env, { ANTHROPIC_BASE_URL: basis, ANTHROPIC_AUTH_TOKEN: 'glowline' });
     const a = [q(exe)];
     // Eigene Einstellungsdatei: optionale Nutzer-Einstellungen + leere Statuszeile (die Werte zeigt ja Glowline unten an)
     let einst = {};
@@ -312,8 +399,15 @@ async function baueBefehl(tool, modellId, tab) {
     a.push('--settings', q(einstPfad));
     if (cfg.claude.systemPromptFile && fs.existsSync(cfg.claude.systemPromptFile)) a.push('--append-system-prompt-file', q(cfg.claude.systemPromptFile));
     if (cfg.claude.skipPermissions) a.push('--dangerously-skip-permissions');
-    a.push('--model', q((backend || 'ollama') + ',' + model));
+    a.push('--model', q(wolke ? model : (backend || 'ollama') + ',' + model));
     zeile = '& ' + a.join(' ');
+  } else if (tool === 'codex' && backend === 'chatgpt') {
+    zeile = `& ${q(exe)}`; // eigenes ChatGPT-Login und Standardmodell von Codex
+  } else if (tool === 'codex' && wolke) {
+    // OpenAI-API ueber den Proxy: der setzt den Schluessel ein und misst
+    env.GLOWLINE_KEY = 'glowline';
+    const anbieter = `model_providers.glowline={ name = "Glowline", base_url = "${basis}/v1", env_key = "GLOWLINE_KEY", wire_api = "responses" }`;
+    zeile = `& ${q(exe)} -c ${q('model_provider="glowline"')} -c ${q(anbieter)} -m ${q(model)}`;
   } else if (tool === 'codex') {
     env.CODEX_OSS_BASE_URL = basis + '/v1';
     zeile = `& ${q(exe)} --oss --local-provider ${backend === 'lmstudio' ? 'lmstudio' : 'ollama'} -m ${q(model)}`;
@@ -323,17 +417,22 @@ async function baueBefehl(tool, modellId, tab) {
     for (const m of [...liste.ollama.models, ...liste.lmstudio.models]) {
       modelle[m.name] = { name: m.name, limit: { context: m.ctx || 128000, output: 16000 } };
     }
-    modelle[model] = modelle[model] || { name: model, limit: { context: 128000, output: 16000 } };
-    env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
-      $schema: 'https://opencode.ai/config.json',
-      provider: {
-        glowline: {
-          npm: '@ai-sdk/openai-compatible', name: 'Glowline',
-          options: { baseURL: basis + '/v1', apiKey: 'glowline' }, models: modelle,
-        },
+    const provider = {
+      glowline: {
+        npm: '@ai-sdk/openai-compatible', name: 'Glowline',
+        options: { baseURL: (wolke ? `http://127.0.0.1:${cfg.port}/s/${tab}/auto` : basis) + '/v1', apiKey: 'glowline' }, models: modelle,
       },
-      model: 'glowline/' + model,
-    });
+    };
+    let gewaehlt = 'glowline/' + model;
+    if (wolke) {
+      // Cloud-Anbieter ueber den Proxy (Schluessel setzt der Proxy ein)
+      provider['g-' + backend] = {
+        npm: wolke.format === 'anthropic' ? '@ai-sdk/anthropic' : '@ai-sdk/openai-compatible', name: wolke.name,
+        options: { baseURL: basis + '/v1', apiKey: 'glowline' }, models: { [model]: { name: model } },
+      };
+      gewaehlt = `g-${backend}/${model}`;
+    } else modelle[model] = modelle[model] || { name: model, limit: { context: 128000, output: 16000 } };
+    env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ $schema: 'https://opencode.ai/config.json', provider, model: gewaehlt });
     // --standalone: eigener Server, sonst nimmt OpenCode 2 den Hintergrund-Dienst ohne unsere Einstellungen
     zeile = `& ${q(exe)} --standalone`;
   }
@@ -346,6 +445,7 @@ async function baueBefehl(tool, modellId, tab) {
 // ---------- Hugging Face + Downloads ----------
 // Ziele: Ollama laedt selbst ("hf.co/<repo>:<quant>"), fuer LM Studio legt Glowline die GGUF-Datei in dessen Modellordner.
 const HF = 'https://huggingface.co';
+const hfKopf = () => { const k = konten.schluessel('huggingface'); return k ? { authorization: 'Bearer ' + k } : {}; };
 const QUANT = /(?:^|[-_.])((?:UD-)?I?Q\d(?:_[A-Z0-9]+)*|F16|BF16|F32)(?:-\d{5}-of-\d{5})?\.gguf$/i;
 const REPO = /^[\w-][\w.-]*\/[\w-][\w.-]*$/;
 const downloads = new Map(); // key -> AbortController
@@ -358,14 +458,14 @@ function lmModellOrdner() {
 }
 
 async function hfSuche(q) {
-  const r = await holeJson(`${HF}/api/models?search=${encodeURIComponent(q)}&filter=gguf&sort=downloads&direction=-1&limit=30`, { zeit: 12000 });
+  const r = await holeJson(`${HF}/api/models?search=${encodeURIComponent(q)}&filter=gguf&sort=downloads&direction=-1&limit=30`, { zeit: 12000, headers: hfKopf() });
   return r.map((m) => ({ repo: m.id || m.modelId, downloads: m.downloads || 0 }));
 }
 
 // Alle Quantisierungen eines Repos mit Groesse und Dateien (mehrteilige Dateien werden zusammengezaehlt)
 async function hfDateien(repo) {
   if (!REPO.test(repo)) throw new Error('invalid repo');
-  const r = await holeJson(`${HF}/api/models/${repo}/tree/main?recursive=true`, { zeit: 15000 });
+  const r = await holeJson(`${HF}/api/models/${repo}/tree/main?recursive=true`, { zeit: 15000, headers: hfKopf() });
   const quants = new Map();
   for (const f of r) {
     if (f.type !== 'file' || !/\.gguf$/i.test(f.path) || /mmproj/i.test(f.path)) continue;
@@ -440,7 +540,7 @@ async function dateienHolen(repo, dateien, gesamt, ordner, ac, melde) {
       const ziel = path.join(ordner, path.basename(p));
       if (fs.existsSync(ziel)) { fertig += fs.statSync(ziel).size; continue; }
       const teil = ziel + '.part';
-      const r = await fetch(`${HF}/${repo}/resolve/main/${p.split('/').map(encodeURIComponent).join('/')}`, { signal: ac.signal });
+      const r = await fetch(`${HF}/${repo}/resolve/main/${p.split('/').map(encodeURIComponent).join('/')}`, { signal: ac.signal, headers: hfKopf() });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const ws = fs.createWriteStream(teil);
       try {
@@ -497,8 +597,13 @@ ipcMain.on('pty:write', (_e, id, d) => { const p = ptys.get(id); if (p) p.write(
 ipcMain.on('pty:resize', (_e, id, c, r) => { const p = ptys.get(id); if (p && c > 0 && r > 0) try { p.resize(c, r); } catch {} });
 ipcMain.on('pty:kill', (_e, id) => { const p = ptys.get(id); if (p) { try { p.kill(); } catch {} ptys.delete(id); } });
 
-ipcMain.handle('models:list', () => modellListe());
+ipcMain.handle('models:list', () => modellListe(true));
 ipcMain.handle('tools:check', () => werkzeugeInstalliert());
+ipcMain.handle('konten:status', () => konten.status());
+ipcMain.handle('konten:setzen', (_e, id, wert) => { konten.setzeSchluessel(id, wert); return konten.status(); });
+ipcMain.on('link:oeffnen', (_e, url) => { if (/^https:\/\/[\w.-]+\//.test(String(url))) shell.openExternal(url); });
+ipcMain.on('chat:senden', (_e, a) => chatSenden(a));
+ipcMain.on('chat:stopp', (_e, id) => { const ac = chats.get(id); if (ac) ac.abort(); });
 ipcMain.handle('lmstudio:start', () => lmServerStarten());
 ipcMain.handle('models:load', (_e, id, laden) => modellLaden(id, laden));
 ipcMain.on('download:start', (_e, d) => herunterladen(d));
@@ -561,6 +666,42 @@ async function testLauf(ordner) {
   for (let i = 0; i < 60 && !(await js('!!window.glowlineBereit').catch(() => false)); i++) await warte(500);
   await warte(1000);
   await bild('1-start');
+  if (process.env.GLOWLINE_TEST_NUR === 'workspace') {
+    const fertig = async () => { for (let i = 0; i < 180 && (await js('!!chat.laeuft')); i++) await warte(500); };
+    const letzte = () => js(`(() => { const v = verlauf(); const a = v[v.length - 1]; return (a.fehler ? 'FEHLER ' + a.fehler : a.content).slice(0, 260).split(String.fromCharCode(10)).join(' / '); })()`);
+    await js(`zeigeWorkspace('chat'); setzeChatModell(${JSON.stringify(process.env.GLOWLINE_TEST_MODELL || '')})`);
+    await js(`document.querySelector('#chat-text').value = 'Answer in exactly five words: what is Glowline good for?'; sendeChat()`);
+    await warte(1500);
+    await bild('w1-chat-laeuft');
+    await fertig();
+    console.log('CHAT', await letzte(), '|', await js(`document.querySelector('#tps').textContent + ' tok/s | ' + document.querySelector('#tool-name').textContent + ' | ' + document.querySelector('#modell-name').textContent`));
+    await bild('w2-chat');
+    await js(`chat.modus = 'video'; zeichneChat(); document.querySelector('#chat-text').value = 'ein Fuchs rennt bei Sonnenuntergang durch den Schnee'; sendeChat()`);
+    await fertig();
+    console.log('VIDEO', await letzte());
+    console.log('CODE', await js(`!!document.querySelector('#chat-verlauf .code pre')`));
+    await bild('w3-video');
+    await js(`setzeChatModell('abo,sonnet'); chat.modus = 'chat'; zeichneChat(); document.querySelector('#chat-text').value = 'hi'; sendeChat()`);
+    await fertig();
+    console.log('ABO IM CHAT', await letzte());
+    await js(`document.querySelector('#tool-chip').click()`);
+    await warte(1500);
+    await bild('w4-menue');
+    console.log('MENUE', await js(`[...document.querySelectorAll('#tools .m-gruppe, #tools button b')].map((x) => x.textContent).join(' | ')`));
+    await js(`schliesseMenues(); oeffneBib('konten')`);
+    await warte(3000);
+    await bild('w5-konten');
+    console.log('KONTEN', await js(`[...document.querySelectorAll('.konto')].map((k) => k.querySelector('b').textContent + ': ' + k.querySelector('.k-status').textContent).join(' | ')`));
+    await js(`zeigeTab('meine')`);
+    await warte(4000);
+    await bild('w6-meine');
+    console.log('GRUPPEN', await js(`[...document.querySelectorAll('#b-liste .m-gruppe')].map((g) => g.textContent).join(' | ')`));
+    await js(`schliesseBib(); zeigeWorkspace('chat'); setzeChatModell(${JSON.stringify(process.env.GLOWLINE_TEST_MODELL || '')}); document.querySelector('#modell-chip').click()`);
+    await warte(1500);
+    await bild('w7-chat-modell');
+    app.quit();
+    return;
+  }
   if (process.env.GLOWLINE_TEST_NUR === 'installation') {
     await js(`starteSitzung({ cwd: ${JSON.stringify(ordner)} })`);
     await warte(4000);
@@ -689,13 +830,17 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     ladeConfig();
     proxy = new StatsProxy(cfg);
+    proxy.wolke = konten.ziel;
     proxy.on('stat', (s) => sende('stat', s));
     try { await proxy.listen(cfg.port); } catch (e) {
       dialog.showErrorBox('Glowline', `Port ${cfg.port} is already in use (${e.code}). Set a different "port" in config.json.`);
     }
     fenster();
     statusSchleife();
-    if (process.env.GLOWLINE_TEST) testLauf(process.env.GLOWLINE_TEST);
+    if (process.env.GLOWLINE_TEST) {
+      win.webContents.on('console-message', (_e, lvl, msg, zeile, quelle) => { if (lvl >= 2) console.log('RENDERER', msg, path.basename(String(quelle)) + ':' + zeile); });
+      testLauf(process.env.GLOWLINE_TEST);
+    }
   });
   app.on('window-all-closed', () => {
     for (const p of ptys.values()) try { p.kill(); } catch {}

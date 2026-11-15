@@ -10,7 +10,7 @@ const TESTMODUS = new URLSearchParams(location.search).has('test');
 // Die Quantisierung steht ohnehin in der Info daneben, der volle Name im Tooltip.
 const QUANT_TAG = /^(i1-)?(UD-)?(I?Q\d[\w]*|F16|BF16|F32)$|^latest$/i;
 function anzeigeName(voll) {
-  let n = String(voll || '').replace(/^(ollama|lmstudio),/, ''), quelle = '', tag = '';
+  let n = String(voll || '').replace(/^(ollama|lmstudio|abo|chatgpt|anthropic|openai|openrouter|gemini),/, ''), quelle = '', tag = '';
   const hf = /^hf\.co\/([^/]+)\/(.+)$/i.exec(n);
   if (hf) [, quelle, n] = hf;
   const i = n.lastIndexOf(':');
@@ -22,6 +22,11 @@ function anzeigeName(voll) {
 }
 
 let cfg = {};
+let ansicht = 'terminal'; // terminal | chat
+const BACKEND_NAME = { ollama: 'Ollama', lmstudio: 'LM Studio', abo: 'Claude subscription', chatgpt: 'ChatGPT account', anthropic: 'Anthropic API', openai: 'OpenAI API', openrouter: 'OpenRouter', gemini: 'Google Gemini' };
+const backendVon = (id) => (/^([a-z]+),/.exec(id || '') || [])[1] || 'ollama';
+const istWolkeId = (id) => /^(abo|chatgpt|anthropic|openai|openrouter|gemini),/.test(id || '');
+const aktiveKennung = () => (ansicht === 'chat' ? 'chat' : sitzung && sitzung.kennung);
 let liste = null; // Modell-Liste
 let status = { loaded: [] };
 let sitzung = null; // { id, kennung, tool, model, cwd, beendet }
@@ -182,8 +187,9 @@ document.addEventListener('keydown', (e) => {
 function schliesseMenues() {
   for (const m of document.querySelectorAll('.menue')) m.classList.add('versteckt');
   for (const c of document.querySelectorAll('.chip')) c.classList.remove('offen');
-  term.focus();
+  fokus();
 }
+function fokus() { if (ansicht === 'chat') $('#chat-text').focus(); else term.focus(); }
 document.addEventListener('mousedown', (e) => {
   if (!e.target.closest('.menue') && !e.target.closest('.chip') && !e.target.closest('#f-gespart')) {
     if (document.querySelector('.menue:not(.versteckt)')) schliesseMenues();
@@ -194,7 +200,8 @@ $('#tool-chip').addEventListener('click', () => {
   const offen = !$('#tools').classList.contains('versteckt');
   schliesseMenues();
   if (offen) return;
-  for (const b of document.querySelectorAll('#tools [data-tool]')) b.classList.toggle('an', !!sitzung && b.dataset.tool === sitzung.tool);
+  for (const b of document.querySelectorAll('#tools [data-tool]')) b.classList.toggle('an', ansicht === 'terminal' && !!sitzung && b.dataset.tool === sitzung.tool);
+  for (const b of document.querySelectorAll('#tools [data-modus]')) b.classList.toggle('an', ansicht === 'chat' && b.dataset.modus === chat.modus);
   $('#ordner-name').textContent = sitzung ? sitzung.cwd : cfg.lastDir;
   $('#tools').classList.remove('versteckt');
   $('#tool-chip').classList.add('offen');
@@ -209,7 +216,15 @@ $('#tool-chip').addEventListener('click', () => {
   });
 });
 for (const b of document.querySelectorAll('#tools [data-tool]')) {
-  b.addEventListener('click', () => { schliesseMenues(); starteSitzung({ tool: b.dataset.tool }); });
+  b.addEventListener('click', () => {
+    schliesseMenues();
+    const zurueck = ansicht !== 'terminal' && sitzung && !sitzung.beendet && sitzung.tool === b.dataset.tool;
+    zeigeTerminal();
+    if (!zurueck) starteSitzung({ tool: b.dataset.tool });
+  });
+}
+for (const b of document.querySelectorAll('#tools [data-modus]')) {
+  b.addEventListener('click', () => { schliesseMenues(); zeigeWorkspace(b.dataset.modus); });
 }
 $('#ordner-wahl').addEventListener('click', async () => {
   const p = await window.api.pickDir(sitzung ? sitzung.cwd : cfg.lastDir);
@@ -235,8 +250,13 @@ $('#m-alle').addEventListener('click', () => oeffneBib('meine'));
 
 const sortiere = (a) => [...a].sort((x, y) => (y.loaded - x.loaded) || anzeigeName(x.name).name.localeCompare(anzeigeName(y.name).name, 'en', { sensitivity: 'base' }));
 const fav = () => cfg.favoriten || [];
-const alleModelle = () => (liste ? [...liste.ollama.models, ...liste.lmstudio.models] : []);
-const aktuellesModell = () => (sitzung ? sitzung.model : cfg.defaultModel);
+const wolkenModelle = () => (liste && liste.wolke ? Object.values(liste.wolke).flatMap((g) => g.models || []) : []);
+const alleModelle = () => (liste ? [...liste.ollama.models, ...liste.lmstudio.models, ...wolkenModelle()] : []);
+function modellAnzeige(id) {
+  const m = istWolkeId(id) && alleModelle().find((x) => x.id === id);
+  return m ? m.name : anzeigeName(id).name;
+}
+const aktuellesModell = () => (ansicht === 'chat' ? cfg.chatModel || cfg.defaultModel : sitzung ? sitzung.model : cfg.defaultModel);
 const gb = (b) => (b < 1e9 ? zahl(b / 1e6, 0) + ' MB' : zahl(b / 1e9, 1) + ' GB');
 const bibOffen = () => !$('#bib').classList.contains('versteckt');
 const elem = (tag, klasse, text) => { const e = document.createElement(tag); if (klasse) e.className = klasse; if (text != null) e.textContent = text; return e; };
@@ -246,15 +266,17 @@ const leer = (box, text) => box.appendChild(elem('div', 'm-leer', text));
 function waehleModell(id) {
   schliesseMenues();
   $('#bib').classList.add('versteckt');
+  if (ansicht === 'chat') return setzeChatModell(id);
   if (!sitzung || sitzung.beendet || sitzung.tool === 'shell') return starteSitzung({ model: id, tool: sitzung && sitzung.tool === 'shell' ? cfg.defaultTool : undefined });
-  if (sitzung.tool === 'claude') {
+  const gleicheQuelle = istWolkeId(id) ? backendVon(id) === backendVon(sitzung.model) : !istWolkeId(sitzung.model);
+  if (sitzung.tool === 'claude' && gleicheQuelle) {
     // Claude Code kann das Modell im laufenden Gespraech wechseln
-    window.api.write(sitzung.id, '/model ' + id);
+    window.api.write(sitzung.id, '/model ' + (istWolkeId(id) ? id.replace(/^[a-z]+,/, '') : id));
     setTimeout(() => window.api.write(sitzung.id, '\r'), 150);
     sitzung.model = id;
     cfg.defaultModel = id;
     window.api.setConfig({ defaultModel: id });
-    hinweis('Switched model: ' + anzeigeName(id).name);
+    hinweis('Switched model: ' + modellAnzeige(id));
     zeichneLeiste();
   } else {
     starteSitzung({ model: id });
@@ -272,11 +294,10 @@ function zeichneFavoriten() {
   if (!liste) { box.innerHTML = '<div class="m-leer">Loading models…</div>'; return; }
   box.innerHTML = '';
   const favs = sortiere(alleModelle().filter((m) => fav().includes(m.id)));
-  // Favoriten von Ollama und LM Studio getrennt zeigen (Ueberschrift nur, wenn beide vorkommen)
-  const teile = [['Ollama', favs.filter((m) => m.id.startsWith('ollama,'))], ['LM Studio', favs.filter((m) => m.id.startsWith('lmstudio,'))]];
-  const beide = teile.every(([, l]) => l.length);
+  // Favoriten nach Quelle getrennt zeigen (Ueberschrift nur, wenn mehrere Quellen vorkommen)
+  const teile = Object.keys(BACKEND_NAME).map((b) => [BACKEND_NAME[b], favs.filter((m) => backendVon(m.id) === b)]).filter(([, l]) => l.length);
   for (const [name, l] of teile) {
-    if (beide) gruppe(box, name);
+    if (teile.length > 1) gruppe(box, name);
     for (const m of l) box.appendChild(modellZeile(m));
   }
   if (!favs.length) leer(box, 'No favorites yet. Open “All models” below and click ☆ next to the models you use most.');
@@ -292,8 +313,9 @@ function modellZeile(m) {
   const nm = z.querySelector('.m-name');
   nm.textContent = an.name;
   if (an.quelle) nm.appendChild(elem('span', 'm-quelle', an.quelle));
-  z.querySelector('.m-info').textContent = vram || info;
+  z.querySelector('.m-info').textContent = m.wolke ? (m.ctx ? kurz(m.ctx) + ' ctx' : 'cloud') : vram || info;
   z.title = m.id + (info ? '\n' + info : '');
+  if (m.wolke) { z.classList.add('wolke'); nm.textContent = m.name; }
   const istFav = fav().includes(m.id);
   const stern = z.querySelector('.m-stern');
   stern.textContent = istFav ? '★' : '☆';
@@ -308,6 +330,7 @@ function modellZeile(m) {
     zeichneModelle();
   });
   const knopf = z.querySelector('.m-knopf');
+  if (m.wolke) knopf.remove();
   knopf.textContent = m.loaded ? 'Unload' : 'Load';
   knopf.addEventListener('click', async (e) => {
     e.stopPropagation();
@@ -331,17 +354,18 @@ async function oeffneBib(tab) {
   liste = await window.api.models();
   if (bibOffen()) zeichneBib();
 }
-function schliesseBib() { $('#bib').classList.add('versteckt'); term.focus(); }
+function schliesseBib() { $('#bib').classList.add('versteckt'); fokus(); }
 function zeigeTab(tab) {
   bibTab = tab;
   for (const b of document.querySelectorAll('.bib-tabs button')) b.classList.toggle('an', b.dataset.tab === tab);
   $('#bib-meine').classList.toggle('versteckt', tab !== 'meine');
   $('#bib-laden').classList.toggle('versteckt', tab !== 'laden');
+  $('#bib-konten').classList.toggle('versteckt', tab !== 'konten');
   zeichneBib();
-  (tab === 'meine' ? $('#b-suche') : $('#hf-suche')).focus();
+  if (tab !== 'konten') (tab === 'meine' ? $('#b-suche') : $('#hf-suche')).focus();
 }
 function zeichneBib() {
-  if (bibTab === 'meine') zeichneMeine(); else zeichneLaden();
+  if (bibTab === 'meine') zeichneMeine(); else if (bibTab === 'konten') zeichneKonten(); else zeichneLaden();
   zeichneDownloads();
 }
 for (const b of document.querySelectorAll('.bib-tabs button')) b.addEventListener('click', () => zeigeTab(b.dataset.tab));
@@ -364,6 +388,22 @@ function zeichneMeine() {
     if (!g.online && name === 'LM Studio' && g.installiert) box.appendChild(lmStartKnopf());
     else if (!g.online) leer(box, name === 'LM Studio' ? 'LM Studio is not installed (lmstudio.ai).' : g.installiert ? 'Ollama is not running – start it.' : 'Ollama is not installed (ollama.com).');
     else if (!ms.length) leer(box, such ? 'No match.' : 'No models yet – get some in the Download tab.');
+  }
+  const wolken = Object.entries(liste.wolke || {}).filter(([, g]) => g.verbunden);
+  for (const [, g] of wolken) {
+    gruppe(box, `${g.name} · ${g.fehler ? g.fehler : g.models.length + (g.models.length === 1 ? ' model' : ' models')}${g.nurWerkzeug ? ' · only in ' + WERKZEUG_NAME[g.nurWerkzeug] : ''}`);
+    const ms = g.models.filter((m) => !such || (m.name + ' ' + m.model).toLowerCase().includes(such));
+    for (const m of ms.slice(0, such ? 200 : 40)) box.appendChild(modellZeile(m));
+    if (!such && ms.length > 40) leer(box, `${ms.length - 40} more – type in the filter above to find them.`);
+    else if (!ms.length && !g.fehler) leer(box, 'No match.');
+  }
+  if (!wolken.length) {
+    const z = elem('div', 'm-leer lm-start');
+    z.append(elem('span', null, 'Use cloud models too: connect your Claude subscription, ChatGPT or API keys. '));
+    const b = elem('button', 'm-knopf', 'Accounts');
+    b.addEventListener('click', () => zeigeTab('konten'));
+    z.appendChild(b);
+    box.appendChild(z);
   }
   box.scrollTop = scroll;
 }
@@ -640,7 +680,7 @@ window.api.onStat((s) => {
     if (!klein || s.status !== 'ok') m.letzte = s;
     if (s.status === 'ok') {
       m.zuletzt = jetzt;
-      if (s.eingabe) {
+      if (s.eingabe && !istWolkeId(m.model)) {
         const t = tokenAnteile(m, s), summe = tokenSumme();
         cfg.tokens = { neu: summe.neu + t.neu, cache: summe.cache + t.cache, ausgabe: summe.ausgabe + t.ausgabe };
         m.vorherEingabe = s.eingabe;
@@ -656,7 +696,7 @@ const vor = (ms) => { const s = Math.round(ms / 1000); return s < 60 ? `${s}s ag
 const schoeneSkala = (v) => { for (const x of [50, 100, 150, 200, 300, 400, 500, 1000]) if (v <= x) return x; return Math.ceil(v / 500) * 500; };
 
 function zeichneLeiste() {
-  const m = sitzung && stats.get(sitzung.kennung);
+  const m = stats.get(aktiveKennung());
   const leiste = $('#leiste');
   const l = hauptLauf(m);
   const e = m && m.letzte;
@@ -709,11 +749,12 @@ function zeichneLeiste() {
   $('#letzte').textContent = m && m.zuletzt && !l ? 'Last reply ' + vor(Date.now() - m.zuletzt) : '';
 
   // Prompt / Kontext
-  const modelId = (sitzung && sitzung.tool !== 'shell' && sitzung.model) || (m && m.model) || '';
-  const name = modelId.replace(/^(ollama|lmstudio),/, '');
-  const backend = modelId.startsWith('lmstudio,') ? 'LM Studio' : 'Ollama';
-  const geladen = (status.loaded || []).find((x) => x.name === name);
-  const ausListe = liste && [...liste.ollama.models, ...liste.lmstudio.models].find((x) => x.id === modelId);
+  const modelId = ansicht === 'chat' ? aktuellesModell() || '' : (sitzung && sitzung.tool !== 'shell' && sitzung.model) || (m && m.model) || '';
+  const wolke = istWolkeId(modelId);
+  const name = modelId.replace(/^[a-z]+,/, '');
+  const backend = BACKEND_NAME[backendVon(modelId)] || 'Ollama';
+  const geladen = wolke ? { cloud: true } : (status.loaded || []).find((x) => x.name === name);
+  const ausListe = liste && alleModelle().find((x) => x.id === modelId);
   const ctx = (geladen && geladen.ctx) || (ausListe && ausListe.ctx) || null;
   if (e && e.eingabe) {
     $('#kontext').textContent = ctx ? `${zahl(e.eingabe)} / ${kurz(ctx)}` : zahl(e.eingabe) + ' tok';
@@ -726,10 +767,10 @@ function zeichneLeiste() {
   }
 
   // Kopfzeile + Knoepfe
-  const kurzName = anzeigeName(name).name;
+  const kurzName = modellAnzeige(modelId);
   if (modelId) {
     const teile = [ausListe && ausListe.params, ausListe && ausListe.quant].filter(Boolean).join(', ');
-    const gpuName = status.gpu ? status.gpu.name.replace(/^NVIDIA (GeForce )?/, '') : '';
+    const gpuName = status.gpu && !wolke ? status.gpu.name.replace(/^NVIDIA (GeForce )?/, '') : '';
     $('#modell-info').textContent = kurzName + (teile ? ', ' + teile : '');
     const i = document.createElement('i');
     i.textContent = `  on ${backend}${gpuName ? ' · ' + gpuName : ''}${geladen ? '' : ' · not loaded'}`;
@@ -737,7 +778,7 @@ function zeichneLeiste() {
   } else {
     $('#modell-info').textContent = sitzung && sitzung.tool === 'shell' ? 'PowerShell · no model' : 'No model active';
   }
-  $('#tool-name').textContent = sitzung ? WERKZEUG_NAME[sitzung.tool] : 'Tool';
+  $('#tool-name').textContent = ansicht === 'chat' ? MODI[chat.modus].name : sitzung ? WERKZEUG_NAME[sitzung.tool] : 'Tool';
   $('#modell-name').textContent = modelId ? kurzName : 'no model';
   $('#modell-chip').title = (modelId || '') + '\nClick: manage models';
   $('#modell-punkt').classList.toggle('an', !!geladen);
@@ -819,7 +860,7 @@ $('#p-reset').addEventListener('click', () => {
 let takt = 0;
 setInterval(() => {
   if (document.hidden) return;
-  const m = sitzung && stats.get(sitzung.kennung);
+  const m = stats.get(aktiveKennung());
   if (m && (m.aktiv.size || (m.zuletzt && ++takt % 4 === 0))) zeichneLeiste();
 }, 250);
 
@@ -837,7 +878,7 @@ window.api.onStatus((s) => {
     $('#vram-b').className = p > 0.92 ? 'voll' : p > 0.75 ? 'warn' : '';
     $('#strom').textContent = s.gpu.power != null && isFinite(s.gpu.power) ? `${zahl(s.gpu.power)} W` : s.gpu.util + ' %';
   }
-  const m = sitzung && stats.get(sitzung.kennung);
+  const m = stats.get(aktiveKennung());
   if (!m || !m.aktiv.size) zeichneLeiste();
 });
 
@@ -855,7 +896,7 @@ window.api.onStatus((s) => {
   try { fit.fit(); } catch {}
   liste = await window.api.models().catch(() => null);
   // Kein (oder ein nicht mehr vorhandenes) Standardmodell: erst ein geladenes, sonst das erste verfuegbare nehmen
-  if (liste && ![...liste.ollama.models, ...liste.lmstudio.models].some((m) => m.id === cfg.defaultModel)) {
+  if (liste && !alleModelle().some((m) => m.id === cfg.defaultModel)) {
     cfg.defaultModel = (await standardModell()) || '';
   }
   zeichneLeiste();

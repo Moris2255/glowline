@@ -11,10 +11,13 @@ const GEMESSEN = new Set(['/v1/messages', '/v1/responses', '/v1/chat/completions
 const WEG_ANFRAGE = new Set(['host', 'content-length', 'connection', 'accept-encoding']);
 const WEG_ANTWORT = new Set(['content-encoding', 'content-length', 'transfer-encoding', 'connection']);
 
+// Cloud-Anbieter nur mit Komma ("openai,gpt-5"), damit lokale Namen wie "openai/gpt-oss-20b" lokal bleiben
+const WOLKE = /^(abo|chatgpt|anthropic|openai|openrouter|gemini),(.+)$/;
 function teileModell(name) {
-  const m = /^(ollama|lmstudio)[,/](.+)$/.exec(name);
+  const m = /^(ollama|lmstudio)[,/](.+)$/.exec(name) || WOLKE.exec(name);
   return m ? { backend: m[1], model: m[2] } : { backend: null, model: name };
 }
+const istWolke = (b) => /^(abo|chatgpt|anthropic|openai|openrouter|gemini)$/.test(b);
 
 function liesKoerper(req) {
   return new Promise((ok, fehler) => {
@@ -70,18 +73,20 @@ class StatsProxy extends EventEmitter {
         delete json.thinking; delete json.reasoning; delete json.reasoning_effort; delete json.think;
       }
     }
-    if (!this.cfg.backends[backend]) backend = 'ollama';
+    const wolke = istWolke(backend) && this.wolke;
+    if (!wolke && !this.cfg.backends[backend]) backend = 'ollama';
 
-    if (pfad === '/v1/messages/count_tokens') return this.zaehleTokens(req, res, backend, pfad + url.search, json);
+    if (!wolke && pfad === '/v1/messages/count_tokens') return this.zaehleTokens(req, res, backend, pfad + url.search, json);
 
     const kopf = {};
     for (const [k, v] of Object.entries(req.headers)) if (!WEG_ANFRAGE.has(k)) kopf[k] = v;
+    // Cloud: der Schluessel kommt erst hier dazu (Platzhalter "glowline" wird ersetzt)
+    const ziel = wolke ? this.wolke(backend, pfad, kopf) + url.search : this.cfg.backends[backend] + pfad + url.search;
 
     const ac = new AbortController();
     res.on('close', () => { if (!res.writableFinished) ac.abort(); });
 
     const st = req.method === 'POST' && json && GEMESSEN.has(pfad) ? this.beginne(tab, backend, model, json) : null;
-    const ziel = this.cfg.backends[backend] + pfad + url.search;
 
     let oben;
     try {
@@ -234,4 +239,5 @@ function fehlerText(roh) {
   } catch { return roh ? roh.slice(0, 200) : null; }
 }
 
-module.exports = { StatsProxy, teileModell };
+module.exports = {
+  istWolke, StatsProxy, teileModell };

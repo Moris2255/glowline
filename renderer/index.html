@@ -14,6 +14,18 @@
   </header>
 
   <main id="terms">
+    <section id="chat" class="versteckt">
+      <div class="chat-kopf">
+        <div id="chat-modi" class="chat-modi"></div>
+        <div class="platz"></div>
+        <button id="chat-neu" title="Start over">New chat</button>
+      </div>
+      <div id="chat-verlauf"></div>
+      <div class="chat-eingabe">
+        <textarea id="chat-text" rows="1" spellcheck="false"></textarea>
+        <button id="chat-los">Send</button>
+      </div>
+    </section>
     <div id="hinweis" class="versteckt"></div>
   </main>
 
@@ -71,11 +83,16 @@
 
   <!-- Werkzeug-Menue -->
   <div id="tools" class="menue versteckt">
-    <div class="m-gruppe">Tool</div>
+    <div class="m-gruppe">Coding</div>
     <button data-tool="claude"><b>Claude Code</b><small>Anthropic API</small></button>
     <button data-tool="codex"><b>Codex</b><small>Responses API</small></button>
     <button data-tool="opencode"><b>OpenCode</b><small>OpenAI API</small></button>
     <button data-tool="shell"><b>PowerShell</b><small>plain shell</small></button>
+    <div class="m-gruppe">Workspace</div>
+    <button data-modus="chat"><b>Chat</b><small>talk to any model, local or cloud</small></button>
+    <button data-modus="video"><b>Prompt helper</b><small>video, image, voice and coding prompts</small></button>
+    <div class="m-gruppe">Studio</div>
+    <button class="bald" disabled><b>Images · Video · Voice · Upscale</b><small>coming soon – runs fully inside Glowline</small></button>
     <div class="m-gruppe">Folder</div>
     <button id="ordner-wahl"><b id="ordner-name">–</b><small>Click to choose another folder</small></button>
     <div class="m-fuss">Switching restarts the session</div>
@@ -109,7 +126,7 @@
     <div class="bib-fenster">
       <div class="bib-kopf">
         <b>Models</b>
-        <div class="bib-tabs"><button data-tab="meine" class="an">My models</button><button data-tab="laden">Download</button></div>
+        <div class="bib-tabs"><button data-tab="meine" class="an">My models</button><button data-tab="laden">Download</button><button data-tab="konten">Accounts</button></div>
         <div class="platz"></div>
         <button id="bib-zu" title="Close (Esc)">✕</button>
       </div>
@@ -128,6 +145,9 @@
           <div id="hf-details" class="bib-scroll"></div>
         </div>
       </div>
+      <div id="bib-konten" class="bib-seite versteckt">
+        <div id="konten-liste" class="bib-scroll"></div>
+      </div>
       <div id="bib-downloads"></div>
     </div>
   </div>
@@ -137,5 +157,6 @@
   <script src="../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
   <script src="../node_modules/@xterm/addon-unicode11/lib/addon-unicode11.js"></script>
   <script src="app.js"></script>
+  <script src="workspace.js"></script>
 </body>
 </html>
