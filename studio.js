@@ -241,8 +241,9 @@ async function modellHolen(id) {
       await stimmeEinrichten(ac, (z) => melde({ text: z }));
     } else {
       const fehlt = m.dateien.filter((d) => !fs.existsSync(path.join(p.modelle, d.ziel, path.basename(d.pfad))));
-      const gesamt = m.dateien.reduce((s, d) => s + d.groesse, 0);
-      let vorher = gesamt - fehlt.reduce((s, d) => s + d.groesse, 0);
+      // nur zaehlen, was wirklich fehlt (Dateien, die ein anderes Modell schon mitgebracht hat, nicht als Fortschritt anzeigen)
+      const gesamt = fehlt.reduce((s, d) => s + d.groesse, 0) || 1;
+      let vorher = 0;
       for (const d of fehlt) {
         const ziel = path.join(p.modelle, d.ziel, path.basename(d.pfad));
         // laedt ein anderes Modell diese Datei gerade? Dann darauf warten statt dieselbe .part-Datei doppelt zu schreiben

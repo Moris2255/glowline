@@ -87,8 +87,9 @@ body.vollbild .term { top: 10px; }
 .menue { position: fixed; bottom: 104px; width: 300px; max-width: calc(100vw - 32px); max-height: 66vh; display: flex; flex-direction: column; background: var(--bg2); border: 1px solid var(--linie); border-radius: 14px; box-shadow: 0 24px 60px #000c; z-index: 10; overflow: hidden; padding: 4px 0; }
 #tools { right: 16px; overflow-y: auto; max-height: calc(100vh - 124px); scrollbar-width: thin; scrollbar-color: var(--bg3) transparent; }
 #tools > * { flex: none; }
-#tools > button { text-align: left; padding: 8px 14px; display: flex; flex-direction: column; gap: 1px; }
-#tools > button:hover { background: var(--bg3); }
+#tools > button { text-align: left; padding: 7px 12px; margin: 3px 8px; display: flex; flex-direction: column; gap: 1px; border: 1px solid var(--linie); border-radius: 10px; }
+#tools > button:hover { background: var(--bg3); border-color: #3a3d43; }
+#tools > button.an { border-color: #4a4d53; }
 #tools > button small { color: var(--sehrleise); font-size: 11px; }
 #tools > button.fehlt b { color: var(--leise); }
 #tools > button.fehlt small { color: var(--gelb); }
@@ -98,8 +99,8 @@ body.vollbild .term { top: 10px; }
 #tools > button.klapp > span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 #tools > button.klapp .pfeil { font: 16px/1 var(--sans); font-style: normal; color: var(--leise); transition: transform .15s ease; }
 #tools > button.klapp.auf .pfeil { transform: rotate(90deg); }
-#tools > button.unter { padding-left: 28px; position: relative; }
-#tools > button.unter::before { content: ''; position: absolute; left: 16px; top: 8px; bottom: 8px; width: 1px; background: var(--linie); }
+#tools > button.unter { margin-left: 26px; position: relative; }
+#tools > button.unter::before { content: ''; position: absolute; left: -14px; top: -4px; bottom: 50%; width: 9px; border-left: 1px solid var(--linie); border-bottom: 1px solid var(--linie); border-bottom-left-radius: 6px; }
 #tools > button.unter.zu { display: none; }
 #ordner-name { font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; direction: rtl; text-align: left; }
 #modelle { right: 16px; width: 470px; padding: 0; }

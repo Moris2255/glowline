@@ -177,7 +177,8 @@ function modellKarte(m, gewaehlt, waehle) {
 }
 
 function feld(label, inhalt) {
-  const f = elem('label', 's-feld');
+  // nur einfache Eingaben in ein <label>: ein Klick daneben loest sonst den ersten Knopf darin aus (z. B. Format 1:1, Remove)
+  const f = elem(inhalt.matches('input, select, textarea') ? 'label' : 'div', 's-feld');
   f.append(elem('span', null, label), inhalt);
   return f;
 }

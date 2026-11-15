@@ -820,6 +820,12 @@ async function testLauf(ordner) {
       // gespielter laufender Auftrag: Verbessern-Knopf gesperrt, danach wieder frei
       console.log('VERBESSERN', await js(`(() => { zeigeStudio('bild'); sz.auftraege.set('auftrag:test', { vorgang: 'auftrag:test', fertig: false }); zeichneStudio(); const a = document.querySelector('.s-verbessern').disabled; sz.auftraege.get('auftrag:test').fertig = true; zeichneStudio(); return 'laeuft=' + a + ' danach=' + document.querySelector('.s-verbessern').disabled; })()`));
     }
+    if (was.includes('format')) {
+      // Klick neben die Format-Knoepfe darf das Format nicht aendern
+      await js(`zeigeStudio('bild')`);
+      await warte(1200);
+      console.log('FORMAT', await js(`(() => { sz.felder.bild.format = 1; zeichneStudio(); const box = document.querySelector('.s-formate'); const r = box.getBoundingClientRect(); const ziel = document.elementFromPoint(r.right + 30, r.top + r.height / 2); ziel.click(); box.parentElement.click(); const z = [...document.querySelectorAll('.s-feld')].map((x) => x.tagName.toLowerCase() + ':' + x.firstChild.textContent).join(' '); return 'format=' + sz.felder.bild.format + ' | ' + z; })()`));
+    }
     if (was.includes('laden')) {
       // gespielter Download: Karte zeigt Fortschritt, Eingabefelder werden dabei nicht neu gebaut
       await js(`zeigeStudio('bild')`);
