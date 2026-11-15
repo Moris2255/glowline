@@ -113,7 +113,7 @@ function befehl(exe, args, opt, melde) {
     };
     p.stdout.on('data', zeile);
     p.stderr.on('data', zeile);
-    if (opt && opt.signal) opt.signal.addEventListener('abort', () => { try { p.kill(); } catch {} });
+    if (opt && opt.signal) opt.signal.addEventListener('abort', () => baumWeg(p));
     p.on('error', fehler);
     p.on('exit', (c) => (c === 0 ? ok() : fehler(new Error(`${path.basename(exe)} failed (${c}): ${rest.split(/\r?\n/).filter(Boolean).slice(-3).join(' | ').slice(0, 400)}`))));
   });
@@ -281,9 +281,14 @@ async function comfyStarten() {
   throw new Error('The engine did not start: ' + (comfy ? comfy.log.split('\n').slice(-4).join(' ') : ''));
 }
 
+// ganzen Prozessbaum beenden (das venv-python startet das echte Python als Kindprozess)
+function baumWeg(proz) {
+  if (!proz || proz.exitCode !== null) return;
+  try { require('child_process').execFileSync('taskkill', ['/PID', String(proz.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore', timeout: 5000 }); } catch { try { proz.kill(); } catch {} }
+}
 function stoppen() {
-  if (comfy) { try { comfy.proz.kill(); } catch {} comfy = null; }
-  if (stimme) { try { stimme.proz.kill(); } catch {} stimme = null; }
+  if (comfy) { baumWeg(comfy.proz); comfy = null; }
+  if (stimme) { baumWeg(stimme.proz); stimme = null; }
 }
 
 async function comfyFrei() {
@@ -490,7 +495,7 @@ async function stimmeAuftrag(a, ac, melde) {
       res.on('end', () => { try { ok(JSON.parse(roh)); } catch { fehler(new Error('Voice engine sent no answer')); } });
     });
     req.on('error', fehler);
-    ac.signal.addEventListener('abort', () => { req.destroy(new Error('cancelled')); if (stimme) { try { stimme.proz.kill(); } catch {} } });
+    ac.signal.addEventListener('abort', () => { req.destroy(new Error('cancelled')); if (stimme) { baumWeg(stimme.proz); stimme = null; } });
     req.end(body);
   });
   if (j.fehler) throw new Error(j.fehler);

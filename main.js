@@ -975,6 +975,8 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
       testLauf(process.env.GLOWLINE_TEST);
     }
   });
+  // auch bei app.quit() (dann kommt kein window-all-closed): Studio-Motor nicht weiterlaufen lassen
+  app.on('will-quit', () => studio.stoppen());
   app.on('window-all-closed', () => {
     for (const p of ptys.values()) try { p.kill(); } catch {}
     if (gpuProzess) try { gpuProzess.kill(); } catch {}
