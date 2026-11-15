@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <title>Glowline</title>
+  <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="titel">
+    <img id="logo" src="logo.png" alt="">
+    <span id="titel-text">Glowline</span>
+  </header>
+
+  <main id="terms">
+    <div id="hinweis" class="versteckt"></div>
+  </main>
+
+  <footer id="leiste">
+    <div class="kopfzeile">
+      <span id="modell-info">No model active</span>
+      <span class="platz"></span>
+      <span id="letzte"></span>
+      <span class="backends"><span id="b-ollama">Ollama</span><span id="b-lmstudio">LM Studio</span></span>
+    </div>
+    <div class="werte">
+      <div class="feld gross" title="Output speed (tokens per second)">
+        <div class="zahl"><span id="tps">–</span><small>tok/s</small></div>
+        <div class="tacho">
+          <div class="spitze" id="spitze-text"></div>
+          <div class="spur"><i id="tacho-b"></i><em id="spitze-m"></em></div>
+          <div class="skala"><span>0</span><span id="skala-mitte">50</span><span id="skala-max">100</span></div>
+        </div>
+      </div>
+      <div class="feld" title="How long the model reads the prompt before the first token arrives">
+        <label id="l-erstes">First token</label><b id="erstes">–</b>
+      </div>
+      <div class="feld" title="Prompt processing (prefill) in tokens per second">
+        <label>Prefill</label><b id="prefill">–</b>
+      </div>
+      <div class="feld breit" title="Prompt tokens of the last request vs. the model's context window">
+        <label>Prompt</label>
+        <div class="balkenzeile"><b id="kontext">–</b><div class="balken"><i id="kontext-b"></i></div></div>
+      </div>
+      <div class="feld" title="Tokens generated in the last reply">
+        <label>Output</label><b id="ausgabe">–</b>
+      </div>
+      <div class="feld" title="Duration of the current or last turn">
+        <label>Turn</label><b id="runde">–</b>
+      </div>
+      <div class="feld" id="f-strom" title="GPU power draw (nvidia-smi)">
+        <label>GPU power</label><b id="strom">–</b>
+      </div>
+      <div class="feld breit" id="f-vram" title="Video memory (nvidia-smi)">
+        <label>VRAM</label>
+        <div class="balkenzeile"><b id="vram">–</b><div class="balken"><i id="vram-b"></i></div></div>
+      </div>
+      <div class="feld" id="f-gespart">
+        <label>Saved</label><b id="gespart">0.00 $</b>
+      </div>
+      <div class="platz"></div>
+      <button class="chip" id="tool-chip" title="Switch tool or folder">
+        <span id="tool-name">Claude Code</span><span class="pfeil">▾</span>
+      </button>
+      <button class="chip" id="modell-chip" title="Manage models">
+        <span class="punkt" id="modell-punkt"></span><span id="modell-name">no model</span><span class="pfeil">▾</span>
+      </button>
+    </div>
+  </footer>
+
+  <!-- Werkzeug-Menue -->
+  <div id="tools" class="menue versteckt">
+    <div class="m-gruppe">Tool</div>
+    <button data-tool="claude"><b>Claude Code</b><small>Anthropic API</small></button>
+    <button data-tool="codex"><b>Codex</b><small>Responses API</small></button>
+    <button data-tool="opencode"><b>OpenCode</b><small>OpenAI API</small></button>
+    <button data-tool="shell"><b>PowerShell</b><small>plain shell</small></button>
+    <div class="m-gruppe">Folder</div>
+    <button id="ordner-wahl"><b id="ordner-name">–</b><small>Click to choose another folder</small></button>
+    <div class="m-fuss">Switching restarts the session</div>
+  </div>
+
+  <!-- Modelle -->
+  <div id="modelle" class="menue versteckt">
+    <div class="m-kopf">
+      <input id="m-suche" placeholder="Search models…" spellcheck="false">
+      <button id="m-neu" title="Refresh">⟳</button>
+    </div>
+    <div id="m-liste"></div>
+    <div class="m-fuss" id="m-fuss">Click a model to switch</div>
+  </div>
+
+  <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
+  <script src="../node_modules/@xterm/addon-unicode11/lib/addon-unicode11.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
