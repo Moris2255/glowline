@@ -193,8 +193,9 @@ function promptFeld(f, platz, modus) {
   t.addEventListener('input', () => { f.prompt = t.value; zeichneKnopfStudio(); });
   t.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); starte(); } });
   const v = elem('button', 's-verbessern', sz.verbessern ? 'Improving…' : modus === 'stimme' ? '✨ Write script' : '✨ Improve prompt');
-  v.title = 'Your chat model (bottom right) turns your idea into a strong prompt';
-  v.disabled = !!sz.verbessern;
+  // waehrend Studio rechnet, wuerde das Sprachmodell die Grafikkarte mitbenutzen
+  v.title = studioRechnet() ? 'Available when the current job is done' : 'Your chat model (bottom right) turns your idea into a strong prompt';
+  v.disabled = !!sz.verbessern || studioRechnet();
   v.addEventListener('click', () => verbessere(modus, f));
   box.append(t, v);
   return box;
@@ -334,7 +335,9 @@ function starte() {
 }
 
 // ---------- Prompt verbessern (mit dem Chat-Modell) ----------
+const studioRechnet = () => [...sz.auftraege.values()].some((a) => !a.fertig);
 function verbessere(modus, f) {
+  if (studioRechnet()) { hinweis('Available when the current job is done'); return; }
   const model = chatModell();
   if (!model) { hinweis('Pick a chat model first (bottom right)'); return; }
   if (!f.prompt.trim()) { hinweis('Type your idea first'); return; }
@@ -469,6 +472,7 @@ window.api.onStudio((p) => {
     if (!p.wartet) neu.wartet = false;
     if (alt.wartet && !p.wartet) neu.start = Date.now();
     sz.auftraege.set(p.vorgang, neu);
+    if (!alt.vorgang) { const v = document.querySelector('.s-verbessern'); if (v) { v.disabled = true; v.title = 'Available when the current job is done'; } }
     if (p.vonAgent && !alt.vorgang) {
       if (ansicht !== 'studio') hinweis('A coding agent started a Studio job');
       // Auftrag eines Agenten zeigen, wenn gerade nichts Eigenes laeuft

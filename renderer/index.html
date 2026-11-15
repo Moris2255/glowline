@@ -98,15 +98,15 @@
     <button data-tool="claude"><b>Claude Code</b><small>Anthropic API</small></button>
     <button data-tool="codex"><b>Codex</b><small>Responses API</small></button>
     <button data-tool="opencode"><b>OpenCode</b><small>OpenAI API</small></button>
-    <button data-tool="shell"><b>PowerShell</b><small>plain shell</small></button>
-    <div class="m-gruppe">Workspace</div>
-    <button data-modus="chat"><b>Chat</b><small>talk to any model, local or cloud</small></button>
-    <button data-modus="video"><b>Prompt helper</b><small>video, image, voice and coding prompts</small></button>
-    <div class="m-gruppe">Studio</div>
-    <button data-studio="bild"><b>Images</b><small>FLUX.2 klein, Z-Image</small></button>
-    <button data-studio="video"><b>Video</b><small>Wan 2.2, text or image to video</small></button>
-    <button data-studio="upscale"><b>Upscale</b><small>4× sharper images</small></button>
-    <button data-studio="stimme"><b>Voice</b><small>speech and voice cloning</small></button>
+    <div class="m-gruppe">More</div>
+    <button class="klapp" data-klapp="workspace"><span><b>Workspace</b><small>chat and prompt helper</small></span><i class="pfeil">›</i></button>
+    <button class="unter" data-g="workspace" data-modus="chat"><b>Chat</b><small>talk to any model, local or cloud</small></button>
+    <button class="unter" data-g="workspace" data-modus="video"><b>Prompt helper</b><small>video, image, voice and coding prompts</small></button>
+    <button class="klapp" data-klapp="studio"><span><b>Studio</b><small>images, video, upscale and voice</small></span><i class="pfeil">›</i></button>
+    <button class="unter" data-g="studio" data-studio="bild"><b>Images</b><small>FLUX.2 klein, Z-Image</small></button>
+    <button class="unter" data-g="studio" data-studio="video"><b>Video</b><small>Wan 2.2, text or image to video</small></button>
+    <button class="unter" data-g="studio" data-studio="upscale"><b>Upscale</b><small>4× sharper images</small></button>
+    <button class="unter" data-g="studio" data-studio="stimme"><b>Voice</b><small>speech and voice cloning</small></button>
     <div class="m-gruppe">Folder</div>
     <button id="ordner-wahl"><b id="ordner-name">–</b><small>Click to choose another folder</small></button>
     <div class="m-fuss">Switching restarts the session</div>

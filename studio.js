@@ -267,6 +267,11 @@ async function modellHolen(id) {
   }
 }
 
+// Was laeuft gerade? (fuer die Rueckfrage beim Schliessen)
+function beschaeftigt() {
+  const k = [...laufend.keys()];
+  return { auftraege: k.filter((x) => x.startsWith('auftrag:')).length, laden: k.filter((x) => x === 'einrichten' || x.startsWith('modell:')).length };
+}
 function abbrechen(vorgang) { const ac = laufend.get(vorgang); if (ac) ac.abort(); }
 
 // ---------- Motor (ComfyUI) ----------
@@ -568,4 +573,4 @@ function galerie() {
 }
 const inAusgabe = (datei) => { const r = path.relative(P().ausgabe, path.resolve(datei)); return r && !r.startsWith('..') && !path.isAbsolute(r); };
 
-module.exports = { KATALOG, init, status, einrichten, modellHolen, abbrechen, auftrag, galerie, stoppen, comfyFrei, frei, inAusgabe, P, comfyStarten };
+module.exports = { KATALOG, init, status, beschaeftigt, einrichten, modellHolen, abbrechen, auftrag, galerie, stoppen, comfyFrei, frei, inAusgabe, P, comfyStarten };

@@ -204,6 +204,9 @@ $('#tool-chip').addEventListener('click', () => {
   for (const b of document.querySelectorAll('#tools [data-tool]')) b.classList.toggle('an', ansicht === 'terminal' && !!sitzung && b.dataset.tool === sitzung.tool);
   for (const b of document.querySelectorAll('#tools [data-modus]')) b.classList.toggle('an', ansicht === 'chat' && b.dataset.modus === chat.modus);
   for (const b of document.querySelectorAll('#tools [data-studio]')) b.classList.toggle('an', ansicht === 'studio' && b.dataset.studio === sz.bereich);
+  // nur die Gruppe aufklappen, in der man gerade ist
+  klappAuf = ansicht === 'chat' ? 'workspace' : ansicht === 'studio' ? 'studio' : null;
+  zeigeKlapp();
   $('#ordner-name').textContent = sitzung ? sitzung.cwd : cfg.lastDir;
   $('#tools').classList.remove('versteckt');
   $('#tool-chip').classList.add('offen');
@@ -217,6 +220,19 @@ $('#tool-chip').addEventListener('click', () => {
     }
   });
 });
+let klappAuf = null;
+function zeigeKlapp() {
+  for (const k of document.querySelectorAll('#tools [data-klapp]')) {
+    const g = k.dataset.klapp, auf = klappAuf === g;
+    k.classList.toggle('auf', auf);
+    // zugeklappt, aber man ist gerade darin: Haken an der Gruppe
+    k.classList.toggle('an', !auf && !!document.querySelector(`#tools [data-g="${g}"].an`));
+    for (const b of document.querySelectorAll(`#tools [data-g="${g}"]`)) b.classList.toggle('zu', !auf);
+  }
+}
+for (const k of document.querySelectorAll('#tools [data-klapp]')) {
+  k.addEventListener('click', () => { klappAuf = klappAuf === k.dataset.klapp ? null : k.dataset.klapp; zeigeKlapp(); });
+}
 for (const b of document.querySelectorAll('#tools [data-tool]')) {
   b.addEventListener('click', () => {
     schliesseMenues();

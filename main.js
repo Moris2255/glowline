@@ -714,6 +714,18 @@ function fenster() {
     // F11 = Vollbild wie im Windows Terminal (Titelzeile verschwindet, nur Terminal + Leiste)
     if (i.key === 'F11') { e.preventDefault(); win.setFullScreen(!win.isFullScreen()); }
   });
+  // Schliessen aus Versehen: nachfragen, solange im Studio etwas laeuft
+  win.on('close', (e) => {
+    if (process.env.GLOWLINE_TEST) return;
+    const b = studio.beschaeftigt();
+    if (!b.auftraege && !b.laden) return;
+    const r = dialog.showMessageBoxSync(win, {
+      type: 'question', buttons: ['Keep open', 'Close anyway'], defaultId: 0, cancelId: 0, noLink: true,
+      message: b.auftraege ? 'Studio is still generating' : 'A Studio download is still running',
+      detail: b.auftraege ? 'Closing Glowline cancels the running job.' : 'You can resume the download later, it continues where it stopped.',
+    });
+    if (r === 0) e.preventDefault();
+  });
   win.on('enter-full-screen', () => sende('vollbild', true));
   win.on('leave-full-screen', () => sende('vollbild', false));
 }
@@ -794,6 +806,19 @@ async function testLauf(ordner) {
       console.log('STIMME', JSON.stringify(await warteAuftrag(1200)));
       await warte(1500);
       await bild('s-stimme-fertig');
+    }
+    if (was.includes('menue')) {
+      // Menue aus dem Terminal heraus: Gruppen zu; dann Workspace aufklappen
+      await js(`zeigeTerminal(); document.querySelector('#tool-chip').click()`);
+      await warte(600);
+      await bild('m-zu');
+      await js(`document.querySelector('#tools [data-klapp="workspace"]').click()`);
+      await warte(400);
+      await bild('m-workspace');
+      console.log('MENUE2', await js(`[...document.querySelectorAll('#tools > button')].filter((b) => getComputedStyle(b).display !== 'none').map((b) => b.querySelector('b').textContent).join(' | ')`));
+      await js(`schliesseMenues()`);
+      // gespielter laufender Auftrag: Verbessern-Knopf gesperrt, danach wieder frei
+      console.log('VERBESSERN', await js(`(() => { zeigeStudio('bild'); sz.auftraege.set('auftrag:test', { vorgang: 'auftrag:test', fertig: false }); zeichneStudio(); const a = document.querySelector('.s-verbessern').disabled; sz.auftraege.get('auftrag:test').fertig = true; zeichneStudio(); return 'laeuft=' + a + ' danach=' + document.querySelector('.s-verbessern').disabled; })()`));
     }
     if (was.includes('laden')) {
       // gespielter Download: Karte zeigt Fortschritt, Eingabefelder werden dabei nicht neu gebaut
