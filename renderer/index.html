@@ -154,6 +154,7 @@
         <b>Models</b>
         <div class="bib-tabs"><button data-tab="meine" class="an">My models</button><button data-tab="laden">Download</button><button data-tab="konten">Accounts</button><button data-tab="cowork">Cowork</button><button data-tab="downloads">Downloads</button></div>
         <div class="platz"></div>
+        <button id="bib-link" class="m-knopf" title="Use this PC from your laptop (Glowline Link)">Link</button>
         <button id="bib-express" class="m-knopf" title="Let Glowline pick and install models that fit your PC">Express setup</button>
         <button id="bib-zu" title="Close (Esc)">✕</button>
       </div>
@@ -201,6 +202,19 @@
     </div>
   </div>
 
+  <!-- Glowline Link: PC teilen bzw. Laptop koppeln -->
+  <div id="link" class="versteckt">
+    <div class="ein-fenster link-fenster">
+      <div class="bib-kopf">
+        <img src="logo.png" alt="" class="ein-logo">
+        <b>Glowline Link</b>
+        <div class="platz"></div>
+        <button id="link-zu" title="Close (Esc)">✕</button>
+      </div>
+      <div id="link-inhalt"></div>
+    </div>
+  </div>
+
   <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
@@ -210,5 +224,6 @@
   <script src="studio.js"></script>
   <script src="einrichtung.js"></script>
   <script src="downloads.js"></script>
+  <script src="link.js"></script>
 </body>
 </html>

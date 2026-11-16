@@ -64,4 +64,11 @@ contextBridge.exposeInMainWorld('api', {
   installerZeigen: (id) => ipcRenderer.send('installer:zeigen', id),
   onInstaller: (cb) => ipcRenderer.on('installer', (_e, s) => cb(s)),
   onEinrichtung: (cb) => ipcRenderer.on('einrichtung', (_e, s) => cb(s)),
+  linkStand: () => ipcRenderer.invoke('link:stand'),
+  linkTeilen: (an) => ipcRenderer.invoke('link:teilen', an),
+  linkNeu: () => ipcRenderer.invoke('link:neu'),
+  linkSuchen: () => ipcRenderer.invoke('link:suchen'),
+  linkKoppeln: (host, code) => ipcRenderer.invoke('link:koppeln', host, code),
+  linkTrennen: () => ipcRenderer.invoke('link:trennen'),
+  onLink: (cb) => ipcRenderer.on('link', (_e, s) => cb(s)),
 });

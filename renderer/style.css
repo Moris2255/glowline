@@ -393,12 +393,12 @@ body[data-ansicht="studio"] #modell-info, body[data-ansicht="studio"] #letzte { 
 body[data-ansicht="studio"] #f-vram { display: flex; }
 
 /* ---------- Einrichtungs-Assistent ---------- */
-#einrichtung { position: fixed; inset: 0; z-index: 30; -webkit-app-region: no-drag; display: flex; align-items: center; justify-content: center; padding: 28px; background: #000c; }
+#einrichtung, #link { position: fixed; inset: 0; z-index: 30; -webkit-app-region: no-drag; display: flex; align-items: center; justify-content: center; padding: 28px; background: #000c; }
 .ein-fenster { width: min(860px, 100%); max-height: 100%; display: flex; flex-direction: column; background: var(--bg2); border: 1px solid var(--linie); border-radius: 16px; box-shadow: 0 30px 90px #000e; overflow: hidden; }
 .ein-fenster .bib-kopf { gap: 10px; }
 .ein-logo { width: 18px; height: 18px; }
-#ein-zu { width: 30px; height: 30px; border-radius: 8px; color: var(--leise); }
-#ein-zu:hover { background: var(--bg3); color: var(--text); }
+#ein-zu, #link-zu { width: 30px; height: 30px; border-radius: 8px; color: var(--leise); }
+#ein-zu:hover, #link-zu:hover { background: var(--bg3); color: var(--text); }
 #ein-inhalt { padding: 18px 22px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; scrollbar-width: thin; }
 .ein-text { margin: 0; color: var(--leise); line-height: 1.5; }
 .ein-system { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -517,3 +517,21 @@ body[data-ansicht="chat"] #ordner-chip, body[data-ansicht="studio"] #ordner-chip
 .dl-balken i { display: block; height: 100%; background: var(--gruen); transition: width .4s; }
 #dl-chip { color: var(--gruen); }
 #dl-chip .ein-dreh { width: 9px; height: 9px; }
+
+/* Glowline Link */
+.link-fenster { width: min(640px, 100%); }
+#link-inhalt { padding: 18px 22px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.link-code { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 16px; border: 1px dashed var(--linie); border-radius: 12px; }
+.link-code small { color: var(--leise); font-size: 12px; }
+.link-code b { font: 600 40px var(--mono); letter-spacing: .12em; color: var(--weiss); }
+.ein-text.klein { font-size: 12px; }
+.link-fehler { color: var(--rot); }
+.link-zeile { display: flex; gap: 8px; }
+.link-feld { flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--linie); border-radius: 9px; background: var(--bg); color: var(--text); font: 13px var(--sans); outline: none; user-select: text; }
+.link-feld:focus { border-color: #4a4d53; }
+.link-codefeld { font: 600 22px var(--mono); letter-spacing: .15em; text-align: center; flex: none; }
+button.link-pc { width: 100%; text-align: left; }
+button.link-pc:hover, button.link-pc.an { background: var(--bg3); }
+button.link-pc.an .ein-status { color: var(--gruen); }
+/* in der App "Glowline Link" laeuft nichts auf dieser Grafikkarte */
+body.link-app #bib-express, body.link-app #tools [data-studio], body.link-app #studio-ordner { display: none !important; }

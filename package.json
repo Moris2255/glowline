@@ -1,7 +1,7 @@
 {
   "name": "glowline",
   "productName": "Glowline",
-  "version": "4.0.2",
+  "version": "4.0.3",
   "description": "Glowline - local AI workspace: terminal, chat and studio for local models",
   "author": "Moris2255",
   "main": "main.js",
@@ -9,7 +9,8 @@
   "scripts": {
     "start": "electron .",
     "logo": "python build/logo.py",
-    "dist": "node build/alte-installer.js && electron-builder --win nsis"
+    "dist": "node build/alte-installer.js && electron-builder --win nsis",
+    "dist:link": "electron-builder --win nsis --config build/link.config.js"
   },
   "dependencies": {
     "@lydell/node-pty": "^1.2.0-beta.18",
@@ -39,6 +40,7 @@
       "einrichtung.js",
       "erstellen.js",
       "dateien.js",
+      "link.js",
       "auto.js",
       "stimme.py",
       "preload.js",

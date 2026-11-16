@@ -13,6 +13,9 @@ const agenten = require('./agenten');
 const einrichtung = require('./einrichtung');
 const erstellen = require('./erstellen');
 const dateien = require('./dateien');
+const link = require('./link');
+// eigene App "Glowline Link" (gleicher Code, eigener Installer): nutzt die Modelle eines PCs im Heimnetz
+const LINK_APP = !!require('./package.json').glowlineLink || !!(process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_LINKAPP);
 const autoChat = require('./auto');
 const { Readable } = require('stream');
 
@@ -20,7 +23,7 @@ const HOME = os.homedir();
 
 // Standardwerte. Aenderbar in %APPDATA%\Glowline\config.json
 const STANDARD = {
-  port: 3460,
+  port: LINK_APP ? 3462 : 3460, // Glowline Link hat einen eigenen Port, falls beide auf einem Rechner laufen
   backends: { ollama: 'http://127.0.0.1:11434', lmstudio: 'http://127.0.0.1:1234' },
   defaultBackend: 'ollama',
   defaultModel: '', // leer = erstes geladenes bzw. verfuegbares Modell
@@ -366,6 +369,7 @@ function gpuStarten() {
   gpuProzess.on('exit', () => { gpuProzess = null; gpuFehler++; });
 }
 function gpu() {
+  if (LINK_APP) return link.fernGpu();
   gpuStarten();
   return Promise.resolve(gpuWert);
 }
@@ -732,6 +736,7 @@ async function herunterladen(d) {
     }
     if (!REPO.test(repo) || !/^[\w-]+$/.test(quant)) throw new Error('invalid model');
     if (ziel === 'ollama') await ollamaHolen(`hf.co/${repo}:${quant}`, ac, melde);
+    else if (ziel === 'lmstudio' && LINK_APP) throw new Error('In Glowline Link, models are stored on your PC – set the download target to Ollama');
     else if (ziel === 'lmstudio') await dateienHolen(repo, d.files, d.total, path.join(lmModellOrdner(), ...repo.split('/')), ac, melde);
     else throw new Error('unknown target');
     melde({ status: 'success', fertig: true });
@@ -1005,6 +1010,18 @@ async function ollamaStillInstallieren(ac, status) {
   });
 }
 ipcMain.handle('installer:holen', (_e, id) => installerHolen(id));
+// ---------- Glowline Link ----------
+ipcMain.handle('link:stand', async () => (LINK_APP ? { app: true, ...(await link.laptopStand()) } : { app: false, ...link.stand() }));
+ipcMain.handle('link:teilen', (_e, an) => (LINK_APP ? null : link.teilen(!!an)));
+ipcMain.handle('link:neu', () => (LINK_APP ? null : link.neuKoppeln()));
+ipcMain.handle('link:suchen', () => link.suchen());
+ipcMain.handle('link:koppeln', async (_e, host, code) => {
+  if (!LINK_APP) throw new Error('only in Glowline Link');
+  const v = await link.koppeln(host, code);
+  sende('config', cfg);
+  return v;
+});
+ipcMain.handle('link:trennen', () => { if (LINK_APP) { link.trennen(); sende('config', cfg); } return true; });
 ipcMain.handle('installer:stand', (_e, id) => installerStand(id));
 ipcMain.on('installer:abbrechen', (_e, id) => { const s = installer.get(id); if (s && s.ac) s.ac.abort(); });
 ipcMain.on('installer:oeffnen', (_e, id) => { const s = installer.get(id); if (s && s.fertig) shell.openPath(s.datei); });
@@ -1078,7 +1095,7 @@ function fenster() {
     minWidth: 640, minHeight: 360,
     show: false,
     backgroundColor: '#0c0d0f',
-    title: 'Glowline',
+    title: LINK_APP ? 'Glowline Link' : 'Glowline',
     icon: path.join(__dirname, 'build', 'icon.ico'),
     roundedCorners: true,
     titleBarStyle: 'hidden',
@@ -1538,6 +1555,31 @@ async function testLauf(ordner) {
       await js(`document.querySelector('#ein-inhalt').scrollTop = 9999`); await warte(300); await bild('a-ein-express2');
       await js(`schliesseEinrichtung()`);
       console.log('ANSICHT fertig', await js(`window.innerWidth + 'x' + window.innerHeight`));
+    }
+    if (was.includes('link')) {
+      // Glowline Link: am PC teilen (Code), in der Link-App mit diesem PC koppeln (GLOWLINE_TEST_LINKAPP=1)
+      if (!LINK_APP) {
+        await js(`zeigeLink()`); await warte(800); await bild('l-pc-aus');
+        await js(`document.querySelector('#link-teilen').click()`); await warte(1500); await bild('l-pc-an');
+        console.log('LINK PC', await js(`JSON.stringify(lk.stand)`), await js(`document.querySelector('.link-code b').textContent`));
+        if (process.env.GLOWLINE_TEST_LINK_AUS) { await js(`document.querySelector('#link-teilen').click()`); await warte(800); }
+        console.log('LINK PC ENDE', await js(`String(lk.stand.teilen)`));
+        if (process.env.GLOWLINE_TEST_LINK_WARTE) { await warte(+process.env.GLOWLINE_TEST_LINK_WARTE * 1000); await js(`zeigeLink()`); await warte(1000); await bild('l-pc-gekoppelt'); console.log('LINK PC GERAETE', await js(`JSON.stringify(lk.stand.geraete)`)); }
+        await js(`schliesseLink()`);
+      } else {
+        console.log('LINK APP', await js(`document.body.classList.contains('link-app') + ' ' + getComputedStyle(document.querySelector('#bib-express')).display + ' ' + document.title`));
+        await js(`zeigeLink()`); await warte(3500); await bild('l-app-suche');
+        console.log('LINK FUNDE', await js(`JSON.stringify(lk.funde)`));
+        await js(`document.querySelector('#link-code').value = '000000'; document.querySelector('#link-los').click(); 1`); await warte(1500);
+        console.log('LINK FALSCH', await js(`String(lk.fehler)`)); await bild('l-app-falsch');
+        await js(`document.querySelector('#link-host').value = '127.0.0.1'; document.querySelector('#link-code').value = ${JSON.stringify(process.env.GLOWLINE_TEST_LINKCODE || '')}; document.querySelector('#link-los').click(); 1`);
+        await warte(3000); await bild('l-app-verbunden');
+        console.log('LINK OK', await js(`JSON.stringify(lk.stand)`), await js(`cfg.backends.ollama.replace(/[0-9a-f]{48}/, '<s>') + ' | ' + alleModelle().map((m) => m.id).join(',') + ' | ' + cfg.defaultModel`));
+        await js(`schliesseLink()`); await warte(2500);
+        console.log('LINK FERN-GPU', JSON.stringify(await link.fernGpu()));
+        console.log('LINK GPU', await js(`document.querySelector('#vram').textContent`));
+        await bild('l-app-haupt');
+      }
     }
     if (was.includes('installieren')) {
       // fehlendes Werkzeug selbst installieren – in einem Sandkasten (eigene LOCALAPPDATA/APPDATA/USERPROFILE, ohne Node.js im PATH)
@@ -2036,6 +2078,9 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
   app.setAppUserModelId('Glowline');
   app.whenReady().then(async () => {
     ladeConfig();
+    link.init({ cfg: () => cfg, speichere: speichereConfig, version: app.getVersion(), gpu: () => gpu(), sende });
+    if (LINK_APP) link.umleiten();
+    else if (cfg.link && cfg.link.teilen) link.teilen(true);
     proxy = new StatsProxy(cfg);
     proxy.wolke = konten.ziel;
     proxy.on('stat', (s) => sende('stat', s));
@@ -2058,7 +2103,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     });
     dateien.init((art) => app.getPath(art));
     dateiProtokoll();
-    agenten.starten(studio, vramFrei, app.getVersion());
+    if (!LINK_APP) agenten.starten(studio, vramFrei, app.getVersion());
     fenster();
     statusSchleife();
     if (process.env.GLOWLINE_TEST) {

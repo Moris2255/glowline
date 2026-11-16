@@ -194,7 +194,8 @@ el.addEventListener('contextmenu', async (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (!$('#einrichtung').classList.contains('versteckt')) { if (ein.seite === 'lauf') $('#ein-fertig').click(); else schliesseEinrichtung(); e.preventDefault(); }
+  if (!$('#link').classList.contains('versteckt')) { schliesseLink(); e.preventDefault(); }
+  else if (!$('#einrichtung').classList.contains('versteckt')) { if (ein.seite === 'lauf') $('#ein-fertig').click(); else schliesseEinrichtung(); e.preventDefault(); }
   else if (document.querySelector('.menue:not(.versteckt)')) { schliesseMenues(); e.preventDefault(); }
   else if (!$('#bib').classList.contains('versteckt')) { schliesseBib(); e.preventDefault(); }
 });
@@ -1119,5 +1120,5 @@ window.api.onStatus((s) => {
   window.glowlineBereit = true;
   if (!TESTMODUS) starteSitzung({});
   // erster Start ohne ein einziges Modell: den Einrichtungs-Assistenten anbieten
-  if (!TESTMODUS && !cfg.einrichtung && liste && !liste.ollama.models.length && !liste.lmstudio.models.length) zeigeEinrichtung();
+  if (!TESTMODUS && !cfg.einrichtung && liste && !liste.ollama.models.length && !liste.lmstudio.models.length && !(await window.api.linkStand().catch(() => ({}))).app) zeigeEinrichtung();
 })();

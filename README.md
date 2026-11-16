@@ -111,6 +111,15 @@ When the Studio is set up, Claude Code, Codex, OpenCode and Qwen Code started fr
 
 Glowline scales itself to your screen (bigger on large monitors). **Ctrl +** / **Ctrl −** make it bigger or smaller, **Ctrl 0** goes back to automatic.
 
+## Glowline Link – use your PC from your laptop
+
+Got a PC with a strong graphics card and a laptop without one? Install **Glowline** on the PC and **Glowline Link** (its own small installer, `Glowline-Link-Setup-<version>.exe`) on the laptop.
+
+1. On the PC: **Models → Link → Share this PC**. Glowline shows a 6-digit code.
+2. On the laptop: open Glowline Link. It finds the PC in your network by itself – pick it, type the code, **Connect**.
+
+That's it: Claude Code, Codex, OpenCode and Cowork on the laptop now run with the models on the PC. Downloads go to the PC too. Only devices in your home network can connect, and only after entering the code; **New code** on the PC disconnects all laptops. If Windows asks whether Glowline may use the network, allow it for private networks. (Studio runs on the PC itself, not in Link.)
+
 ## Requirements
 
 If LM Studio's server runs on another port (it moves away from 1234 when that port is taken), Glowline finds it by itself. If the server is not running, the model window has a **Start LM Studio server** button.
@@ -128,6 +137,7 @@ Glowline tells you what is missing: if a tool is not installed it installs it fo
 npm install
 npm start          # run from source
 npm run dist       # build the installer -> dist/Glowline-Setup-<version>.exe
+npm run dist:link  # build Glowline Link -> dist-link/Glowline-Link-Setup-<version>.exe
 ```
 
 Older installers are moved to `dist/alt/` automatically.
