@@ -684,4 +684,4 @@ function galerie() {
 }
 const inAusgabe = (datei) => { if (typeof datei !== 'string' || !datei) return false; const r = path.relative(P().ausgabe, path.resolve(datei)); return r && !r.startsWith('..') && !path.isAbsolute(r); };
 
-module.exports = { KATALOG, init, status, beschaeftigt, beschaeftigtMit, einrichten, modellHolen, abbrechen, auftrag, galerie, stoppen, comfyFrei, frei, inAusgabe, P, comfyStarten };
+module.exports = { KATALOG, ladeDatei, init, status, beschaeftigt, beschaeftigtMit, einrichten, modellHolen, abbrechen, auftrag, galerie, stoppen, comfyFrei, frei, inAusgabe, P, comfyStarten };

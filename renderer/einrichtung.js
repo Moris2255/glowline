@@ -205,12 +205,9 @@ function aktualisiereLaufListe() {
       t.appendChild(balken);
     }
     z.append(zeichen, t, elem('span', 'ein-gb', s.status === 'laeuft' && s.prozent ? s.prozent + ' %' : s.status === 'wartet' && s.gb ? gbText(s.gb) : ''));
-    if (s.status === 'fehler' && /ollama\.com\/download/.test(s.fehler || '')) {
-      const b = elem('button', 'm-knopf', 'Get Ollama');
-      b.addEventListener('click', () => window.api.link('https://ollama.com/download'));
-      z.appendChild(b);
-    }
     liste.appendChild(z);
+    // Ollama liess sich nicht automatisch installieren: Installer per Knopf in den Downloads-Ordner
+    if (s.status === 'fehler' && /ollama\.com\/download/.test(s.fehler || '')) liste.appendChild(installerKnopf('ollama', 'Get the Ollama installer, run it, then press Retry.'));
   }
   const fehler = st.schritte.filter((s) => s.status === 'fehler').length;
   const offen = st.schritte.filter((s) => s.status === 'wartet' || s.status === 'laeuft').length;

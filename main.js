@@ -111,7 +111,7 @@ async function modellListe(mitWolke) {
   ]);
   const la = process.env.LOCALAPPDATA || '';
   aus.ollama.installiert = aus.ollama.online || await ollamaInstalliert();
-  aus.lmstudio.installiert = aus.lmstudio.online || fs.existsSync(path.join(HOME, '.lmstudio')) || fs.existsSync(path.join(la, 'Programs', 'LM Studio'));
+  aus.lmstudio.installiert = aus.lmstudio.online || (!(process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_LM_FEHLT) && (fs.existsSync(path.join(HOME, '.lmstudio')) || fs.existsSync(path.join(la, 'Programs', 'LM Studio'))));
   aus.wolke = await wolke;
   return aus;
 }
@@ -697,6 +697,59 @@ ipcMain.on('link:oeffnen', (_e, url) => { if (/^https:\/\/[\w.-]+\//.test(String
 ipcMain.on('chat:senden', (_e, a) => chatSenden(a));
 ipcMain.on('chat:stopp', (_e, id) => { const ac = chats.get(id); if (ac) ac.abort(); });
 ipcMain.handle('lmstudio:start', () => lmServerStarten());
+
+// Installer von Ollama / LM Studio per Knopf in den Downloads-Ordner (abgebrochene Downloads machen weiter)
+const INSTALLER = {
+  ollama: { url: 'https://ollama.com/download/OllamaSetup.exe', datei: 'OllamaSetup.exe' },
+  lmstudio: { url: 'https://lmstudio.ai/download/latest/win32/x64', datei: 'LM-Studio-Setup.exe' },
+};
+const installer = new Map(); // id -> { geladen, gesamt, datei, fertig, fehler, ac }
+function installerStand(id) {
+  const s = installer.get(id);
+  return s ? { id, geladen: s.geladen, gesamt: s.gesamt, datei: s.datei ? path.basename(s.datei) : null, fertig: !!s.fertig, fehler: s.fehler || null, laeuft: !!s.ac } : { id };
+}
+async function installerHolen(id) {
+  const q = INSTALLER[id];
+  if (!q || (installer.get(id) || {}).ac) return installerStand(id);
+  const ac = new AbortController();
+  const s = { geladen: 0, gesamt: 0, ac };
+  installer.set(id, s);
+  const melde = () => sende('installer', installerStand(id));
+  melde();
+  let zuletzt = 0;
+  try {
+    const test = process.env.GLOWLINE_TEST;
+    const url = test && process.env.GLOWLINE_TEST_INSTALLER ? process.env.GLOWLINE_TEST_INSTALLER + '/' + id : q.url;
+    // erst nachschauen, wie die Datei heisst (LM Studio leitet auf die aktuelle Version weiter)
+    const kopf = await fetch(url, { method: 'HEAD', redirect: 'follow', signal: ac.signal, headers: { 'user-agent': 'Glowline' } });
+    if (!kopf.ok) throw new Error(`Download failed (HTTP ${kopf.status})`);
+    const name = path.basename(new URL(kopf.url).pathname);
+    s.datei = path.join(test || app.getPath('downloads'), /^[\w.-]+\.exe$/i.test(name) ? name : q.datei);
+    s.gesamt = +kopf.headers.get('content-length') || 0;
+    let da = 0;
+    try { da = fs.statSync(s.datei).size; } catch {}
+    // liegt schon komplett im Ordner: nicht nochmal laden
+    if (!da || (s.gesamt && da !== s.gesamt)) {
+      await studio.ladeDatei(url, s.datei, ac, (g, t) => {
+        s.geladen = g;
+        if (t) s.gesamt = t;
+        if (Date.now() - zuletzt > 400) { zuletzt = Date.now(); melde(); }
+      }, { 'user-agent': 'Glowline' });
+    }
+    s.geladen = s.gesamt;
+    s.fertig = true;
+  } catch (e) {
+    s.fehler = ac.signal.aborted ? 'Cancelled' : `Download failed – ${String((e && e.message) || e).slice(0, 160)}`;
+  }
+  s.ac = null;
+  melde();
+  return installerStand(id);
+}
+ipcMain.handle('installer:holen', (_e, id) => installerHolen(id));
+ipcMain.handle('installer:stand', (_e, id) => installerStand(id));
+ipcMain.on('installer:abbrechen', (_e, id) => { const s = installer.get(id); if (s && s.ac) s.ac.abort(); });
+ipcMain.on('installer:oeffnen', (_e, id) => { const s = installer.get(id); if (s && s.fertig) shell.openPath(s.datei); });
+ipcMain.on('installer:zeigen', (_e, id) => { const s = installer.get(id); if (s && s.datei) shell.showItemInFolder(fs.existsSync(s.datei) ? s.datei : path.dirname(s.datei)); });
 ipcMain.handle('models:load', (_e, id, laden) => modellLaden(id, laden));
 ipcMain.on('download:start', (_e, d) => herunterladen(d));
 ipcMain.on('download:cancel', (_e, key) => { const ac = downloads.get(key); if (ac) ac.abort(); });
@@ -774,10 +827,11 @@ function fenster() {
     if (process.env.GLOWLINE_TEST) return;
     const b = studio.beschaeftigt();
     const ein = einrichtung.laeuft();
-    if (!b.auftraege && !b.laden && !ein) return;
+    const inst = [...installer.values()].some((x) => x.ac);
+    if (!b.auftraege && !b.laden && !ein && !inst) return;
     const r = dialog.showMessageBoxSync(win, {
       type: 'question', buttons: ['Keep open', 'Close anyway'], defaultId: 0, cancelId: 0, noLink: true,
-      message: b.auftraege ? 'Studio is still generating' : ein ? 'The setup is still installing' : 'A Studio download is still running',
+      message: b.auftraege ? 'Studio is still generating' : ein ? 'The setup is still installing' : b.laden ? 'A Studio download is still running' : 'An installer is still downloading',
       detail: b.auftraege ? 'Closing Glowline cancels the running job.' : ein ? 'You can open the setup again later (Models → Express setup), finished parts are kept.' : 'You can resume the download later, it continues where it stopped.',
     });
     if (r === 0) e.preventDefault();
@@ -940,7 +994,35 @@ async function testLauf(ordner) {
       await js(`document.querySelector('#ein-los').click()`);
       for (let i = 0; i < 60; i++) { await warte(1000); if (await js(`!!(ein.stand && ein.stand.fertig)`)) break; }
       console.log('OHNE FERTIG', await js(`JSON.stringify(ein.stand.schritte.map((x) => x.titel + ':' + x.status + (x.fehler ? '(' + x.fehler + ')' : ''))) + ' | ' + document.querySelector('#ein-lauf-summe').textContent + ' | retry=' + !document.querySelector('#ein-nochmal').classList.contains('versteckt') + ' | cfg=' + cfg.einrichtung + ',' + cfg.defaultModel`));
+      console.log('OHNE INSTALLER', await js(`[...document.querySelectorAll('#ein-inhalt .inst')].map((z) => z.textContent).join(' | ') || 'keiner'`));
       await bild('o-fertig');
+    }
+    if (was.includes('installer')) {
+      // Installer-Knoepfe im Modellfenster (Ollama + LM Studio "fehlen", Nachbau-Server liefert die Dateien)
+      const zeile = (id) => js(`(document.querySelector('#b-liste [data-inst=${id}]') || {}).textContent || 'kein Knopf'`);
+      const klick = (id, n) => js(`document.querySelectorAll('#b-liste [data-inst=${id}] button')[${n}].click()`);
+      await js(`oeffneBib('meine')`);
+      await warte(3000);
+      console.log('INST START', await zeile('ollama'), '||', await zeile('lmstudio'));
+      await bild('i-start');
+      await klick('ollama', 0);
+      await warte(1500);
+      console.log('INST LAEUFT', await zeile('ollama'));
+      await bild('i-laeuft');
+      await klick('ollama', 1);
+      await warte(1000);
+      console.log('INST ABBRUCH', await zeile('ollama'), '| reste:', fs.readdirSync(ordner).filter((f) => /setup|\.part/i.test(f)).join(',') || '-');
+      await klick('ollama', 0);
+      await klick('lmstudio', 0);
+      for (let i = 0; i < 60; i++) { await warte(1000); if (await js(`document.querySelectorAll('#b-liste .inst button:not(.versteckt)').length === 4 && ![...document.querySelectorAll('#b-liste .inst button')].some((b) => b.disabled)`)) break; }
+      // Liste neu zeichnen: der Stand muss erhalten bleiben
+      await js(`zeichneMeine()`);
+      await warte(800);
+      console.log('INST FERTIG', await zeile('ollama'), '||', await zeile('lmstudio'), '| dateien:', fs.readdirSync(ordner).filter((f) => /\.exe|\.part/i.test(f)).map((f) => f + '=' + fs.statSync(path.join(ordner, f)).size).join(','));
+      await bild('i-fertig');
+      // nochmal holen: liegt schon da, darf nicht neu laden
+      const vorher = fs.statSync(path.join(ordner, 'OllamaSetup.exe')).mtimeMs;
+      console.log('INST NOCHMAL', JSON.stringify(await js(`window.api.installerHolen('ollama')`)), 'neu geladen:', fs.statSync(path.join(ordner, 'OllamaSetup.exe')).mtimeMs !== vorher);
     }
     if (was.includes('einrichtung')) {
       // Einrichtungs-Assistent gegen den Ollama-Nachbau (config.json im Testordner zeigt auf ihn)

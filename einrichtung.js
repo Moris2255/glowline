@@ -118,7 +118,7 @@ async function plan(wahl, sys) {
   const da = (n) => vorhanden.has(n.toLowerCase().replace(/:latest$/, ''));
   const schritte = [];
   const sprach = TEILE.filter((t) => ROLLEN[t] && an(t));
-  if (sprach.length && !sys.ollama.installiert) schritte.push({ art: 'ollama', titel: 'Ollama', info: 'Runs the language models on your PC', gb: 1.2, ordner: process.env.LOCALAPPDATA || os.homedir() });
+  if (sprach.length && !sys.ollama.installiert) schritte.push({ art: 'ollama', titel: 'Ollama', info: 'Runs the language models on your PC', gb: 1.9, ordner: process.env.LOCALAPPDATA || os.homedir() });
   for (const t of sprach) {
     const m = (t === 'helfer' ? HELFER : STUFEN[stufe][t])[art];
     const variante = varianteVon(m);
@@ -202,7 +202,7 @@ async function schrittOllama(s, ac) {
     r = await befehl(winget, ['install', '-e', '--id', 'Ollama.Ollama', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity'], ac);
   } catch { r = { code: -1, aus: 'winget not found' }; }
   if (ac.signal.aborted) throw new Error('cancelled');
-  if (!(await d.ollamaInstalliert())) throw new Error('Could not install Ollama automatically – get it at ollama.com/download, then press Retry');
+  if (!(await d.ollamaInstalliert())) throw new Error('Could not install Ollama automatically (ollama.com/download)');
   s.text = 'Starting Ollama…';
   melde(true);
   if (!(await warteAufOllama(ac, 20))) { ollamaStarten(); if (!(await warteAufOllama(ac, 60))) throw new Error(ac.signal.aborted ? 'cancelled' : 'Ollama is installed but does not start – start it once from the Start menu, then press Retry'); }

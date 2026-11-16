@@ -424,7 +424,8 @@ function zeichneMeine() {
     const ms = sortiere(g.models.filter((m) => !such || m.name.toLowerCase().includes(such)));
     for (const m of ms) box.appendChild(modellZeile(m));
     if (!g.online && name === 'LM Studio' && g.installiert) box.appendChild(lmStartKnopf());
-    else if (!g.online) leer(box, name === 'LM Studio' ? 'LM Studio is not installed (lmstudio.ai).' : g.installiert ? 'Ollama is not running – start it.' : 'Ollama is not installed (ollama.com).');
+    else if (!g.online && !g.installiert) box.appendChild(installerKnopf(name === 'LM Studio' ? 'lmstudio' : 'ollama', `${name} is not installed.`));
+    else if (!g.online) leer(box, 'Ollama is not running – start it.');
     else if (!ms.length) leer(box, such ? 'No match.' : 'No models yet – get some in the Download tab.');
   }
   const wolken = Object.entries(liste.wolke || {}).filter(([, g]) => g.verbunden);
@@ -445,6 +446,42 @@ function zeichneMeine() {
   }
   box.scrollTop = scroll;
 }
+
+// Installer von Ollama / LM Studio in den Downloads-Ordner laden und danach starten
+function installerKnopf(id, text) {
+  const z = elem('div', 'm-leer lm-start inst');
+  z.dataset.inst = id;
+  const t = elem('span', 'inst-text');
+  const b = elem('button', 'm-knopf');
+  const neben = elem('button', 'm-knopf');
+  z.append(t, b, neben);
+  let st = { id };
+  z.zeichne = (s) => {
+    st = s;
+    neben.classList.toggle('versteckt', !s.laeuft && !s.fertig);
+    b.disabled = !!s.laeuft;
+    if (s.laeuft) {
+      t.textContent = 'Downloading the installer… ';
+      b.textContent = s.gesamt ? `${Math.floor((s.geladen / s.gesamt) * 100)} % · ${gb(s.geladen)} / ${gb(s.gesamt)}` : 'starting…';
+      neben.textContent = 'Cancel';
+    } else if (s.fertig) {
+      t.textContent = `${s.datei} is in your Downloads. `;
+      b.textContent = 'Run installer';
+      neben.textContent = 'Show in folder';
+    } else {
+      t.textContent = s.fehler ? s.fehler + ' ' : text ? text + ' ' : '';
+      b.textContent = s.fehler ? 'Try again' : 'Download installer';
+    }
+  };
+  b.addEventListener('click', () => {
+    if (st.fertig) { window.api.installerOeffnen(id); hinweis('Installer started – press ↻ when it is done'); } else window.api.installerHolen(id);
+  });
+  neben.addEventListener('click', () => (st.laeuft ? window.api.installerAbbrechen(id) : window.api.installerZeigen(id)));
+  z.zeichne(st);
+  window.api.installerStand(id).then((s) => z.zeichne(s));
+  return z;
+}
+window.api.onInstaller((s) => document.querySelectorAll(`[data-inst="${s.id}"]`).forEach((z) => z.zeichne(s)));
 
 // LM Studio installiert, aber sein Server laeuft nicht: per Knopf starten
 function lmStartKnopf() {

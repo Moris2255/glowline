@@ -49,5 +49,11 @@ contextBridge.exposeInMainWorld('api', {
   einrichtungStart: (w) => ipcRenderer.invoke('einrichtung:start', w),
   einrichtungStand: () => ipcRenderer.invoke('einrichtung:stand'),
   einrichtungAbbrechen: () => ipcRenderer.send('einrichtung:abbrechen'),
+  installerHolen: (id) => ipcRenderer.invoke('installer:holen', id),
+  installerStand: (id) => ipcRenderer.invoke('installer:stand', id),
+  installerAbbrechen: (id) => ipcRenderer.send('installer:abbrechen', id),
+  installerOeffnen: (id) => ipcRenderer.send('installer:oeffnen', id),
+  installerZeigen: (id) => ipcRenderer.send('installer:zeigen', id),
+  onInstaller: (cb) => ipcRenderer.on('installer', (_e, s) => cb(s)),
   onEinrichtung: (cb) => ipcRenderer.on('einrichtung', (_e, s) => cb(s)),
 });
