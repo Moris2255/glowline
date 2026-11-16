@@ -219,4 +219,4 @@ async function versuche(o) {
   return true;
 }
 
-module.exports = { init, versuche, WORTE };
+module.exports = { init, versuche, frage, deutsch, WORTE };

@@ -12,6 +12,7 @@ const studio = require('./studio');
 const agenten = require('./agenten');
 const einrichtung = require('./einrichtung');
 const erstellen = require('./erstellen');
+const dateien = require('./dateien');
 const autoChat = require('./auto');
 const { Readable } = require('stream');
 
@@ -158,7 +159,7 @@ function chatZiel(modellId) {
   return { b, w, model };
 }
 
-async function chatSenden({ id, model: modellId, system, nachrichten, medien, anhang, erzwinge, letztesMedium, auto: istAuto, bildFrage, vorigeRolle, rolle: vorgabeRolle }) {
+async function chatSenden({ id, model: modellId, system, nachrichten, medien, anhang, erzwinge, letztesMedium, auto: istAuto, bildFrage, vorigeRolle, rolle: vorgabeRolle, letzteDatei, datei: dateiErzwingen }) {
   const ac = new AbortController();
   chats.set(id, ac);
   const melde = (p) => sende('chat', { id, ...p });
@@ -180,13 +181,21 @@ async function chatSenden({ id, model: modellId, system, nachrichten, medien, an
       else if (!anhang && bildFrage && !erstellen.WORTE.test(frageText)) bild = bildFrage;
       else if (!anhang && letztesMedium && letztesMedium.bild && autoChat.BILD_FRAGE.test(frageText)) bild = letztesMedium.bild;
     }
+    // "Erstelle auf meinem Desktop eine HTML-Datei mit …": das Coder-Modell schreibt, Glowline speichert
+    let datei = null;
+    if (!bild && !(erzwinge && erzwinge.art) && (dateiErzwingen || dateien.WORTE.test(frageText) || (eigeneDatei(letzteDatei) && !erstellen.WORTE.test(frageText)))) {
+      datei = await dateien.pruefe({
+        text: frageText, letzteDatei: eigeneDatei(letzteDatei), erzwinge: !!dateiErzwingen,
+        frage: (sys, m, n) => erstellen.frage(String(modellId), sys, m, n, ac.signal),
+      });
+    }
     // "Erstelle mir ein Bild von …": dann macht das Studio die Arbeit statt einer Textantwort
-    if (medien && !bild && (await erstellen.versuche({ modell: String(modellId), nachrichten: msgs, ac, melde, anhang, erzwinge, letztesMedium }))) return;
+    if (!datei && medien && !bild && (await erstellen.versuche({ modell: String(modellId), nachrichten: msgs, ac, melde, anhang, erzwinge, letztesMedium }))) return;
     let ohneDenken = false;
     if (istAuto) {
       if (anhang && !bild) bild = anhang; // das Studio wollte nichts damit machen: dann eben anschauen
       // /think, /code, /fast oder /thinking on geben die Rolle vor
-      const rolle = bild ? 'sehen' : autoChat.ROLLEN.includes(vorgabeRolle) ? vorgabeRolle : autoChat.rolleFuer(frageText, vorigeRolle);
+      const rolle = bild ? 'sehen' : datei ? 'coder' : autoChat.ROLLEN.includes(vorgabeRolle) ? vorgabeRolle : autoChat.rolleFuer(frageText, vorigeRolle);
       autoRolle = rolle;
       if (bild && !rollen.sehen.id) {
         melde({ rolle, text: 'To look at images, Auto needs a vision model – download one under Models → Download (e.g. qwen3-vl or llama3.2-vision), or pick one for “Vision” under Models → Cowork.', fertig: true });
@@ -200,6 +209,15 @@ async function chatSenden({ id, model: modellId, system, nachrichten, medien, an
       ohneDenken = rolle === 'schnell' && b === 'ollama' && !!caps && caps.includes('thinking');
       melde({ rolle, modell: modellId, ...(bild ? { bild } : {}) });
     }
+    if (datei) {
+      system = [system, dateien.SYSTEM(datei.bearbeite && path.basename(datei.bearbeite))].filter(Boolean).join('\n\n');
+      // Aenderung: aktuellen Inhalt mitschicken, damit das Modell die ganze neue Datei schreiben kann
+      if (datei.bearbeite) {
+        const alt = fs.readFileSync(datei.bearbeite, 'utf8').slice(0, 200000);
+        msgs[msgs.length - 1].content += `\n\nCurrent content of ${path.basename(datei.bearbeite)}:\n\`\`\`\n${alt}\n\`\`\``;
+      }
+      melde({ datei: { status: erstellen.deutsch(frageText) ? 'Schreibt die Datei…' : 'Writing the file…', ordner: datei.name } });
+    }
     if (bild) {
       if (!(typeof bild === 'string' && (studio.inAusgabe(bild) || freigegeben.has(path.resolve(bild))) && fs.existsSync(bild))) throw new Error('Image not found');
       const daten = fs.readFileSync(bild).toString('base64');
@@ -212,7 +230,7 @@ async function chatSenden({ id, model: modellId, system, nachrichten, medien, an
     const anthropic = w && w.format === 'anthropic';
     const url = `http://127.0.0.1:${cfg.port}/s/chat/${b}` + (anthropic ? '/v1/messages' : '/v1/chat/completions');
     const body = anthropic
-      ? { model, max_tokens: 8192, stream: true, ...(system ? { system } : {}), messages: msgs }
+      ? { model, max_tokens: datei ? 32000 : 8192, stream: true, ...(system ? { system } : {}), messages: msgs }
       : { model, stream: true, stream_options: { include_usage: true }, ...(ohneDenken ? { reasoning_effort: 'none' } : {}), messages: [...(system ? [{ role: 'system', content: system }] : []), ...msgs] };
     const r = await fetch(url, {
       method: 'POST', signal: ac.signal,
@@ -252,7 +270,24 @@ async function chatSenden({ id, model: modellId, system, nachrichten, medien, an
           denken += dl.reasoning_content || dl.reasoning || '';
         }
       }
-      if (Date.now() - zuletzt > 60) { zuletzt = Date.now(); melde(trenne()); }
+      if (Date.now() - zuletzt > 60) {
+        zuletzt = Date.now();
+        // Datei: statt des Codes nur zeigen, wie weit sie ist
+        if (datei) { const t = trenne(); melde({ datei: { status: t.text.length ? `${erstellen.deutsch(frageText) ? 'Schreibt' : 'Writing'} · ${Math.max(1, Math.round(t.text.length / 1024))} KB` : erstellen.deutsch(frageText) ? 'Denkt nach…' : 'Thinking…' } }); } else melde(trenne());
+      }
+    }
+    if (datei) {
+      const t = trenne();
+      const l = dateien.lese(t.text, frageText);
+      if (!l.dateien.length) { melde({ ...t, fertig: true, datei: null }); return; } // keine Datei geschrieben: normale Antwort zeigen
+      const eigene = new Set(cfg.erstellteDateien || []);
+      const gespeichert = dateien.speichere(datei.ordner, l.dateien, eigene, datei.bearbeite);
+      cfg.erstellteDateien = [...gespeichert.map((g) => g.pfad.toLowerCase()), ...(cfg.erstellteDateien || [])].filter((p, i, a) => a.indexOf(p) === i).slice(0, 300);
+      speichereConfig();
+      const de = erstellen.deutsch(frageText);
+      const text = l.hinweis || (datei.bearbeite ? (de ? 'Erledigt – die Datei ist aktualisiert.' : 'Done – the file is updated.') : de ? 'Fertig – die Datei liegt bereit.' : 'Done – your file is ready.');
+      melde({ text, denken: t.denken, fertig: true, datei: { status: null, ordner: datei.name, geaendert: !!datei.bearbeite, dateien: gespeichert } });
+      return;
     }
     melde({ ...trenne(), fertig: true });
   } catch (e) {
@@ -884,6 +919,10 @@ ipcMain.handle('studio:waehle', async (_e, art) => {
   return r.filePaths[0];
 });
 ipcMain.on('studio:freigeben', (_e, f) => { if (typeof f === 'string' && /\.(png|jpe?g|webp|mp4|webm|wav|mp3|flac|ogg|m4a)$/i.test(f)) freigegeben.add(path.resolve(f)); });
+// von Cowork erstellte Dateien: oeffnen (nur ansehbare Typen, Skripte nie ausfuehren) und im Ordner zeigen
+const eigeneDatei = (f) => (typeof f === 'string' && (cfg.erstellteDateien || []).includes(path.resolve(f).toLowerCase()) && fs.existsSync(f) ? path.resolve(f) : null);
+ipcMain.on('datei:oeffnen', (_e, f) => { const p = eigeneDatei(f); if (p && dateien.ANSEHEN.test(p)) shell.openPath(p); });
+ipcMain.on('datei:zeigen', (_e, f) => { const p = eigeneDatei(f); if (p) shell.showItemInFolder(p); });
 ipcMain.on('studio:zeigen', (_e, f) => { if (f && studio.inAusgabe(f)) shell.showItemInFolder(f); else if (!f) { fs.mkdirSync(studio.P().ausgabe, { recursive: true }); shell.openPath(studio.P().ausgabe); } });
 ipcMain.handle('studio:wegwerfen', async (_e, f) => { if (!studio.inAusgabe(f)) return false; await shell.trashItem(f); return true; });
 ipcMain.handle('config:get', () => cfg);
@@ -1311,6 +1350,71 @@ async function testLauf(ordner) {
       await js(`zeigeWorkspace()`);
       await warte(1500);
       await bild('a-neustart');
+    }
+    if (was.includes('datei')) {
+      // Cowork legt Dateien an (gegen den Ollama-Nachbau, config.json im Testordner zeigt auf ihn)
+      const ziel = process.env.GLOWLINE_TEST_DATEIORDNER;
+      const letzte = () => js(`(() => { const n = verlauf()[verlauf().length - 1]; return JSON.stringify({ rolle: n.rolle, text: String(n.fehler || n.content || '').slice(0, 90), datei: n.datei && { ordner: n.datei.ordner, geaendert: n.datei.geaendert, dateien: (n.datei.dateien || []).map((f) => f.name + ' ' + f.groesse) } }); })()`);
+      const sag = async (t, befehl) => {
+        await js(`document.querySelector('#chat-text').value = ${JSON.stringify(t)}; sendeChat()`);
+        let zwischen = null;
+        for (let i = 0; i < 120; i++) { await warte(100); if (!zwischen) zwischen = await js(`(() => { const n = chat.antwort; return n && n.datei && n.datei.status ? n.datei.status : null; })()`); if (await js('!chat.laeuft')) break; }
+        await warte(300);
+        return (zwischen ? '[unterwegs: ' + zwischen + '] ' : '') + (await letzte());
+      };
+      await js(`zeigeWorkspace('auto')`);
+      await warte(2500);
+      console.log('DATEI FRAGE', await sag('Was ist eine HTML-Datei?'));
+      console.log('DATEI NEU', await sag(`Erstelle in ${ziel} eine HTML-Datei mit einem kleinen Hüpfspiel`));
+      console.log('DATEI INHALT', fs.readFileSync(path.join(ziel, 'hopser-spiel.html'), 'utf8').includes('background:black'));
+      await bild('d-neu');
+      console.log('DATEI AENDERN', await sag('mach den Hintergrund blau'));
+      console.log('DATEI INHALT2', fs.readFileSync(path.join(ziel, 'hopser-spiel.html'), 'utf8').includes('background:blue'), fs.readdirSync(ziel).join(','));
+      console.log('DATEI BEFEHL', await sag(`/file zwei dateien in ${ziel}`));
+      console.log('DATEI ORDNER', fs.readdirSync(ziel).join(','), fs.existsSync(path.join(ziel, 'notizen', 'liste.md')));
+      console.log('DATEI KNOEPFE', await js(`[...document.querySelectorAll('.datei-zeile')].map((z) => z.querySelector('b').textContent + ':' + [...z.querySelectorAll('button')].map((b) => b.textContent).join('/')).join(' | ')`));
+      console.log('DATEI MODELL SIEHT', await js(`JSON.stringify(verlauf().filter((n) => !n.lokal).map(fuerModell).slice(-1)[0].content.slice(0, 120))`));
+      // fremde Datei wird nie ueberschrieben, Oeffnen nur fuer eigene
+      console.log('DATEI EIGENE', JSON.stringify(cfg.erstellteDateien.map((p) => path.basename(p))), eigeneDatei(path.join(ziel, 'hopser-spiel.html')) ? 'eigen' : 'fremd', eigeneDatei('C:\\Windows\\win.ini') ? 'FEHLER' : 'win.ini fremd');
+      await bild('d-ende');
+    }
+    if (was.includes('dateiecht')) {
+      // echtes Coder-Modell schreibt ein Spiel auf den Desktop, danach eine Aenderung; Datei unsichtbar laden und auf JS-Fehler pruefen
+      const sag = async (t) => {
+        const start = Date.now();
+        await js(`document.querySelector('#chat-text').value = ${JSON.stringify(t)}; sendeChat()`);
+        for (let i = 0; i < 1200; i++) { await warte(1000); if (i % 30 === 0) console.log('  ...', await js(`(() => { const n = chat.antwort; return n ? (n.rolle || '') + ' ' + (n.datei ? n.datei.status : '') : 'fertig'; })()`)); if (await js('!chat.laeuft')) break; }
+        await warte(500);
+        return Math.round((Date.now() - start) / 1000) + ' s ' + (await js(`(() => { const n = verlauf()[verlauf().length - 1]; return JSON.stringify({ rolle: n.rolle, modell: n.modell, text: String(n.fehler || n.content || '').slice(0, 200), datei: n.datei && (n.datei.dateien || []).map((f) => f.pfad + ' ' + f.groesse) }); })()`));
+      };
+      const pruefeSeite = async (datei) => {
+        const w = new BrowserWindow({ show: false, width: 900, height: 700, webPreferences: { offscreen: true } });
+        const fehler = [];
+        w.webContents.on('console-message', (e) => { if (e.level === 'error' || e.level === 3) fehler.push(String(e.message).slice(0, 150)); });
+        let bildDa = null;
+        w.webContents.on('paint', (_e, _d, b) => { bildDa = b; });
+        await w.loadFile(datei).catch((e) => fehler.push('laden: ' + e.message));
+        await warte(2500);
+        await w.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Space' });
+        await w.webContents.sendInputEvent({ type: 'mouseDown', x: 450, y: 350, button: 'left', clickCount: 1 });
+        await warte(1500);
+        if (bildDa) fs.writeFileSync(path.join(ordner, 'spiel-' + path.basename(datei) + '.png'), bildDa.toPNG());
+        w.destroy();
+        return fehler.length ? 'JS-FEHLER: ' + fehler.join(' || ') : 'keine JS-Fehler';
+      };
+      await js(`zeigeWorkspace('auto')`);
+      await warte(2500);
+      const neu = await sag('Erstelle auf meinem Desktop eine HTML-Datei mit einem kleinen Spiel: ein Ball hüpft mit Leertaste oder Klick durch Lücken zwischen Wänden, mit Punktezähler und Neustart.');
+      console.log('ECHT NEU', neu);
+      const p1 = (/"([A-Z]:\\\\[^"]+?\.html) \d+/.exec(neu) || [])[1];
+      const pfad = p1 && p1.replace(/\\\\/g, '\\');
+      if (pfad && fs.existsSync(pfad)) {
+        console.log('ECHT SEITE', await pruefeSeite(pfad));
+        await bild('de-neu');
+        console.log('ECHT AENDERN', await sag('mach den Ball rot und das Spiel etwas langsamer'));
+        console.log('ECHT SEITE2', await pruefeSeite(pfad), fs.statSync(pfad).size, 'Bytes');
+      }
+      await bild('de-ende');
     }
     if (was.includes('chatecht') || was.includes('chatohnestudio')) {
       // echter Studio-Auftrag aus dem Chat (bzw. Studio nicht eingerichtet: GLOWLINE_STUDIO = leerer Ordner)
@@ -1758,6 +1862,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
       cfg: () => cfg, sende, studio, ollamaHolen, ollamaInstalliert,
       setzeConfig: (neu) => { Object.assign(cfg, neu); speichereConfig(); sende('config', cfg); },
     });
+    dateien.init((art) => app.getPath(art));
     dateiProtokoll();
     agenten.starten(studio, vramFrei, app.getVersion());
     fenster();

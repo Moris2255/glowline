@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld('api', {
   studioWaehle: (art) => ipcRenderer.invoke('studio:waehle', art),
   studioFreigeben: (f) => ipcRenderer.send('studio:freigeben', f),
   studioZeigen: (f) => ipcRenderer.send('studio:zeigen', f),
+  dateiOeffnen: (f) => ipcRenderer.send('datei:oeffnen', f),
+  dateiZeigen: (f) => ipcRenderer.send('datei:zeigen', f),
   studioWegwerfen: (f) => ipcRenderer.invoke('studio:wegwerfen', f),
   onStudio: (cb) => ipcRenderer.on('studio', (_e, p) => cb(p)),
   onKosten: (cb) => ipcRenderer.on('kosten', (_e, z) => cb(z)),

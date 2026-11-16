@@ -307,9 +307,10 @@ function nachrichtElem(n) {
     z.appendChild(d);
   }
   const inhalt = elem('div', 'inhalt');
-  inhalt.innerHTML = n.fehler ? esc(n.fehler) : markdown(n.content || (n.laeuft && !n.medien ? '…' : ''));
+  inhalt.innerHTML = n.fehler ? esc(n.fehler) : markdown(n.content || (n.laeuft && !n.medien && !n.datei ? '…' : ''));
   z.appendChild(inhalt);
   if (n.medien) { z.appendChild(chatMedienElem(n)); return z; }
+  if (n.datei) { z.appendChild(chatDateiElem(n)); return z; }
   if (!n.laeuft && n.content) {
     const fuss = elem('div', 'n-fuss');
     const kopie = elem('button', null, 'Copy');
@@ -394,6 +395,42 @@ function chatMedienElem(n) {
   return box;
 }
 
+// von Cowork auf dem PC gespeicherte Datei(en): Name, Ort, Oeffnen / Im Ordner zeigen
+const ANSEHBAR = /\.(html?|txt|md|json|csv|xml|svg|css|png|jpe?g|webp|gif|log|ini|ya?ml)$/i;
+function chatDateiElem(n) {
+  const d = n.datei;
+  const box = elem('div', 'n-datei');
+  if (n.laeuft) {
+    const st = elem('div', 'n-status');
+    st.append(elem('span', 'datei-icon', '📄'), elem('span', null, (d.status || 'Writing the file…') + (d.ordner ? ' → ' + d.ordner : '')));
+    box.appendChild(st);
+    return box;
+  }
+  for (const f of d.dateien || []) {
+    const z = elem('div', 'datei-zeile');
+    const info = elem('div', 'datei-info');
+    info.append(elem('b', null, f.name), elem('small', null, `${d.geaendert ? 'Updated' : 'Saved'} in ${d.ordner} · ${f.groesse < 1024 ? f.groesse + ' B' : Math.round(f.groesse / 1024) + ' KB'}`));
+    z.append(elem('span', 'datei-icon', '📄'), info);
+    const knopf = (text, tun) => { const b = elem('button', null, text); b.addEventListener('click', tun); z.appendChild(b); };
+    if (ANSEHBAR.test(f.pfad)) knopf('Open', () => window.api.dateiOeffnen(f.pfad));
+    knopf('Show in folder', () => window.api.dateiZeigen(f.pfad));
+    box.appendChild(z);
+  }
+  return box;
+}
+// zuletzt erstellte Datei: "mach den Vogel schneller" aendert dann genau die
+function letzteDatei() {
+  const v = verlauf();
+  let antworten = 0;
+  for (let i = v.length - 1; i >= 0 && antworten < 4; i--) {
+    const n = v[i];
+    if (n.role !== 'assistant' || n.lokal) continue;
+    antworten++;
+    if (n.datei && n.datei.dateien && n.datei.dateien.length) return (n.datei.dateien.find((f) => /\.html?$/i.test(f.pfad)) || n.datei.dateien[0]).pfad;
+  }
+  return null;
+}
+
 // Bild anhaengen (zum Hochskalieren oder Animieren): 📎 oder in den Chat ziehen
 function zeichneAnhang() {
   const box = $('#chat-anhang');
@@ -452,7 +489,9 @@ const fuerModell = (n) => ({
   role: n.role,
   content: n.medien && n.medien.dateien
     ? `[Created ${n.medien.art === 'voice' ? 'a voice recording of the text' : n.medien.art === 'upscale' ? 'a 4× upscale' : 'an ' + n.medien.art + ' with the prompt'}: ${n.medien.prompt || ''}]`
-    : n.content + (n.anhang ? ' [attached an image]' : ''),
+    : n.datei && n.datei.dateien
+      ? `[${n.datei.geaendert ? 'Updated' : 'Saved'} ${n.datei.dateien.map((f) => f.name).join(', ')} in ${n.datei.ordner} on the user's computer] ${n.content || ''}`
+      : n.content + (n.anhang ? ' [attached an image]' : ''),
 });
 
 function zeichneKnopf() {
@@ -476,6 +515,7 @@ const BEFEHLE = [
   { n: 'video', arg: 'description', info: 'create a video in the Studio' },
   { n: 'voice', arg: 'text', info: 'read a text aloud' },
   { n: 'upscale', info: 'upscale the attached or last image / video' },
+  { n: 'file', arg: 'what', info: 'create a file on your PC (Desktop unless you name a folder)' },
   { n: 'goal', arg: 'text | off', info: 'keep every answer focused on a goal' },
   { n: 'model', arg: 'name', info: 'use one model for every message' },
   { n: 'auto', info: 'let Cowork pick the model again' },
@@ -543,6 +583,10 @@ function befehl(text) {
       senden({ text: rest, erzwinge: { art: b.n } });
       break;
     }
+    case 'file':
+      if (!rest) { hinweis('Say what the file should contain after /file, e.g. /file a jump game as HTML'); break; }
+      senden({ text: rest, datei: true });
+      break;
     case 'upscale': senden({ text: rest || 'Upscale this', erzwinge: { art: 'upscale', quelle: anhang || undefined } }); break;
     case 'goal':
       if (!rest) { lokaleAntwort(chat.ziel ? 'Current goal: **' + esc(chat.ziel) + '** – type `/goal off` to clear it.' : 'No goal set. Type e.g. `/goal learn Python basics` – every answer then stays focused on it.'); break; }
@@ -640,6 +684,7 @@ function sendeChat(vorgabe) {
     id, model, system: [(!fest && MODI[chat.modus].system) || cfg.chatSystem || '', chat.ziel ? `The user's goal for this conversation: ${chat.ziel}\nKeep your answers focused on this goal.` : ''].filter(Boolean).join('\n\n'),
     nachrichten: v.filter((n) => n !== antwort && !n.fehler && !n.lokal).map(fuerModell),
     medien: mitStudio, anhang, letztesMedium: vorher, erzwinge: vorgabe && vorgabe.erzwinge,
+    letzteDatei: letzteDatei(), datei: !!(vorgabe && vorgabe.datei),
     auto: istAuto, vorigeRolle: voriges && voriges.rolle, rolle: (vorgabe && vorgabe.rolle) || (chat.immerDenken ? 'denker' : undefined), bildFrage: istAuto ? bildImGespraech(v.slice(0, -2)) : null,
   });
   zeichneChat();
@@ -651,6 +696,7 @@ window.api.onChat((p) => {
   if (p.text != null) a.content = p.text;
   if (p.denken != null) a.denken = p.denken;
   if (p.medien) a.medien = { ...(a.medien || {}), ...p.medien };
+  if ('datei' in p) a.datei = p.datei ? { ...(a.datei || {}), ...p.datei } : null;
   if (p.rolle) a.rolle = p.rolle;
   if (p.bild) a.bild = p.bild;
   if (p.modell) { a.modell = p.modell; chat.autoModell = p.modell; zeichneLeiste(); }
