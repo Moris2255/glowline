@@ -88,6 +88,7 @@
         <label id="l-gespart">Saved costs</label><b id="gespart">0.00 $</b>
       </div>
       <div class="platz"></div>
+      <button class="chip versteckt" id="dl-chip" title="Show all downloads"><i class="ein-dreh"></i><span id="dl-chip-text"></span></button>
       <button class="chip" id="ordner-chip" title="Working folder – click to choose another"><span class="ordner-symbol">⌂</span><span id="ordner-name">–</span></button>
       <button class="chip" id="tool-chip" title="Switch tool">
         <span id="tool-name">Claude Code</span><span class="pfeil">▾</span>
@@ -151,7 +152,7 @@
     <div class="bib-fenster">
       <div class="bib-kopf">
         <b>Models</b>
-        <div class="bib-tabs"><button data-tab="meine" class="an">My models</button><button data-tab="laden">Download</button><button data-tab="konten">Accounts</button><button data-tab="cowork">Cowork</button></div>
+        <div class="bib-tabs"><button data-tab="meine" class="an">My models</button><button data-tab="laden">Download</button><button data-tab="konten">Accounts</button><button data-tab="cowork">Cowork</button><button data-tab="downloads">Downloads</button></div>
         <div class="platz"></div>
         <button id="bib-express" class="m-knopf" title="Let Glowline pick and install models that fit your PC">Express setup</button>
         <button id="bib-zu" title="Close (Esc)">✕</button>
@@ -180,6 +181,9 @@
       <div id="bib-konten" class="bib-seite versteckt">
         <div id="konten-liste" class="bib-scroll"></div>
       </div>
+      <div id="bib-dl" class="bib-seite versteckt">
+        <div id="dl-liste" class="bib-scroll"></div>
+      </div>
       <div id="bib-downloads"></div>
     </div>
   </div>
@@ -205,5 +209,6 @@
   <script src="workspace.js"></script>
   <script src="studio.js"></script>
   <script src="einrichtung.js"></script>
+  <script src="downloads.js"></script>
 </body>
 </html>

@@ -73,6 +73,12 @@ term.onResize(({ cols, rows }) => { if (sitzung && !sitzung.beendet) window.api.
 new ResizeObserver(() => { try { fit.fit(); } catch {} }).observe($('#terms'));
 
 window.api.onData((id, d) => { if (sitzung && sitzung.id === id) term.write(d); });
+// fehlendes Werkzeug ist fertig installiert: gleich damit weitermachen
+window.api.onWerkzeugInstalliert((id, tool) => {
+  if (!sitzung || sitzung.id !== id) return;
+  hinweis(WERKZEUG_NAME[tool] + ' is installed – starting it');
+  starteSitzung({ tool });
+});
 window.api.onExit((id, code) => {
   if (!sitzung || sitzung.id !== id) return;
   sitzung.beendet = true;
@@ -98,7 +104,7 @@ async function starteSitzung(neu) {
   try { fit.fit(); } catch {}
   const r = await window.api.spawn({ tool, model, cwd, cols: term.cols, rows: term.rows });
   sitzung = { id: r.id, kennung: r.tab, tool, model, cwd: r.cwd, beendet: false };
-  if (r.fehlt) hinweis(WERKZEUG_NAME[r.fehlt] + ' is not installed – see the terminal');
+  if (r.fehlt) hinweis('Installing ' + WERKZEUG_NAME[r.fehlt] + ' – it starts by itself when done');
   if (tool !== 'shell') { cfg.defaultTool = tool; if (model) cfg.defaultModel = model; }
   cfg.lastDir = r.cwd;
   const ordner = r.cwd.replace(/^C:\\Users\\[^\\]+/i, '~');
@@ -286,7 +292,7 @@ $('#tool-chip').addEventListener('click', () => {
       b.classList.toggle('fehlt', fehlt);
       const k = b.querySelector('small');
       k.dataset.text = k.dataset.text || k.textContent;
-      k.textContent = fehlt ? 'not installed – click for install help' : k.dataset.text;
+      k.textContent = fehlt ? 'not installed – click to install it automatically' : k.dataset.text;
     }
   });
 });
@@ -467,11 +473,13 @@ function zeigeTab(tab) {
   $('#bib-laden').classList.toggle('versteckt', tab !== 'laden');
   $('#bib-konten').classList.toggle('versteckt', tab !== 'konten');
   $('#bib-cowork').classList.toggle('versteckt', tab !== 'cowork');
+  $('#bib-dl').classList.toggle('versteckt', tab !== 'downloads');
+  $('#bib-downloads').classList.toggle('versteckt', tab === 'downloads');
   zeichneBib();
   if (tab === 'meine' || tab === 'laden') (tab === 'meine' ? $('#b-suche') : $('#hf-suche')).focus();
 }
 function zeichneBib() {
-  if (bibTab === 'meine') zeichneMeine(); else if (bibTab === 'konten') zeichneKonten(); else if (bibTab === 'cowork') zeichneAutoRollen(); else zeichneLaden();
+  if (bibTab === 'meine') zeichneMeine(); else if (bibTab === 'konten') zeichneKonten(); else if (bibTab === 'cowork') zeichneAutoRollen(); else if (bibTab === 'downloads') { $('#dl-liste').dataset.schluessel = ''; zeichneDlSeite(); } else zeichneLaden();
   zeichneDownloads();
 }
 for (const b of document.querySelectorAll('.bib-tabs button')) b.addEventListener('click', () => zeigeTab(b.dataset.tab));
@@ -838,6 +846,7 @@ function tokenAnteile(m, s) {
   return { neu, cache: Math.max(0, s.eingabe - neu), ausgabe: s.ausgabe || 0 };
 }
 
+window.api.onZoom((z) => hinweis('Interface size ' + z + ' % · Ctrl 0 = automatic'));
 window.api.onStat((s) => {
   const m = messwerte(s.tab);
   const jetzt = Date.now();

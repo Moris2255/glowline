@@ -396,7 +396,7 @@ async function statusSchleife() {
 function sauberesEnv() {
   const e = {};
   for (const [k, v] of Object.entries(process.env)) {
-    if (/^(ANTHROPIC_|CLAUDE_CODE_|CLAUDECODE$|ELECTRON_|CODEX_OSS_|OPENCODE_CONFIG)/.test(k)) continue;
+    if (/^(ANTHROPIC_|CLAUDE_CODE_|CLAUDECODE$|ELECTRON_|CODEX_OSS_|OPENCODE_CONFIG)/.test(k) || /^npm_/i.test(k)) continue;
     e[k] = v;
   }
   e.TERM = 'xterm-256color';
@@ -417,7 +417,9 @@ function regPfad(schluessel) {
 async function frischerPfad() {
   const [sys, nutzer] = await Promise.all([regPfad('HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'), regPfad('HKCU\\Environment')]);
   const gesehen = new Set();
-  return [...sys.split(';'), ...nutzer.split(';'), ...(process.env.PATH || '').split(';')]
+  // Test: PC ohne Node.js nachspielen
+  const ohneNode = process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_OHNE_NODE ? (p) => !/nodejs|node_modules|[\\/]npm$|[\\/]node$|\.local[\\/]bin/i.test(p) || WERKZEUG_ORDNER().includes(p) : () => true;
+  return [...sys.split(';'), ...nutzer.split(';'), ...(process.env.PATH || '').split(';'), ...WERKZEUG_ORDNER().filter((o) => fs.existsSync(o))].filter(ohneNode)
     .map((p) => p.trim()).filter((p) => p && !gesehen.has(p.toLowerCase()) && gesehen.add(p.toLowerCase())).join(';');
 }
 function mitPfad(env, pfad) {
@@ -439,37 +441,121 @@ async function werkzeugeInstalliert() {
   await Promise.all(Object.keys(INSTALL).map(async (t) => { r[t] = !!(await findeProgramm(INSTALL[t].exe || t, pfad)); }));
   return r;
 }
+// npm: Paket fuer "npm install -g", ps: offizielles Installationsskript des Herstellers
 const INSTALL = {
-  claude: { name: 'Claude Code', befehl: 'irm https://claude.ai/install.ps1 | iex' },
-  codex: { name: 'Codex', befehl: 'npm install -g @openai/codex', node: true },
-  opencode: { name: 'OpenCode', befehl: 'npm install -g opencode-ai', node: true },
+  claude: { name: 'Claude Code', ps: 'https://claude.ai/install.ps1' },
+  codex: { name: 'Codex', npm: '@openai/codex' },
+  opencode: { name: 'OpenCode', npm: 'opencode-ai' },
   // konto: meldet sich selbst an und nutzt seine eigenen Modelle (Glowline startet es nur im Ordner)
-  antigravity: { name: 'Antigravity', exe: 'agy', befehl: 'irm https://antigravity.google/cli/install.ps1 | iex', konto: true },
-  gemini: { name: 'Gemini CLI', befehl: 'npm install -g @google/gemini-cli', node: true, konto: true },
-  qwen: { name: 'Qwen Code', befehl: 'npm install -g @qwen-code/qwen-code', node: true },
-  copilot: { name: 'GitHub Copilot', befehl: 'npm install -g @github/copilot', node: true, konto: true },
-  droid: { name: 'Droid', befehl: 'irm https://app.factory.ai/cli/windows | iex', konto: true },
-  cline: { name: 'Cline', befehl: 'npm install -g cline', node: true, konto: true },
+  antigravity: { name: 'Antigravity', exe: 'agy', ps: 'https://antigravity.google/cli/install.ps1', konto: true },
+  gemini: { name: 'Gemini CLI', npm: '@google/gemini-cli', konto: true },
+  qwen: { name: 'Qwen Code', npm: '@qwen-code/qwen-code' },
+  copilot: { name: 'GitHub Copilot', npm: '@github/copilot', konto: true },
+  droid: { name: 'Droid', ps: 'https://app.factory.ai/cli/windows', konto: true },
+  cline: { name: 'Cline', npm: 'cline', konto: true },
 };
 const WERKZEUG = { ...Object.fromEntries(Object.entries(INSTALL).map(([k, v]) => [k, v.name])), shell: 'PowerShell' };
 function meldung(env, zeilen) {
   const text = ['', ...zeilen, ''].map((t, i) => `Write-Host ${q(t)}${i === 1 ? ' -ForegroundColor Yellow' : i > 1 && t ? ' -ForegroundColor DarkGray' : ''}`).join('; ');
   return { file: 'powershell.exe', args: ['-NoLogo', '-NoProfile', '-NoExit', '-Command', text], env };
 }
-function installHinweis(tool) {
+// Ordner, in denen installierte Werkzeuge landen (auch wenn der PATH sie noch nicht kennt)
+const NODE_ORDNER = () => path.join(process.env.LOCALAPPDATA || path.join(HOME, 'AppData', 'Local'), 'Glowline', 'node');
+const WERKZEUG_ORDNER = () => [NODE_ORDNER(), path.join(process.env.APPDATA || '', 'npm'), path.join(HOME, '.local', 'bin')];
+const FERTIG_MARKE = '[glowline:installed]';
+// Fehlendes Werkzeug: Glowline installiert es selbst im Terminal – bei Bedarf mit eigenem Node.js
+// (ohne Admin-Rechte, nach %LOCALAPPDATA%\Glowline\node). Danach startet das Werkzeug von allein.
+function installSkript(tool) {
   const i = INSTALL[tool];
-  const zeile = (text, farbe) => `Write-Host ${q(text)}${farbe ? ' -ForegroundColor ' + farbe : ''}`;
-  return [
-    zeile(''),
-    zeile(`${i.name} is not installed on this PC.`, 'Yellow'),
-    zeile('Install it right here by pasting this command:'),
-    zeile(''),
-    zeile('    ' + i.befehl, 'White'),
-    zeile(''),
-    i.node ? zeile('(this needs Node.js – get it at https://nodejs.org)', 'DarkGray') : null,
-    zeile(`When it is done, choose ${i.name} again in the tool menu (bottom right).`, 'DarkGray'),
-    zeile(''),
-  ].filter(Boolean).join('; ');
+  const s = (t) => "'" + String(t).replace(/'/g, "''") + "'";
+  const z = [
+    "$ErrorActionPreference = 'Continue'",
+    "$ProgressPreference = 'SilentlyContinue'",
+    '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12',
+    // Ordner dauerhaft in den Benutzer-PATH, damit das Werkzeug auch in anderen Terminals geht
+    'function Add-UserPath($dir) {',
+    "  $alt = [Environment]::GetEnvironmentVariable('Path', 'User')",
+    process.env.GLOWLINE_TEST ? '  # Test: Benutzer-PATH bleibt unberuehrt' : "  if (-not (($alt -split ';') -contains $dir)) { [Environment]::SetEnvironmentVariable('Path', (($alt.TrimEnd(';') + ';' + $dir).TrimStart(';')), 'User') }",
+    "  if (-not (($env:Path -split ';') -contains $dir)) { $env:Path = $dir + ';' + $env:Path }",
+    '}',
+    "Write-Host ''",
+    `Write-Host ${s(`  Installing ${i.name} - Glowline does everything, just wait a moment.`)} -ForegroundColor Yellow`,
+    "Write-Host ''",
+  ];
+  if (i.npm) {
+    z.push(
+      `$nodeDir = ${s(NODE_ORDNER())}`,
+      "if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {",
+      "  if (-not (Test-Path (Join-Path $nodeDir 'npm.cmd'))) {",
+      "    Write-Host '  Node.js is missing - downloading it (about 35 MB) ...' -ForegroundColor DarkGray",
+      "    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }",
+      "    try {",
+      // erst in eine Variable: PowerShell 5.1 reicht die Liste sonst als ein einziges Objekt weiter
+      "      $liste = Invoke-RestMethod 'https://nodejs.org/dist/index.json' -TimeoutSec 60 -UseBasicParsing",
+      "      $v = ($liste | Where-Object { $_.lts } | Select-Object -First 1).version",
+      "      if (-not ($v -match '^v\\d+\\.\\d+\\.\\d+$')) { throw 'could not find the current Node.js version' }",
+      "      $name = \"node-$v-win-$arch\"",
+      "      $zip = Join-Path $env:TEMP \"$name.zip\"",
+      "      $tmp = Join-Path $env:TEMP \"glowline-$name\"",
+      "      Invoke-WebRequest \"https://nodejs.org/dist/$v/$name.zip\" -OutFile $zip -UseBasicParsing -TimeoutSec 900",
+      "      New-Item -ItemType Directory -Force $tmp | Out-Null",
+      "      tar.exe -xf $zip -C $tmp",
+      "      if (-not (Test-Path (Join-Path $tmp $name))) { Expand-Archive $zip $tmp -Force }",
+      "      New-Item -ItemType Directory -Force (Split-Path $nodeDir) | Out-Null",
+      "      if (Test-Path $nodeDir) { Remove-Item $nodeDir -Recurse -Force }",
+      "      Move-Item (Join-Path $tmp $name) $nodeDir",
+      "      Remove-Item $zip, $tmp -Recurse -Force -ErrorAction SilentlyContinue",
+      "      Write-Host \"  Node.js $v is ready.\" -ForegroundColor DarkGray",
+      "    } catch { Write-Host ('  Could not download Node.js: ' + $_.Exception.Message) -ForegroundColor Red; return }",
+      "  }",
+      "  Add-UserPath $nodeDir",
+      "}",
+      "Add-UserPath (Join-Path $env:APPDATA 'npm')",
+      `npm install -g ${s(i.npm)}`,
+      '$ok = ($LASTEXITCODE -eq 0)',
+    );
+  } else {
+    z.push(
+      `try { & ([scriptblock]::Create((Invoke-RestMethod ${s(i.ps)} -UseBasicParsing))); $ok = $true } catch { Write-Host ('  ' + $_.Exception.Message) -ForegroundColor Red; $ok = $false }`,
+      "Add-UserPath (Join-Path $env:USERPROFILE '.local\\bin')",
+    );
+  }
+  z.push(
+    `if ($ok -and (Get-Command ${s(i.exe || tool)} -ErrorAction SilentlyContinue)) {`,
+    `  Write-Host ''; Write-Host ${s(`  ${i.name} is installed - starting it ...`)} -ForegroundColor Green; Write-Host ${s(FERTIG_MARKE)}`,
+    '} else {',
+    `  Write-Host ''; Write-Host ${s(`  The install did not finish (see above). Check your internet and choose ${i.name} again in the tool menu to retry.`)} -ForegroundColor Red`,
+    '}',
+  );
+  const datei = path.join(app.getPath('userData'), `install-${tool}.ps1`);
+  fs.writeFileSync(datei, '﻿' + z.join('\r\n'), 'utf8');
+  return datei;
+}
+// dasselbe unsichtbar (Express-Einrichtung): meldet die letzte Zeile als Status, wirft bei Fehler
+async function werkzeugInstallieren(tool, ac, status) {
+  if (!INSTALL[tool]) throw new Error('unknown tool');
+  const env = mitPfad(sauberesEnv(), await frischerPfad());
+  const datei = installSkript(tool);
+  let aus = '';
+  const code = await new Promise((ok, fehler) => {
+    const p = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', datei], { windowsHide: true, env });
+    const zeile = (x) => {
+      aus = (aus + x).slice(-4000);
+      const z = String(x).split(/\r?\n/).map((t) => t.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').trim()).filter((t) => t && !t.startsWith('[glowline')).pop();
+      if (z) status(z.slice(0, 120));
+    };
+    p.stdout.on('data', zeile);
+    p.stderr.on('data', zeile);
+    const weg = () => { try { execFile('taskkill', ['/pid', String(p.pid), '/t', '/f'], { windowsHide: true }, () => {}); } catch {} };
+    ac.signal.addEventListener('abort', weg, { once: true });
+    p.on('error', fehler);
+    p.on('close', (c) => { ac.signal.removeEventListener('abort', weg); ok(c); });
+  });
+  if (ac.signal.aborted) throw new Error('cancelled');
+  if (!aus.includes(FERTIG_MARKE)) {
+    const grund = aus.split(/\r?\n/).map((t) => t.trim()).filter((t) => /error|could not|failed/i.test(t) && !/did not finish|^npm error (A complete log|$)/i.test(t)).slice(0, 2).join(' ');
+    throw new Error((grund || `${INSTALL[tool].name} could not be installed (code ${code})`).slice(0, 200));
+  }
 }
 
 async function baueBefehl(tool, modellId, tab) {
@@ -481,7 +567,7 @@ async function baueBefehl(tool, modellId, tab) {
   let exe = null;
   if (INSTALL[tool]) {
     exe = await findeProgramm(INSTALL[tool].exe || tool, pfad);
-    if (!exe) return { file: 'powershell.exe', args: ['-NoLogo', '-NoProfile', '-NoExit', '-Command', installHinweis(tool)], env, fehlt: tool };
+    if (!exe) return { file: 'powershell.exe', args: ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-NoExit', '-File', installSkript(tool)], env, fehlt: tool };
     if (INSTALL[tool].konto) {
       const args = ['-NoLogo', '-NoProfile', '-NoExit', '-Command', `& ${q(exe)}`];
       if (/\.ps1$/i.test(exe)) args.splice(2, 0, '-ExecutionPolicy', 'Bypass');
@@ -759,8 +845,10 @@ ipcMain.handle('pty:spawn', async (_e, o) => {
   const { file, args, env, fehlt } = await baueBefehl(o.tool, o.model, tab);
   const p = pty.spawn(file, args, { name: 'xterm-256color', cols: o.cols || 120, rows: o.rows || 30, cwd, env, useConpty: true });
   // Ausgabe buendeln, damit schnelle Modelle das Fenster nicht mit IPC fluten
-  let puffer = '', geplant = false;
+  let puffer = '', geplant = false, ende = '';
   p.onData((d) => {
+    // Werkzeug wurde eben installiert: Oberflaeche startet es neu
+    if (fehlt) { ende = (ende + d.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')).slice(-300); if (ende.includes(FERTIG_MARKE)) { ende = ''; setTimeout(() => sende('werkzeug:installiert', id, fehlt), 400); } }
     puffer += d;
     if (geplant) return;
     geplant = true;
@@ -893,6 +981,29 @@ async function installerHolen(id) {
   melde();
   return installerStand(id);
 }
+// Express-Einrichtung, wenn winget fehlt oder scheitert: Ollama-Setup selbst laden und still installieren
+// (installiert sich fuer den aktuellen Nutzer, ohne Adminrechte)
+async function ollamaStillInstallieren(ac, status) {
+  const stopp = () => { const s = installer.get('ollama'); if (s && s.ac) s.ac.abort(); };
+  ac.signal.addEventListener('abort', stopp, { once: true });
+  const t = setInterval(() => {
+    const s = installer.get('ollama');
+    if (s && s.gesamt) status(`Downloading Ollama · ${(s.geladen / 1e9).toFixed(1)} of ${(s.gesamt / 1e9).toFixed(1)} GB`, Math.min(99, Math.round((s.geladen / s.gesamt) * 100)));
+  }, 500);
+  let st;
+  try { st = await installerHolen('ollama'); } finally { clearInterval(t); ac.signal.removeEventListener('abort', stopp); }
+  if (ac.signal.aborted) throw new Error('cancelled');
+  if (!st.fertig) throw new Error(st.fehler || 'Download failed');
+  status('Installing Ollama…', null);
+  const datei = installer.get('ollama').datei;
+  await new Promise((ok) => {
+    const p = spawn(datei, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-'], { windowsHide: true });
+    const weg = () => { try { p.kill(); } catch {} };
+    ac.signal.addEventListener('abort', weg, { once: true });
+    p.on('error', ok);
+    p.on('close', () => { ac.signal.removeEventListener('abort', weg); ok(); });
+  });
+}
 ipcMain.handle('installer:holen', (_e, id) => installerHolen(id));
 ipcMain.handle('installer:stand', (_e, id) => installerStand(id));
 ipcMain.on('installer:abbrechen', (_e, id) => { const s = installer.get(id); if (s && s.ac) s.ac.abort(); });
@@ -941,6 +1052,21 @@ ipcMain.on('clip:write', (_e, t) => clipboard.writeText(t));
 ipcMain.on('win:title', (_e, t) => { if (win) win.setTitle(t); });
 
 // ---------- Fenster ----------
+// Oberflaeche passend zum Bildschirm vergroessern: auf grossen Bildschirmen mit 100 % Skalierung
+// wirkt 13-px-Schrift sonst winzig (1920 px breit -> 115 %, Laptop -> 100 %)
+function zoomAuto() {
+  const wa = screen.getDisplayMatching(win.getBounds()).workArea;
+  return Math.min(1.3, Math.max(1, Math.round((wa.width / 1650) * 20) / 20));
+}
+const zoomJetzt = () => (typeof cfg.zoom === 'number' ? cfg.zoom : zoomAuto());
+function setzeZoom() {
+  if (!win || win.isDestroyed()) return;
+  const z = zoomJetzt();
+  win.webContents.setZoomFactor(z);
+  // Fensterknoepfe oben rechts gleich hoch wie die (mitgewachsene) Titelzeile
+  try { win.setTitleBarOverlay({ color: '#0c0d0f', symbolColor: '#c9cbcf', height: Math.round(36 * z) }); } catch {}
+}
+
 function fenster() {
   // Startet fast bildschirmfuellend: nur ein schmaler Rand rundherum, damit die runden Ecken sichtbar bleiben
   const RAND = 10;
@@ -975,7 +1101,18 @@ function fenster() {
     if (i.key === 'F12') win.webContents.toggleDevTools();
     // F11 = Vollbild wie im Windows Terminal (Titelzeile verschwindet, nur Terminal + Leiste)
     if (i.key === 'F11') { e.preventDefault(); win.setFullScreen(!win.isFullScreen()); }
+    // Strg + / Strg - / Strg 0: Oberflaeche groesser, kleiner, automatisch
+    if (i.control && !i.alt && ['+', '=', '-', '0'].includes(i.key)) {
+      e.preventDefault();
+      const z = i.key === '0' ? null : Math.round(Math.min(1.6, Math.max(0.8, zoomJetzt() + (i.key === '-' ? -0.05 : 0.05))) * 100) / 100;
+      cfg.zoom = z;
+      speichereConfig();
+      setzeZoom();
+      sende('zoom', Math.round(zoomJetzt() * 100));
+    }
   });
+  win.webContents.on('did-finish-load', setzeZoom);
+  win.on('moved', () => { if (!cfg.zoom) setzeZoom(); });
   // Schliessen aus Versehen: nachfragen, solange im Studio etwas laeuft
   win.on('close', (e) => {
     if (process.env.GLOWLINE_TEST) return;
@@ -1167,7 +1304,7 @@ async function testLauf(ordner) {
       await js(`zeigeEinrichtung()`);
       await warte(2500);
       console.log('OHNE START', await js(`[...document.querySelectorAll('.ein-chip')].map((c) => c.textContent).join(' / ')`));
-      await js(`document.querySelector('.ein-karte.empfohlen').click()`);
+      await js(`document.querySelector('.ein-wahl .ein-karte').click()`);
       await warte(2500);
       for (const t of ['bild', 'video', 'stimme', 'upscale']) { await js(`document.querySelector('[data-teil=${t}]').click()`); await warte(700); }
       console.log('OHNE ZEILEN', await js(`[...document.querySelectorAll('#ein-inhalt .ein-zeile')].map((z) => z.querySelector('b').textContent + ' = ' + z.querySelector('.ein-gb').textContent).join(' | ') + ' || ' + document.querySelector('.ein-summe').textContent`));
@@ -1378,6 +1515,61 @@ async function testLauf(ordner) {
       console.log('DATEI EIGENE', JSON.stringify(cfg.erstellteDateien.map((p) => path.basename(p))), eigeneDatei(path.join(ziel, 'hopser-spiel.html')) ? 'eigen' : 'fremd', eigeneDatei('C:\\Windows\\win.ini') ? 'FEHLER' : 'win.ini fremd');
       await bild('d-ende');
     }
+    if (was.includes('ansicht')) {
+      // alle Ansichten fotografieren (Groessen-Check)
+      await js(`zeigeTerminal()`); await warte(800); await bild('a-terminal');
+      await js(`document.querySelector('#tool-chip').click()`); await warte(500); await bild('a-tools'); await js(`schliesseMenues()`);
+      await js(`document.querySelector('#modell-chip').click()`); await warte(500); await bild('a-modelle'); await js(`schliesseMenues()`);
+      await js(`starteSitzung({ modus: 'auto' })`).catch(() => {}); await warte(1500); await bild('a-chat');
+      for (const t of ['meine', 'laden', 'konten', 'cowork']) { await js(`oeffneBib('${t}')`).catch((e) => console.log('BIB', e.message)); await warte(1000); await bild('a-bib-' + t); }
+      await js(`schliesseBib()`).catch(() => {});
+      // Downloads-Tab mit nachgestellten Eintraegen
+      await js(`downloads.set('ollama|test/Qwen3-8B-GGUF|Q4_K_M', { ziel: 'ollama', repo: 'test/Qwen3-8B-GGUF', quant: 'Q4_K_M', status: 'pulling', completed: 2.1e9, total: 5.0e9 });
+        sz.laden.set('modell:test', { prozent: 37, text: 'model.safetensors' });
+        ein.stand = { fertig: false, schritte: [{ titel: 'Claude Code', info: 'Anthropic coding agent', status: 'fertig' }, { titel: 'Codex', info: 'OpenAI coding agent', status: 'laeuft', text: 'added 12 packages', prozent: 0 }, { titel: 'Coder', info: 'qwen3.5:9b', status: 'wartet', gb: 6.6 }] };
+        dlAktualisieren(); oeffneBib('downloads'); 1`);
+      await warte(1500); await bild('a-bib-downloads');
+      console.log('DL', await js(`[...document.querySelectorAll('.dl-zeile')].map((z) => z.querySelector('b').textContent + ' [' + z.querySelector('.dl-stand').textContent + ']').join(' | ') + ' | chip: ' + document.querySelector('#dl-chip-text').textContent`));
+      await js(`downloads.clear(); sz.laden.clear(); ein.stand = null; schliesseBib(); dlAktualisieren(); 1`);
+      await warte(1000);
+      console.log('DL NACHHER', await js(`document.querySelector('#dl-chip').className`));
+      await js(`zeigeEinrichtung()`); await warte(5000); await bild('a-ein-start');
+      await js(`ein.seite = 'express'; zeichneEinrichtung()`); await warte(800); await bild('a-ein-express');
+      await js(`document.querySelector('#ein-inhalt').scrollTop = 9999`); await warte(300); await bild('a-ein-express2');
+      await js(`schliesseEinrichtung()`);
+      console.log('ANSICHT fertig', await js(`window.innerWidth + 'x' + window.innerHeight`));
+    }
+    if (was.includes('installieren')) {
+      // fehlendes Werkzeug selbst installieren – in einem Sandkasten (eigene LOCALAPPDATA/APPDATA/USERPROFILE, ohne Node.js im PATH)
+      // mit dem kleinen npm-Paket "cowsay" als Platzhalter-Werkzeug
+      const kiste = path.join(ordner, 'kiste');
+      for (const [k, u] of [['LOCALAPPDATA', 'local'], ['APPDATA', 'roaming'], ['USERPROFILE', 'profil']]) { process.env[k] = path.join(kiste, u); fs.mkdirSync(process.env[k], { recursive: true }); }
+      INSTALL.cowsay = { name: 'Cowsay', npm: 'cowsay', konto: true };
+      console.log('INST VORHER', !!(await findeProgramm('npm', await frischerPfad())), 'npm im Sandkasten-PATH');
+      await js(`WERKZEUG_NAME.cowsay = 'Cowsay'; zeigeTerminal(); starteSitzung({ tool: 'cowsay' })`);
+      const start = Date.now();
+      let neu = null;
+      for (let i = 0; i < 600; i++) {
+        await warte(1000);
+        neu = await js(`sitzung && sitzung.tool + ' ' + sitzung.id`);
+        if (i === 20) await bild('i-laeuft');
+        const text = await js(`(() => { const b = term.buffer.active; let t = ''; for (let i = 0; i < b.length; i++) t += b.getLine(i).translateToString(true) + ' '; return t.replace(/ +/g, ' '); })()`);
+        if (i % 15 === 0) console.log('  ...', text.slice(-160));
+        if (/did not finish|Could not download/.test(text)) { console.log('INST FEHLER', text.slice(-600)); break; }
+        if (await js(`!!window.cowsayNeu`)) break;
+        if (i === 0) await js(`window.cowsayErst = sitzung.id; window.api.onWerkzeugInstalliert(() => { window.cowsayNeu = true; }); 1`);
+      }
+      await warte(3000);
+      console.log('INST DAUER', Math.round((Date.now() - start) / 1000), 's | sitzung', neu, '->', await js(`sitzung.tool + ' ' + sitzung.id + ' neu=' + (sitzung.id !== window.cowsayErst)`));
+      console.log('INST NODE', fs.existsSync(path.join(NODE_ORDNER(), 'node.exe')), fs.existsSync(path.join(NODE_ORDNER(), 'cowsay.cmd')), await findeProgramm('cowsay', await frischerPfad()));
+      await bild('i-ende');
+      // dasselbe unsichtbar wie in der Express-Einrichtung
+      const meldungen = [];
+      const t2 = Date.now();
+      try { await werkzeugInstallieren('cowsay', new AbortController(), (t) => meldungen.push(t)); console.log('INST STILL ok', Math.round((Date.now() - t2) / 1000), 's |', meldungen.slice(-3).join(' / ')); } catch (e) { console.log('INST STILL FEHLER', e.message, meldungen.slice(-5)); }
+      INSTALL.kaputt = { name: 'Kaputt', npm: 'glowline-gibt-es-nicht-xyz-123' };
+      try { await werkzeugInstallieren('kaputt', new AbortController(), () => {}); console.log('INST KAPUTT ok?!'); } catch (e) { console.log('INST KAPUTT Fehler wie erwartet:', e.message); }
+    }
     if (was.includes('dateiecht')) {
       // echtes Coder-Modell schreibt ein Spiel auf den Desktop, danach eine Aenderung; Datei unsichtbar laden und auf JS-Fehler pruefen
       const sag = async (t) => {
@@ -1502,7 +1694,7 @@ async function testLauf(ordner) {
       await warte(2500);
       console.log('EIN START', await ein(`document.querySelector('#ein-titel').textContent + ' | ' + [...document.querySelectorAll('.ein-chip')].map((c) => c.textContent).join(' / ') + ' | karten=' + document.querySelectorAll('.ein-karte').length`));
       await bild('e-start');
-      await ein(`document.querySelector('.ein-karte.empfohlen').click()`);
+      await ein(`document.querySelector('.ein-wahl .ein-karte').click()`);
       await warte(2500);
       console.log('EIN STUFE', await ein(`[...document.querySelectorAll('.ein-stufe')].map((k) => (k.classList.contains('an') ? '*' : '') + k.querySelector('b').textContent + (k.querySelector('em') ? '(empf)' : '')).join(' | ')`));
       console.log('EIN ZEILEN', await zeilen());
@@ -1531,7 +1723,7 @@ async function testLauf(ordner) {
       }
       await bild('e-fertig');
       console.log('EIN CFG', await ein(`cfg.defaultModel + ' | ' + cfg.chatModel + ' | ' + cfg.einrichtung + ' | ' + document.querySelector('#ein-lauf-summe').textContent`));
-      console.log('EIN NOCHMAL', await ein(`(async () => { document.querySelector('#ein-fertig').click(); await zeigeEinrichtung(); await new Promise((ok) => setTimeout(ok, 2000)); document.querySelector('.ein-karte.empfohlen').click(); await new Promise((ok) => setTimeout(ok, 2000)); return document.querySelector('.ein-summe').textContent + ' | los=' + document.querySelector('#ein-los').textContent; })()`));
+      console.log('EIN NOCHMAL', await ein(`(async () => { document.querySelector('#ein-fertig').click(); await zeigeEinrichtung(); await new Promise((ok) => setTimeout(ok, 2000)); document.querySelector('.ein-wahl .ein-karte').click(); await new Promise((ok) => setTimeout(ok, 2000)); return document.querySelector('.ein-summe').textContent + ' | los=' + document.querySelector('#ein-los').textContent; })()`));
       // Abbruch: Denker neu (frei-Variante), Nachbau laedt langsam (GLOWLINE_TEST_LANGSAM)
       if (process.env.GLOWLINE_TEST_ABBRUCH) {
         await ein(`document.querySelector('.ein-frei input').click()`);
@@ -1860,6 +2052,8 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     autoChat.init({ cfg: () => cfg });
     einrichtung.init({
       cfg: () => cfg, sende, studio, ollamaHolen, ollamaInstalliert,
+      werkzeugeInstalliert, werkzeugInstallieren, werkzeugName: (t) => (INSTALL[t] || {}).name,
+      ollamaStillInstallieren,
       setzeConfig: (neu) => { Object.assign(cfg, neu); speichereConfig(); sende('config', cfg); },
     });
     dateien.init((art) => app.getPath(art));

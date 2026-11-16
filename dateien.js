@@ -78,7 +78,9 @@ async function pruefe({ text, letzteDatei, frage, erzwinge }) {
   if (erzwinge) return { ...ordnerFuer(text, holePfad), bearbeite: null };
   if (WORTE.test(text)) {
     const klar = TUN.test(text) && DATEI.test(text) && !FRAGE.test(text.trim());
-    if (klar || jaNein(await frage(PRUEFEN, [{ role: 'user', content: frageText(text) }], 4).catch(() => ''))) {
+    // reine Wissensfragen ("Was ist eine HTML-Datei?") nie als Dateiwunsch – kleine Modelle sagen da gern "ja"
+    const nurFrage = FRAGE.test(text.trim()) && !TUN.test(text);
+    if (klar || (!nurFrage && jaNein(await frage(PRUEFEN, [{ role: 'user', content: frageText(text) }], 4).catch(() => '')))) {
       // "aender die Datei auf dem Desktop": wenn kein neuer Ort genannt ist, die letzte Datei bearbeiten
       const neu = /\b(neue|new|another|noch eine|zweite|second)\b/i.test(text);
       const genannt = /\b[a-z]:\\/i.test(text) || ORDNER.some(([re]) => re.test(text));

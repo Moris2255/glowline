@@ -38,6 +38,12 @@ const STUDIO = {
   upscale: { id: 'esrgan-x4', name: 'Upscaling', info: 'Real-ESRGAN – makes images 4× sharper' },
 };
 const MOTOR_GB = 10;
+// Coding-Werkzeuge, die die Einrichtung gleich mitinstalliert (Node.js holt Glowline bei Bedarf selbst)
+const WERKZEUGE = {
+  claude: { info: 'Anthropic’s coding agent – runs with your local models' },
+  codex: { info: 'OpenAI’s coding agent – runs with your local models' },
+  opencode: { info: 'Open-source coding agent – local and cloud models' },
+};
 const TEILE = ['coder', 'denker', 'helfer', 'bild', 'video', 'stimme', 'upscale'];
 
 let d = null; // Hilfen aus main.js
@@ -94,7 +100,7 @@ let sysMerk = null, sysZeit = 0;
 async function system(frisch) {
   // Plan wird bei jedem Klick neu berechnet: Systemdaten kurz zwischenspeichern
   if (!frisch && sysMerk && Date.now() - sysZeit < 15000) return sysMerk;
-  const [gpu, ollama] = await Promise.all([grafikkarte(), ollamaStand()]);
+  const [gpu, ollama, werkzeuge] = await Promise.all([grafikkarte(), ollamaStand(), d.werkzeugeInstalliert().catch(() => ({}))]);
   const ram = Math.round((os.totalmem() / 2 ** 30) * 10) / 10; // GiB, wie Windows es anzeigt
   const st = d.studio.status();
   sysZeit = Date.now();
@@ -104,6 +110,7 @@ async function system(frisch) {
     stufen: Object.fromEntries(Object.entries(STUFEN).map(([k, s]) => [k, { name: s.name, info: s.info }])),
     rollen: ROLLEN, studioTeile: Object.fromEntries(Object.entries(STUDIO).map(([k, s]) => [k, { name: s.name, info: s.info }])),
     studioOrdner: st.ordner,
+    werkzeuge: Object.fromEntries(Object.entries(WERKZEUGE).map(([k, w]) => [k, { name: d.werkzeugName(k), info: w.info, da: !!werkzeuge[k] }])),
   };
 }
 
@@ -117,6 +124,11 @@ async function plan(wahl, sys) {
   const vorhanden = new Set(sys.ollama.modelle.map((n) => n.toLowerCase().replace(/:latest$/, '')));
   const da = (n) => vorhanden.has(n.toLowerCase().replace(/:latest$/, ''));
   const schritte = [];
+  // Werkzeuge zuerst: klein und schnell fertig
+  for (const [t, w] of Object.entries(sys.werkzeuge)) {
+    if (((wahl && wahl.werkzeuge) || {})[t] === false) continue;
+    schritte.push({ art: 'werkzeug', tool: t, titel: w.name, info: w.info, gb: w.da ? 0 : 0.2, da: w.da, ordner: process.env.LOCALAPPDATA || os.homedir() });
+  }
   const sprach = TEILE.filter((t) => ROLLEN[t] && an(t));
   if (sprach.length && !sys.ollama.installiert) schritte.push({ art: 'ollama', titel: 'Ollama', info: 'Runs the language models on your PC', gb: 1.9, ordner: process.env.LOCALAPPDATA || os.homedir() });
   for (const t of sprach) {
@@ -202,6 +214,10 @@ async function schrittOllama(s, ac) {
     r = await befehl(winget, ['install', '-e', '--id', 'Ollama.Ollama', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity'], ac);
   } catch { r = { code: -1, aus: 'winget not found' }; }
   if (ac.signal.aborted) throw new Error('cancelled');
+  // kein winget (oder es scheitert): Setup selbst laden und still installieren
+  if (!(await d.ollamaInstalliert()) && !(process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_WINGET)) {
+    await d.ollamaStillInstallieren(ac, (text, prozent) => { s.text = text; if (prozent != null) s.prozent = prozent; melde(); });
+  }
   if (!(await d.ollamaInstalliert())) throw new Error('Could not install Ollama automatically (ollama.com/download)');
   s.text = 'Starting Ollama…';
   melde(true);
@@ -276,7 +292,8 @@ async function starten(wahl) {
       s.status = 'laeuft';
       melde(true);
       try {
-        if (s.art === 'ollama') await schrittOllama(s, ac);
+        if (s.art === 'werkzeug') await d.werkzeugInstallieren(s.tool, ac, (t) => { s.text = t; melde(); });
+        else if (s.art === 'ollama') await schrittOllama(s, ac);
         else if (s.art === 'sprache') await schrittSprache(s, ac);
         else if (s.art === 'motor') await schrittStudio(s, ac, 'einrichten', () => d.studio.einrichten(), () => d.studio.status().eingerichtet);
         else if (s.art === 'studio') await schrittStudio(s, ac, 'modell:' + s.id, () => d.studio.modellHolen(s.id), () => (d.studio.status().modelle[s.id] || {}).da);

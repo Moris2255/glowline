@@ -8,10 +8,11 @@ A local AI workspace for Windows: run **Claude Code**, **Codex**, **OpenCode**, 
 
 ## Express setup
 
-On the first start Glowline looks at your PC (graphics card, VRAM, RAM, free space) and offers two ways:
+On the first start Glowline looks at your PC (graphics card, VRAM, RAM, free space). One click on **Install everything** sets up all you need – nothing to do by hand:
 
-- **Express** – pick a speed (**Fast**, **Balanced** or **Best quality**; the one that fits your PC is marked) and Glowline installs everything in one go: Ollama if it is missing, a **coder**, a **reasoning** and a **fast helper** model, plus the Studio models for **images, video, voice and upscaling**. Untick anything you don't want – the download size and free space are shown before you start. Optionally take the **uncensored (abliterated)** versions of the language models.
-- **Custom** – set up everything yourself, like before.
+- **Install everything** – the coding tools **Claude Code**, **Codex** and **OpenCode** (Glowline gets Node.js itself if it is missing, no admin rights needed), Ollama, three language models that fit your PC and the Studio.
+- **Choose what to install** – pick a speed (**Fast**, **Balanced** or **Best quality**; the one that fits your PC is marked) and Glowline installs everything in one go: Ollama if it is missing, a **coder**, a **reasoning** and a **fast helper** model, plus the Studio models for **images, video, voice and upscaling**. Untick anything you don't want – the download size and free space are shown before you start. Optionally take the **uncensored (abliterated)** versions of the language models.
+- **Skip for now** – set up everything yourself, like before.
 
 | Speed | Coder | Reasoning | Fast helper |
 |---|---|---|---|
@@ -46,7 +47,7 @@ Glowline starts a small measuring proxy on `127.0.0.1:3460`. The coding tools ta
   - **Gemini CLI**, **GitHub Copilot**, **Droid** (Factory) and **Cline** – started in your folder with their own account and models.
 - **PowerShell** – plain shell, no model.
 
-Tools that are not installed show their install command right in the terminal.
+Tools that are not installed get installed automatically when you pick them: Glowline runs the official installer in the terminal (and downloads Node.js first if needed), then starts the tool by itself.
 
 The **folder button** in the bar shows the working folder – click it to pick another one. **Customize list** (bottom of the tool menu) lets you reorder the entries and hide the ones you don't need – e.g. keep only Codex and Claude Code.
 
@@ -104,16 +105,21 @@ When the Studio is set up, Claude Code, Codex, OpenCode and Qwen Code started fr
 - The model button in the bar only shows your **favorites** (split into Ollama and LM Studio when you have both). Click **All models & downloads** to open the big model window.
 - **My models** lists everything from Ollama and LM Studio with readable names (long Hugging Face names are shortened, the uploader is shown in grey, the full name is in the tooltip). Click ☆ to add a model to your favorites, Load/Unload it, or click it to switch.
 - **Download** gets GGUF models from Hugging Face: 1) choose where it goes (Ollama or LM Studio), 2) search, 3) pick a model and a size. Sizes that fit your VRAM are marked. Ollama downloads it itself (`hf.co/<repo>:<quant>`); for LM Studio, Glowline saves the file into the LM Studio models folder. Downloads show progress and can be cancelled.
+- **Downloads** shows everything that is downloading right now in one place – models, Express setup steps, Studio models and installers – with progress and a Cancel button. While something downloads, a small chip in the bar shows the progress; click it to open the tab.
+
+### Interface size
+
+Glowline scales itself to your screen (bigger on large monitors). **Ctrl +** / **Ctrl −** make it bigger or smaller, **Ctrl 0** goes back to automatic.
 
 ## Requirements
 
 If LM Studio's server runs on another port (it moves away from 1234 when that port is taken), Glowline finds it by itself. If the server is not running, the model window has a **Start LM Studio server** button.
 
-Glowline tells you what is missing: if a tool is not installed it shows the install command right in the terminal, and if no model server is installed or running it says so and links to Ollama / LM Studio.
+Glowline tells you what is missing: if a tool is not installed it installs it for you, and if no model server is installed or running it says so and links to Ollama / LM Studio.
 
 - Windows 10/11
 - [Ollama](https://ollama.com) and/or [LM Studio](https://lmstudio.ai) (server started) – Express setup installs Ollama for you; if one is missing, **Models** has a button that downloads its installer to your Downloads folder
-- The tools you want to use (`claude`, `codex`, `opencode`, `agy`, …) on your PATH
+- The tools you want to use (`claude`, `codex`, `opencode`, `agy`, …) – Glowline installs them for you
 - NVIDIA GPU for power/VRAM readings (optional) and for the Studio (8 GB VRAM or more recommended, plus 25–60 GB disk space for the models you pick)
 
 ## Build

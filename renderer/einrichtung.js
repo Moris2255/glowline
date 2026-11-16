@@ -1,5 +1,5 @@
 // Einrichtungs-Assistent: Express (Glowline waehlt passend zum PC und installiert alles) oder selbst einrichten
-const ein = { seite: 'start', sys: null, wahl: { stufe: null, frei: false, teile: {} }, plan: null, alle: null, stand: null, sicherBis: 0, nr: 0 };
+const ein = { seite: 'start', sys: null, wahl: { stufe: null, frei: false, teile: {}, werkzeuge: {} }, plan: null, alle: null, stand: null, sicherBis: 0, nr: 0 };
 const TEIL_REIHE = ['coder', 'denker', 'helfer', 'bild', 'video', 'stimme', 'upscale'];
 const gbText = (x) => (x >= 10 ? Math.round(x) : Math.round(x * 10) / 10) + ' GB';
 
@@ -16,6 +16,7 @@ async function zeigeEinrichtung() {
   ein.sys = await window.api.einrichtungSystem().catch(() => null);
   if (ein.sys && !ein.wahl.stufe) ein.wahl.stufe = ein.sys.empfohlen;
   zeichneEinrichtung();
+  if (ein.sys) await neuerPlan();
 }
 window.zeigeEinrichtung = zeigeEinrichtung;
 
@@ -46,25 +47,50 @@ function systemZeile() {
   return z;
 }
 
+// kurze Zusammenfassung des Plans fuer die grosse Karte
+function planText(p) {
+  const neu = p.schritte.filter((x) => !x.da);
+  if (!neu.length) return 'Everything is already installed.';
+  const teile = [];
+  const tools = neu.filter((x) => x.art === 'werkzeug').map((x) => x.titel);
+  if (tools.length) teile.push(tools.join(', '));
+  const modelle = neu.filter((x) => x.art === 'sprache').length;
+  if (modelle) teile.push(modelle + ' AI model' + (modelle > 1 ? 's' : '') + ' for chat and code');
+  if (neu.some((x) => x.art === 'studio' || x.art === 'motor')) teile.push('Studio for images, video and voice');
+  return teile.join(' · ') + ' — about ' + gbText(p.gesamt) + ' to download';
+}
+
 function seiteStart(box) {
-  box.appendChild(elem('p', 'ein-text', 'Glowline runs AI models on your own PC. Let it pick models that fit your hardware and install everything in one go – or set things up yourself.'));
+  box.appendChild(elem('p', 'ein-text', 'Glowline runs AI on your own PC – private and free. One click installs everything you need, including Claude Code, Codex and OpenCode. You can keep using Glowline while it downloads.'));
   box.appendChild(systemZeile());
+  const p = ein.plan;
+  const alles = elem('button', 'ein-karte empfohlen ein-gross');
+  alles.id = 'ein-alles';
+  alles.append(elem('em', null, 'Recommended'), elem('b', null, 'Install everything'),
+    elem('span', null, !p ? 'Checking your PC…' : p.zuWenig.length ? `Not enough free space on ${p.zuWenig.join(', ')} – choose less under “Choose what to install”` : planText(p)));
+  alles.disabled = !p || !!p.zuWenig.length || !p.schritte.some((x) => !x.da);
+  alles.addEventListener('click', () => installieren(alles));
+  box.appendChild(alles);
   const wahl = elem('div', 'ein-wahl');
-  const karte = (titel, text, klasse, klick) => {
-    const k = elem('button', 'ein-karte ' + klasse);
+  const karte = (titel, text, klick) => {
+    const k = elem('button', 'ein-karte');
     k.append(elem('b', null, titel), elem('span', null, text));
     k.addEventListener('click', klick);
     wahl.appendChild(k);
     return k;
   };
-  const ex = karte('Express', 'Glowline picks a coder, a reasoning and a fast model plus image, video, voice and upscaling – you can change what is included and see the size first.', 'empfohlen', async () => {
-    ein.seite = 'express';
-    await neuerPlan();
-  });
-  ex.prepend(elem('em', null, 'Recommended'));
-  ex.disabled = !ein.sys;
-  karte('Custom', 'Set up everything yourself: download single models under Models → Download and Studio models in the Studio.', '', schliesseEinrichtung);
+  karte('Choose what to install', 'Pick the coding tools, the model size and which Studio parts you want.', () => { ein.seite = 'express'; zeichneEinrichtung(); }).disabled = !p;
+  karte('Skip for now', 'Set things up yourself later under Models → Express setup.', schliesseEinrichtung);
   box.appendChild(wahl);
+}
+
+async function installieren(knopf) {
+  knopf.disabled = true;
+  try {
+    ein.stand = await window.api.einrichtungStart(ein.wahl);
+    ein.seite = 'lauf';
+    zeichneEinrichtung();
+  } catch (e) { hinweis(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); knopf.disabled = false; }
 }
 
 // Plan fuer die aktuelle Wahl + einmal "alles an" (fuer Groessen und Infos der abgewaehlten Zeilen)
@@ -75,7 +101,7 @@ async function neuerPlan() {
   if (nr !== ein.nr) return; // inzwischen schon wieder geklickt
   ein.plan = plan;
   ein.alle = alle;
-  if (ein.seite === 'express') zeichneEinrichtung();
+  if (ein.seite === 'express' || ein.seite === 'start') zeichneEinrichtung();
 }
 
 function seiteExpress(box) {
@@ -83,7 +109,15 @@ function seiteExpress(box) {
   const s = ein.sys;
   box.appendChild(systemZeile());
 
-  box.appendChild(elem('div', 'ein-schritt', 'Speed'));
+  box.appendChild(elem('div', 'ein-schritt', 'Coding tools'));
+  const tools = elem('div', 'ein-liste');
+  for (const [t, w] of Object.entries(s.werkzeuge || {})) {
+    const an = ein.wahl.werkzeuge[t] !== false;
+    tools.appendChild(zeile({ titel: w.name, info: w.info, gb: 0.2, da: w.da }, 'w:' + t, an || w.da, (v) => { ein.wahl.werkzeuge[t] = v; }));
+  }
+  box.appendChild(tools);
+
+  box.appendChild(elem('div', 'ein-schritt', 'AI model size'));
   const stufen = elem('div', 'ein-stufen');
   for (const [id, st] of Object.entries(s.stufen)) {
     const k = elem('button', 'ein-stufe' + (ein.wahl.stufe === id ? ' an' : ''));
@@ -126,24 +160,18 @@ function seiteExpress(box) {
   const nichts = !ein.plan.schritte.some((x) => !x.da);
   los.disabled = !!ein.plan.zuWenig.length || nichts;
   if (nichts) los.textContent = 'All installed';
-  los.addEventListener('click', async () => {
-    los.disabled = true;
-    try {
-      ein.stand = await window.api.einrichtungStart(ein.wahl);
-      ein.seite = 'lauf';
-      zeichneEinrichtung();
-    } catch (e) { hinweis(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); los.disabled = false; }
-  });
+  los.addEventListener('click', () => installieren(los));
   fuss.append(zur, los);
   box.appendChild(fuss);
 }
 
-function zeile(sch, teil, an) {
+function zeile(sch, teil, an, setze) {
   const z = elem('label', 'ein-zeile' + (teil && !an ? ' aus' : '') + (sch.gesperrt ? ' gesperrt' : ''));
   if (teil) {
     const x = elem('input'); x.type = 'checkbox'; x.checked = !!an; x.disabled = !!sch.gesperrt;
     x.dataset.teil = teil;
-    x.addEventListener('change', () => { ein.wahl.teile[teil] = x.checked; neuerPlan(); });
+    x.disabled = x.disabled || !!(setze && sch.da); // installierte Werkzeuge bleiben
+    x.addEventListener('change', () => { if (setze) setze(x.checked); else ein.wahl.teile[teil] = x.checked; neuerPlan(); });
     z.appendChild(x);
   } else z.appendChild(elem('span', 'ein-fest', '•'));
   const t = elem('div', 'ein-z-text');
