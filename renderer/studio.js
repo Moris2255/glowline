@@ -5,13 +5,62 @@
 const BEREICHE = {
   bild: { name: 'Images', knopf: 'Generate', leer: 'Describe an image and press Generate.' },
   video: { name: 'Video', knopf: 'Generate video', leer: 'Describe a short scene – or start from an image.' },
-  upscale: { name: 'Upscale', knopf: 'Upscale 4×', leer: 'Drop an image here or pick one to make it 4× sharper.' },
+  upscale: { name: 'Upscale', knopf: 'Upscale', leer: 'Drop an image or a video here, or pick one – images get 4× bigger, videos about 2× sharper.' },
   stimme: { name: 'Voice', knopf: 'Speak', leer: 'Type a text. Add a short voice sample to clone a voice.' },
 };
 const FORMATE = {
   bild: [['1:1', 1024, 1024], ['16:9', 1344, 768], ['9:16', 768, 1344], ['4:3', 1152, 864], ['3:4', 864, 1152]],
   video: [['16:9', 1280, 704], ['9:16', 704, 1280], ['1:1', 960, 960], ['Fast 16:9', 832, 480]],
 };
+// Advanced-Modus: Werte, die die einfachen Einstellungen sonst fuer dieses System festlegen (leer = Standard)
+const PROFI = {
+  bild: [
+    { k: 'breite', name: 'Width', min: 256, max: 2048, step: 16, std: (f) => FORMATE.bild[f.format][1] },
+    { k: 'hoehe', name: 'Height', min: 256, max: 2048, step: 16, std: (f) => FORMATE.bild[f.format][2] },
+    { k: 'schritte', name: 'Steps', min: 1, max: 50, step: 1, std: (f, m) => (m.id === 'flux2-klein' ? 4 : 8) },
+    { k: 'cfg', name: 'Guidance (CFG)', min: 1, max: 20, step: 0.5, std: () => 1 },
+    { k: 'shift', name: 'Shift', min: 0.5, max: 20, step: 0.5, std: () => 3, nur: 'z-image' },
+  ],
+  video: [
+    { k: 'breite', name: 'Width', min: 256, max: 1920, step: 32, std: (f) => FORMATE.video[f.format][1] },
+    { k: 'hoehe', name: 'Height', min: 256, max: 1920, step: 32, std: (f) => FORMATE.video[f.format][2] },
+    { k: 'sekunden', name: 'Length (s)', min: 1, max: 10, step: 1, std: (f) => f.sekunden },
+    { k: 'fps', name: 'Frames per second', min: 8, max: 30, step: 1, std: () => 24 },
+    { k: 'schritte', name: 'Steps', min: 1, max: 60, step: 1, std: () => 20 },
+    { k: 'cfg', name: 'Guidance (CFG)', min: 1, max: 20, step: 0.5, std: () => 5 },
+    { k: 'shift', name: 'Shift', min: 0.5, max: 20, step: 0.5, std: () => 8 },
+  ],
+  upscale: [
+    { k: 'megapixel', name: 'Video size per frame (MP)', min: 0.5, max: 8, step: 0.1, std: () => 3.7 },
+  ],
+};
+const profiFelder = (b, m) => (PROFI[b] || []).filter((x) => !x.nur || x.nur === m.id);
+function profiBereich(box, b, f, m) {
+  if (!profiFelder(b, m).length || m.wolke) return;
+  const an = !!cfg.studioProfi;
+  const c = elem('label', 's-erlaubt s-profi');
+  const x = elem('input'); x.type = 'checkbox'; x.checked = an;
+  x.addEventListener('change', () => { cfg.studioProfi = x.checked; window.api.setConfig({ studioProfi: x.checked }); zeichneStudio(); });
+  c.append(x, elem('span', null, 'Advanced mode'), elem('small', null, '(use at your own risk)'));
+  box.appendChild(c);
+  if (!an) return;
+  box.appendChild(elem('div', 's-profi-info', 'The simple settings are tuned for your PC. Changing these can make results worse or much slower, or run out of graphics memory. Leave a field empty for the default.'));
+  f.profi = f.profi || {};
+  const raster = elem('div', 's-profi-felder');
+  for (const d of profiFelder(b, m)) {
+    const i = elem('input');
+    i.type = 'number'; i.min = d.min; i.max = d.max; i.step = d.step;
+    i.placeholder = String(d.std(f, m));
+    i.value = f.profi[d.k] ?? '';
+    i.dataset.k = 'profi-' + d.k;
+    i.addEventListener('input', () => { f.profi[d.k] = i.value; });
+    const z = elem('label', 's-feld');
+    z.append(elem('span', null, d.name), i);
+    raster.appendChild(z);
+  }
+  box.appendChild(raster);
+}
+
 const SPRACHEN = [['de', 'German'], ['en', 'English'], ['fr', 'French'], ['es', 'Spanish'], ['it', 'Italian'], ['nl', 'Dutch'], ['pl', 'Polish'], ['pt', 'Portuguese'], ['tr', 'Turkish'], ['ru', 'Russian'], ['ja', 'Japanese'], ['zh', 'Chinese']];
 
 const studioZustand = {
@@ -231,7 +280,9 @@ function promptFeld(f, platz, modus) {
 function dateiFeld(f, schluessel, art, text) {
   const z = elem('div', 's-datei' + (f[schluessel] ? ' voll' : ''));
   if (f[schluessel]) {
-    if (art === 'audio') { const a = elem('audio'); a.controls = true; a.src = dateiUrl(f[schluessel]); z.appendChild(a); } else { const i = elem('img'); i.src = dateiUrl(f[schluessel]); z.appendChild(i); }
+    if (art === 'audio') { const a = elem('audio'); a.controls = true; a.src = dateiUrl(f[schluessel]); z.appendChild(a); }
+    else if (/\.(mp4|webm)$/i.test(f[schluessel])) { const v = elem('video'); v.src = dateiUrl(f[schluessel]); v.muted = true; v.loop = true; v.autoplay = true; z.appendChild(v); }
+    else { const i = elem('img'); i.src = dateiUrl(f[schluessel]); z.appendChild(i); }
     const n = elem('small', null, f[schluessel].split(/[\\/]/).pop());
     const weg = elem('button', 'm-knopf', 'Remove');
     weg.addEventListener('click', (e) => { e.stopPropagation(); f[schluessel] = null; zeichneStudio(); });
@@ -249,8 +300,8 @@ function dateiFeld(f, schluessel, art, text) {
     const d = e.dataTransfer.files[0];
     const p = d && window.api.pfadVon(d);
     if (!p) return;
-    const ok = art === 'audio' ? /\.(wav|mp3|flac|ogg|m4a)$/i.test(p) : /\.(png|jpe?g|webp)$/i.test(p);
-    if (!ok) { hinweis(art === 'audio' ? 'Please drop an audio file' : 'Please drop an image'); return; }
+    const ok = art === 'audio' ? /\.(wav|mp3|flac|ogg|m4a)$/i.test(p) : art === 'bildvideo' ? /\.(png|jpe?g|webp|mp4|webm)$/i.test(p) : /\.(png|jpe?g|webp)$/i.test(p);
+    if (!ok) { hinweis(art === 'audio' ? 'Please drop an audio file' : art === 'bildvideo' ? 'Please drop an image or a video' : 'Please drop an image'); return; }
     window.api.studioFreigeben(p);
     f[schluessel] = p;
     zeichneStudio();
@@ -309,7 +360,7 @@ function zeichneFelder(box) {
       box.appendChild(feld('Avoid (optional)', n));
     }
   } else if (b === 'upscale') {
-    box.appendChild(feld('Image', dateiFeld(f, 'bild', 'bild', 'Pick an image')));
+    box.appendChild(feld('Image or video', dateiFeld(f, 'bild', 'bildvideo', 'Pick an image or a video')));
   } else if (b === 'stimme') {
     box.appendChild(feld('Text', promptFeld(f, 'Hallo! Das ist meine neue Stimme aus Glowline…', 'stimme')));
     const sp = elem('select');
@@ -331,6 +382,7 @@ function zeichneFelder(box) {
     const z = elem('div', 's-regler'); z.append(r, w);
     box.appendChild(feld('Expressiveness', z));
   }
+  profiBereich(box, b, f, m);
   const los = elem('button', 's-los', BEREICHE[b].knopf + (m.wolke ? ' (paid)' : ''));
   los.id = 'studio-los';
   los.addEventListener('click', starte);
@@ -349,7 +401,7 @@ function zeichneKnopfStudio() {
   let grund = '';
   if (!m || !m.da) grund = m && m.wolke ? 'Add your Higgsfield API key first (Models → Accounts)' : 'Download the model first';
   else if ((b === 'bild' || b === 'video' || b === 'stimme') && !f.prompt.trim()) grund = b === 'stimme' ? 'Type a text first' : 'Write a prompt first';
-  else if (b === 'upscale' && !f.bild) grund = 'Pick an image first';
+  else if (b === 'upscale' && !f.bild) grund = 'Pick an image or video first';
   else if (b === 'stimme' && f.probe && !f.erlaubt) grund = 'Confirm the voice permission first';
   k.disabled = !!grund;
   k.title = grund;
@@ -371,6 +423,13 @@ function starte() {
   }
   if (b === 'upscale') a.bildDatei = f.bild;
   if (b === 'stimme') Object.assign(a, { prompt: f.prompt.trim(), sprache: f.sprache, bildDatei: f.probe, ausdruck: f.ausdruck });
+  // Advanced-Modus: eigene Werte ueberschreiben die einfachen (die Grenzen prueft der Hauptprozess nochmal)
+  if (cfg.studioProfi && !m.wolke && f.profi) {
+    for (const d of profiFelder(b, m)) {
+      const v = f.profi[d.k];
+      if (v !== '' && v != null && Number.isFinite(+v)) a[d.k] = Math.min(d.max, Math.max(d.min, +v));
+    }
+  }
   sz.auftraege.set('auftrag:ui' + id, { vorgang: 'auftrag:ui' + id, art: b, modell: m.id, prompt: a.prompt || '', text: m.wolke ? 'Sending to Higgsfield…' : 'Waiting…', start: Date.now(), wolke: !!m.wolke });
   sz.auswahl = { vorgang: 'auftrag:ui' + id };
   window.api.studioAuftrag(a);
@@ -460,6 +519,7 @@ function zeichneVorschau(box) {
       // ein schon vergroessertes Bild nochmal x4 waere riesig (z. B. 21504 × 12288)
       if (!/[\\/]upscale[\\/]/.test(datei)) knopf('Upscale →', () => { sz.felder.upscale.bild = datei; zeigeStudio('upscale'); });
     }
+    if (artVon(datei) === 'video' && !/[\\/]upscale[\\/]/.test(datei)) knopf('Upscale →', () => { sz.felder.upscale.bild = datei; zeigeStudio('upscale'); });
     leiste.appendChild(sicherKnopf('Delete', 'loeschen:' + datei, async () => {
       if (!(await window.api.studioWegwerfen(datei).catch(() => false))) { hinweis('Could not delete this file'); return; }
       sz.auswahl = null;

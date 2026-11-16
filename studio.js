@@ -344,10 +344,13 @@ const zufall = () => Math.floor(Math.random() * 2 ** 48);
 const dn = (pfad) => path.basename(pfad);
 const D = (id, i) => dn(KATALOG[id].dateien[i].pfad);
 
+// Wert aus dem Advanced-Modus: leer = Standard, sonst in sichere Grenzen
+const wert = (x, std, min, max) => (x === '' || x == null || !Number.isFinite(+x) ? std : Math.min(max, Math.max(min, +x)));
+
 function workflow(a) {
   const seed = Number.isFinite(+a.seed) && a.seed !== '' && a.seed != null ? +a.seed : zufall();
   const raster = a.modell === 'wan22-5b' ? 32 : 16; // Wan braucht Vielfache von 32
-  const w = Math.max(256, Math.round((+a.breite || 1024) / raster) * raster), h = Math.max(256, Math.round((+a.hoehe || 1024) / raster) * raster);
+  const w = Math.round(wert(a.breite, 1024, 256, 2048) / raster) * raster, h = Math.round(wert(a.hoehe, 1024, 256, 2048) / raster) * raster;
   if (a.modell === 'flux2-klein') {
     return {
       1: { class_type: 'UNETLoader', inputs: { unet_name: D('flux2-klein', 0), weight_dtype: 'default' } },
@@ -355,10 +358,10 @@ function workflow(a) {
       3: { class_type: 'VAELoader', inputs: { vae_name: D('flux2-klein', 2) } },
       4: { class_type: 'CLIPTextEncode', inputs: { text: a.prompt, clip: ['2', 0] } },
       5: { class_type: 'EmptyFlux2LatentImage', inputs: { width: w, height: h, batch_size: 1 } },
-      6: { class_type: 'Flux2Scheduler', inputs: { steps: +a.schritte || 4, width: w, height: h } },
+      6: { class_type: 'Flux2Scheduler', inputs: { steps: wert(a.schritte, 4, 1, 50), width: w, height: h } },
       7: { class_type: 'KSamplerSelect', inputs: { sampler_name: 'euler' } },
       8: { class_type: 'RandomNoise', inputs: { noise_seed: seed } },
-      9: { class_type: 'CFGGuider', inputs: { model: ['1', 0], positive: ['4', 0], negative: ['10', 0], cfg: 1 } },
+      9: { class_type: 'CFGGuider', inputs: { model: ['1', 0], positive: ['4', 0], negative: ['10', 0], cfg: wert(a.cfg, 1, 1, 20) } },
       10: { class_type: 'ConditioningZeroOut', inputs: { conditioning: ['4', 0] } },
       11: { class_type: 'SamplerCustomAdvanced', inputs: { noise: ['8', 0], guider: ['9', 0], sampler: ['7', 0], sigmas: ['6', 0], latent_image: ['5', 0] } },
       12: { class_type: 'VAEDecode', inputs: { samples: ['11', 0], vae: ['3', 0] } },
@@ -373,24 +376,25 @@ function workflow(a) {
       4: { class_type: 'CLIPTextEncode', inputs: { text: a.prompt, clip: ['2', 0] } },
       5: { class_type: 'ConditioningZeroOut', inputs: { conditioning: ['4', 0] } },
       6: { class_type: 'EmptySD3LatentImage', inputs: { width: w, height: h, batch_size: 1 } },
-      7: { class_type: 'ModelSamplingAuraFlow', inputs: { model: ['1', 0], shift: 3 } },
-      8: { class_type: 'KSampler', inputs: { model: ['7', 0], positive: ['4', 0], negative: ['5', 0], latent_image: ['6', 0], seed, steps: +a.schritte || 8, cfg: 1, sampler_name: 'res_multistep', scheduler: 'simple', denoise: 1 } },
+      7: { class_type: 'ModelSamplingAuraFlow', inputs: { model: ['1', 0], shift: wert(a.shift, 3, 0.5, 20) } },
+      8: { class_type: 'KSampler', inputs: { model: ['7', 0], positive: ['4', 0], negative: ['5', 0], latent_image: ['6', 0], seed, steps: wert(a.schritte, 8, 1, 50), cfg: wert(a.cfg, 1, 1, 20), sampler_name: 'res_multistep', scheduler: 'simple', denoise: 1 } },
       9: { class_type: 'VAEDecode', inputs: { samples: ['8', 0], vae: ['3', 0] } },
       10: { class_type: 'SaveImage', inputs: { images: ['9', 0], filename_prefix: 'bild/glowline' } },
     };
   }
   if (a.modell === 'wan22-5b') {
+    const fps = Math.round(wert(a.fps, 24, 8, 30));
     const wf = {
       1: { class_type: 'UNETLoader', inputs: { unet_name: D('wan22-5b', 0), weight_dtype: 'default' } },
       2: { class_type: 'CLIPLoader', inputs: { clip_name: D('wan22-5b', 1), type: 'wan', device: 'default' } },
       3: { class_type: 'VAELoader', inputs: { vae_name: D('wan22-5b', 2) } },
       4: { class_type: 'CLIPTextEncode', inputs: { text: a.prompt, clip: ['2', 0] } },
       5: { class_type: 'CLIPTextEncode', inputs: { text: a.negativ || 'blurry, low quality, static, distorted, watermark, text, subtitles', clip: ['2', 0] } },
-      6: { class_type: 'Wan22ImageToVideoLatent', inputs: { vae: ['3', 0], width: w, height: h, length: Math.max(5, Math.round(((+a.sekunden || 5) * 24) / 4) * 4 + 1), batch_size: 1 } },
-      7: { class_type: 'ModelSamplingSD3', inputs: { model: ['1', 0], shift: 8 } },
-      8: { class_type: 'KSampler', inputs: { model: ['7', 0], positive: ['4', 0], negative: ['5', 0], latent_image: ['6', 0], seed, steps: +a.schritte || 20, cfg: 5, sampler_name: 'uni_pc', scheduler: 'simple', denoise: 1 } },
+      6: { class_type: 'Wan22ImageToVideoLatent', inputs: { vae: ['3', 0], width: w, height: h, length: Math.max(5, Math.round((wert(a.sekunden, 5, 1, 10) * fps) / 4) * 4 + 1), batch_size: 1 } },
+      7: { class_type: 'ModelSamplingSD3', inputs: { model: ['1', 0], shift: wert(a.shift, 8, 0.5, 20) } },
+      8: { class_type: 'KSampler', inputs: { model: ['7', 0], positive: ['4', 0], negative: ['5', 0], latent_image: ['6', 0], seed, steps: wert(a.schritte, 20, 1, 60), cfg: wert(a.cfg, 5, 1, 20), sampler_name: 'uni_pc', scheduler: 'simple', denoise: 1 } },
       9: { class_type: 'VAEDecode', inputs: { samples: ['8', 0], vae: ['3', 0] } },
-      10: { class_type: 'CreateVideo', inputs: { images: ['9', 0], fps: 24 } },
+      10: { class_type: 'CreateVideo', inputs: { images: ['9', 0], fps } },
       11: { class_type: 'SaveVideo', inputs: { video: ['10', 0], filename_prefix: 'video/glowline', format: 'mp4', 'format.codec': 'h264' } },
     };
     if (a.bild) {
@@ -398,6 +402,19 @@ function workflow(a) {
       wf[6].inputs.start_image = ['12', 0];
     }
     return wf;
+  }
+  if (a.modell === 'esrgan-x4' && a.video) {
+    // Video: jedes Einzelbild auf ~0,23 MP verkleinern, dann 4× -> ~3,7 MP (z. B. 1280×704 -> 2560×1408).
+    // So bleibt der Speicher auch bei langen Clips im Rahmen; Ton und Bildrate bleiben erhalten.
+    return {
+      1: { class_type: 'LoadVideo', inputs: { file: a.video } },
+      2: { class_type: 'GetVideoComponents', inputs: { video: ['1', 0] } },
+      3: { class_type: 'ImageScaleToTotalPixels', inputs: { image: ['2', 0], upscale_method: 'area', megapixels: wert(a.megapixel, 3.7, 0.5, 8) / 16, resolution_steps: 8 } },
+      4: { class_type: 'UpscaleModelLoader', inputs: { model_name: D('esrgan-x4', 0) } },
+      5: { class_type: 'ImageUpscaleWithModel', inputs: { upscale_model: ['4', 0], image: ['3', 0] } },
+      6: { class_type: 'CreateVideo', inputs: { images: ['5', 0], fps: ['2', 2], audio: ['2', 1] } },
+      7: { class_type: 'SaveVideo', inputs: { video: ['6', 0], filename_prefix: 'upscale/glowline', format: 'mp4', 'format.codec': 'h264' } },
+    };
   }
   if (a.modell === 'esrgan-x4') {
     return {
@@ -469,9 +486,12 @@ async function ausfuehren(a, vorVramFrei, ac, melde) {
       melde({ text: comfy && comfy.bereit ? 'Starting…' : 'Starting the engine…', prozent: 0 });
       await mitAbbruch(comfyStarten(), ac); // der Motor startet im Hintergrund weiter, der naechste Auftrag ist dann schneller
       const wa = { ...a };
-      if (a.bildDatei) wa.bild = eingabeBild(a.bildDatei, a.modell === 'esrgan-x4');
+      const istVideo = a.modell === 'esrgan-x4' && /\.(mp4|webm|mov)$/i.test(String(a.bildDatei || ''));
+      if (istVideo) wa.video = eingabeBild(a.bildDatei, false);
+      else if (a.bildDatei) wa.bild = eingabeBild(a.bildDatei, a.modell === 'esrgan-x4');
       // die Kopie im Eingabe-Ordner wird danach nicht mehr gebraucht
-      try { dateien = await comfyLauf(workflow(wa), ac, melde); } finally { if (wa.bild) fs.rm(path.join(P().eingabe, wa.bild), { force: true }, () => {}); }
+      const kopie = wa.bild || wa.video;
+      try { dateien = await comfyLauf(workflow(wa), ac, melde); } finally { if (kopie) fs.rm(path.join(P().eingabe, kopie), { force: true }, () => {}); }
     }
     melde({ fertig: true, dateien, dauer: Date.now() - t0 });
     return { dateien };
@@ -684,4 +704,4 @@ function galerie() {
 }
 const inAusgabe = (datei) => { if (typeof datei !== 'string' || !datei) return false; const r = path.relative(P().ausgabe, path.resolve(datei)); return r && !r.startsWith('..') && !path.isAbsolute(r); };
 
-module.exports = { KATALOG, ladeDatei, init, status, beschaeftigt, beschaeftigtMit, einrichten, modellHolen, abbrechen, auftrag, galerie, stoppen, comfyFrei, frei, inAusgabe, P, comfyStarten };
+module.exports = { KATALOG, ladeDatei, workflowTest: workflow, init, status, beschaeftigt, beschaeftigtMit, einrichten, modellHolen, abbrechen, auftrag, galerie, stoppen, comfyFrei, frei, inAusgabe, P, comfyStarten };

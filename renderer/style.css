@@ -102,6 +102,21 @@ body.vollbild .term { top: 10px; }
 #tools > button.unter { margin-left: 26px; position: relative; }
 #tools > button.unter::before { content: ''; position: absolute; left: -14px; top: -4px; bottom: 50%; width: 9px; border-left: 1px solid var(--linie); border-bottom: 1px solid var(--linie); border-bottom-left-radius: 6px; }
 #tools > button.unter.zu { display: none; }
+#tools > .aus { display: none !important; }
+.tools-fuss { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tools-fuss button { color: var(--leise); font-size: 11px; padding: 2px 8px; border: 1px solid var(--linie); border-radius: 6px; }
+.tools-fuss button:hover { color: var(--text); background: var(--bg3); }
+.tools-fuss button.an { color: var(--weiss); }
+#tools-anpassen { display: none; }
+#tools.bearbeiten > :not(#tools-anpassen) { display: none !important; }
+#tools.bearbeiten #tools-anpassen { display: block; }
+.anp-zeile { display: flex; align-items: center; gap: 8px; padding: 5px 14px; font-size: 13px; cursor: pointer; }
+.anp-zeile:hover { background: var(--bg3); }
+.anp-zeile span { flex: 1; }
+.anp-zeile input { accent-color: var(--gruen); margin: 0; }
+.anp-zeile button { width: 24px; height: 22px; border: 1px solid var(--linie); border-radius: 6px; color: var(--leise); }
+.anp-zeile button:hover:not(:disabled) { color: var(--text); background: var(--bg2); }
+.anp-zeile button:disabled { opacity: .3; cursor: default; }
 #ordner-name { font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; direction: rtl; text-align: left; }
 #modelle { right: 16px; width: 470px; padding: 0; }
 .m-kopf { display: flex; gap: 6px; padding: 10px; border-bottom: 1px solid var(--linie); }
@@ -184,7 +199,13 @@ button.ziel:hover { background: var(--bg3); }
 /* ---------- Vergleichsmodell fuer "Saved" ---------- */
 #f-gespart { cursor: pointer; border-radius: 8px; padding: 3px 8px; margin: -3px -8px; }
 #f-gespart:hover { background: var(--bg3); }
-#preise { width: 320px; padding: 4px 0 0; }
+#preise { width: 380px; padding: 4px 0 0; }
+#p-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px 4px; }
+#p-tabs button { font-size: 11px; padding: 3px 9px; border-radius: 6px; color: var(--leise); border: 1px solid transparent; }
+#p-tabs button:hover { color: var(--text); }
+#p-tabs button.an { color: var(--weiss); border-color: var(--linie); background: var(--bg3); }
+.p-felder .p-zwei { grid-column: span 2; }
+#p-gesamt { color: var(--leise); }
 .p-modell { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; width: 100%; text-align: left; padding: 7px 14px; }
 .p-modell:hover { background: var(--bg3); }
 .p-modell b { font-weight: 500; font-size: 12px; color: var(--text); }
@@ -213,6 +234,16 @@ button.ziel:hover { background: var(--bg3); }
 .chat-modi button { padding: 5px 12px; border-radius: 7px; color: var(--leise); font-size: 12px; }
 .chat-modi button:hover { color: var(--text); }
 .chat-modi button.an { background: var(--bg3); color: var(--weiss); }
+#chat-rollen { display: flex; flex-direction: column; gap: 6px; padding: 0 0 10px; font-size: 12px; color: var(--leise); }
+.status-zeile { display: flex; align-items: center; gap: 10px; }
+#chat-rollen b { color: var(--text); font-weight: 600; }
+#chat-rollen button, #chat-modelle { font-size: 12px; padding: 5px 12px; border: 1px solid var(--linie); border-radius: 8px; color: var(--leise); }
+#chat-rollen button:hover, #chat-modelle:hover { color: var(--text); border-color: var(--leise); }
+.rolle { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--sehrleise); border: 1px solid var(--linie); border-radius: 8px; padding: 2px 4px 2px 9px; }
+.rolle select { background: var(--bg2); color: var(--leise); border: none; outline: none; font: 12px var(--sans); max-width: 230px; padding: 2px 2px; border-radius: 5px; cursor: pointer; }
+.rolle select:hover { color: var(--text); }
+.rolle option { background: var(--bg2); color: var(--text); }
+.n-rolle { font-size: 11px; color: var(--sehrleise); margin-bottom: 4px; }
 #chat-neu { font-size: 12px; padding: 5px 12px; border: 1px solid var(--linie); border-radius: 8px; color: var(--leise); }
 #chat-neu:hover { color: var(--text); border-color: var(--leise); }
 #chat-verlauf { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 6px 4px 16px; scrollbar-width: thin; scrollbar-color: var(--bg3) transparent; }
@@ -413,3 +444,45 @@ body[data-ansicht="studio"] #f-vram { display: flex; }
 .ein-summe span { font-size: 11px; color: var(--leise); }
 .ein-summe.warn span { color: var(--rot); }
 @media (max-width: 620px) { .ein-wahl, .ein-stufen { grid-template-columns: 1fr; } }
+
+/* Studio: Advanced-Modus */
+.s-profi { margin-top: 6px; }
+.s-profi small { color: var(--sehrleise); margin-left: 4px; }
+.s-profi-info { font-size: 11px; color: var(--gelb); opacity: .85; line-height: 1.45; margin: 2px 0 8px; }
+.s-profi-felder { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin-bottom: 8px; }
+.s-profi-felder .s-feld { margin: 0; }
+.s-profi-felder input { width: 100%; box-sizing: border-box; }
+
+/* Ordner-Knopf in der Leiste: nur im Terminal */
+#ordner-chip { max-width: 220px; }
+#ordner-chip #ordner-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ordner-chip .ordner-symbol { color: var(--sehrleise); margin-right: 2px; }
+body[data-ansicht="chat"] #ordner-chip, body[data-ansicht="studio"] #ordner-chip { display: none; }
+
+/* Modellfenster: Cowork-Rollen */
+.cowork-seite { padding: 6px 4px; }
+.cowork-info { font-size: 12px; color: var(--leise); line-height: 1.6; margin: 0 0 14px; max-width: 860px; }
+#auto-rollen { display: grid; gap: 8px; max-width: 860px; }
+#auto-rollen .rolle { justify-content: space-between; padding: 8px 8px 8px 12px; font-size: 12px; }
+#auto-rollen .rolle-kopf { display: flex; flex-direction: column; gap: 2px; }
+#auto-rollen .rolle-kopf b { color: var(--text); font-weight: 600; }
+#auto-rollen .rolle-kopf small { color: var(--sehrleise); font-size: 11px; }
+#auto-rollen .rolle select { max-width: 300px; font-size: 12px; padding: 4px; }
+
+/* Cowork: Befehls-Vorschlaege ueber dem Eingabefeld */
+#chat-befehle { position: absolute; left: 0; right: 0; bottom: 64px; max-height: 320px; overflow-y: auto; background: var(--bg2); border: 1px solid var(--linie); border-radius: 10px; padding: 4px; z-index: 5; box-shadow: 0 8px 30px rgba(0,0,0,.45); }
+#chat-befehle button { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; padding: 6px 10px; border-radius: 7px; font-size: 12px; color: var(--leise); }
+#chat-befehle button b { color: var(--text); font-family: var(--mono); font-weight: 600; }
+#chat-befehle button i { color: var(--sehrleise); font-style: normal; font-family: var(--mono); font-size: 11px; }
+#chat-befehle button span { margin-left: auto; color: var(--sehrleise); }
+#chat-befehle button.an, #chat-befehle button:hover { background: var(--bg3, rgba(255,255,255,.06)); }
+
+.rollen-pc { font-size: 12px; color: var(--leise); margin-bottom: 4px; }
+.rollen-pc b { color: var(--text); font-weight: 600; }
+#auto-rollen .rolle-rechts { display: grid; grid-template-columns: 300px auto; align-items: center; gap: 4px 10px; justify-items: start; }
+#auto-rollen .rolle-rechts select { width: 300px; grid-row: span 2; }
+.rolle-empf { font-size: 11px; padding: 4px 10px; border: 1px solid var(--linie); border-radius: 7px; color: var(--leise); white-space: nowrap; }
+.rolle-empf:hover:not(:disabled) { color: var(--text); border-color: var(--leise); }
+.rolle-empf.an { color: var(--gruen, #5c9); border-color: transparent; }
+.rolle-empf:disabled { cursor: default; }
+.rolle-empf-name { font-size: 10px; color: var(--sehrleise); font-family: var(--mono); padding-left: 2px; }

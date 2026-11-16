@@ -206,17 +206,78 @@ document.addEventListener('mousedown', (e) => {
   }
 });
 
+// Werkzeug-Menue anpassen: Reihenfolge und welche Eintraege man sieht (cfg.menue)
+const MENUE_TEILE = {
+  claude: '#tools > [data-tool="claude"]', codex: '#tools > [data-tool="codex"]', opencode: '#tools > [data-tool="opencode"]',
+  antigravity: '#tools > [data-tool="antigravity"]', mehr: '#tools > [data-klapp="agenten"], #tools > [data-g="agenten"]',
+  cowork: '#tools > [data-modus]', studio: '#tools > [data-studio]',
+};
+const MENUE_NAME = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', antigravity: 'Antigravity', mehr: 'More agents', cowork: 'Cowork', studio: 'Studio' };
+function menueReihenfolge() {
+  const r = ((cfg.menue && cfg.menue.reihenfolge) || []).filter((id, i, a) => MENUE_TEILE[id] && a.indexOf(id) === i);
+  for (const id of Object.keys(MENUE_TEILE)) if (!r.includes(id)) r.push(id);
+  return r;
+}
+function ordneMenue() {
+  const tools = $('#tools'), anker = $('#tools .tools-fuss');
+  const aus = new Set((cfg.menue && cfg.menue.aus) || []);
+  for (const id of menueReihenfolge()) {
+    for (const e of [...document.querySelectorAll(MENUE_TEILE[id])]) { tools.insertBefore(e, anker); e.classList.toggle('aus', aus.has(id)); }
+  }
+}
+function setzeMenue(neu) {
+  cfg.menue = { reihenfolge: menueReihenfolge(), aus: (cfg.menue && cfg.menue.aus) || [], ...neu };
+  window.api.setConfig({ menue: cfg.menue });
+  ordneMenue();
+  zeichneAnpassen();
+}
+function zeichneAnpassen() {
+  const box = $('#tools-anpassen');
+  box.innerHTML = '';
+  box.appendChild(elem('div', 'm-gruppe', 'Show, hide and sort the list'));
+  const r = menueReihenfolge();
+  const aus = new Set((cfg.menue && cfg.menue.aus) || []);
+  r.forEach((id, i) => {
+    const z = elem('label', 'anp-zeile');
+    const c = elem('input');
+    c.type = 'checkbox';
+    c.checked = !aus.has(id);
+    c.addEventListener('change', () => setzeMenue({ aus: c.checked ? [...aus].filter((x) => x !== id) : [...aus, id] }));
+    const schieb = (d) => { const n = [...r]; [n[i], n[i + d]] = [n[i + d], n[i]]; setzeMenue({ reihenfolge: n }); };
+    const hoch = elem('button', null, '↑');
+    hoch.title = 'Move up';
+    hoch.disabled = i === 0;
+    hoch.addEventListener('click', (e) => { e.preventDefault(); schieb(-1); });
+    const runter = elem('button', null, '↓');
+    runter.title = 'Move down';
+    runter.disabled = i === r.length - 1;
+    runter.addEventListener('click', (e) => { e.preventDefault(); schieb(1); });
+    z.append(c, elem('span', null, MENUE_NAME[id]), hoch, runter);
+    box.appendChild(z);
+  });
+  const fuss = elem('div', 'm-fuss tools-fuss');
+  const zurueck = elem('button', null, 'Reset');
+  zurueck.addEventListener('click', () => setzeMenue({ reihenfolge: Object.keys(MENUE_TEILE), aus: [] }));
+  const fertig = elem('button', 'an', 'Done');
+  fertig.addEventListener('click', () => $('#tools').classList.remove('bearbeiten'));
+  fuss.append(zurueck, fertig);
+  box.appendChild(fuss);
+}
+$('#tools-anpassen-knopf').addEventListener('click', () => { zeichneAnpassen(); $('#tools').classList.add('bearbeiten'); });
+ordneMenue();
+
 $('#tool-chip').addEventListener('click', () => {
   const offen = !$('#tools').classList.contains('versteckt');
   schliesseMenues();
   if (offen) return;
+  $('#tools').classList.remove('bearbeiten');
+  ordneMenue();
   for (const b of document.querySelectorAll('#tools [data-tool]')) b.classList.toggle('an', ansicht === 'terminal' && !!sitzung && b.dataset.tool === sitzung.tool);
-  for (const b of document.querySelectorAll('#tools [data-modus]')) b.classList.toggle('an', ansicht === 'chat' && b.dataset.modus === chat.modus);
-  for (const b of document.querySelectorAll('#tools [data-studio]')) b.classList.toggle('an', ansicht === 'studio' && b.dataset.studio === sz.bereich);
+  for (const b of document.querySelectorAll('#tools [data-modus]')) b.classList.toggle('an', ansicht === 'chat');
+  for (const b of document.querySelectorAll('#tools [data-studio]')) b.classList.toggle('an', ansicht === 'studio' && (!b.dataset.studio || b.dataset.studio === sz.bereich));
   // nur die Gruppe aufklappen, in der man gerade ist
-  klappAuf = ansicht === 'chat' ? 'workspace' : ansicht === 'studio' ? 'studio' : sitzung && MEHR_AGENTEN.includes(sitzung.tool) ? 'agenten' : null;
+  klappAuf = sitzung && MEHR_AGENTEN.includes(sitzung.tool) ? 'agenten' : null;
   zeigeKlapp();
-  $('#ordner-name').textContent = String((sitzung ? sitzung.cwd : cfg.lastDir) || '').replace(/^C:\\Users\\[^\\]+/i, '~');
   $('#tools').classList.remove('versteckt');
   $('#tool-chip').classList.add('offen');
   window.api.tools().then((da) => {
@@ -256,9 +317,15 @@ for (const b of document.querySelectorAll('#tools [data-modus]')) {
 for (const b of document.querySelectorAll('#tools [data-studio]')) {
   b.addEventListener('click', () => { schliesseMenues(); zeigeStudio(b.dataset.studio); });
 }
-$('#ordner-wahl').addEventListener('click', async () => {
-  const p = await window.api.pickDir(sitzung ? sitzung.cwd : cfg.lastDir);
+// Ordner-Knopf in der Leiste (nur im Terminal): zeigt den Arbeitsordner, Klick waehlt einen anderen
+function zeigeOrdner() {
+  const voll = String((sitzung ? sitzung.cwd : cfg && cfg.lastDir) || '');
+  $('#ordner-name').textContent = voll.split(/[\\/]/).filter(Boolean).pop() || '–';
+  $('#ordner-chip').title = (voll ? voll.replace(/^C:\\Users\\[^\\]+/i, '~') + ' – ' : '') + 'click to choose another folder (restarts the session)';
+}
+$('#ordner-chip').addEventListener('click', async () => {
   schliesseMenues();
+  const p = await window.api.pickDir(sitzung ? sitzung.cwd : cfg.lastDir);
   if (p) starteSitzung({ cwd: p });
 });
 
@@ -286,7 +353,7 @@ function modellAnzeige(id) {
   const m = istWolkeId(id) && alleModelle().find((x) => x.id === id);
   return m ? m.name : anzeigeName(id).name;
 }
-const aktuellesModell = () => (imChat() ? cfg.chatModel || cfg.defaultModel : sitzung ? sitzung.model : cfg.defaultModel);
+const aktuellesModell = () => (imChat() ? (ansicht === 'chat' && chat.modus === 'auto' && chat.autoModell) || cfg.chatModel || cfg.defaultModel : sitzung ? sitzung.model : cfg.defaultModel);
 const gb = (b) => (b < 1e9 ? zahl(b / 1e6, 0) + ' MB' : zahl(b / 1e9, 1) + ' GB');
 const bibOffen = () => !$('#bib').classList.contains('versteckt');
 const elem = (tag, klasse, text) => { const e = document.createElement(tag); if (klasse) e.className = klasse; if (text != null) e.textContent = text; return e; };
@@ -399,11 +466,12 @@ function zeigeTab(tab) {
   $('#bib-meine').classList.toggle('versteckt', tab !== 'meine');
   $('#bib-laden').classList.toggle('versteckt', tab !== 'laden');
   $('#bib-konten').classList.toggle('versteckt', tab !== 'konten');
+  $('#bib-cowork').classList.toggle('versteckt', tab !== 'cowork');
   zeichneBib();
-  if (tab !== 'konten') (tab === 'meine' ? $('#b-suche') : $('#hf-suche')).focus();
+  if (tab === 'meine' || tab === 'laden') (tab === 'meine' ? $('#b-suche') : $('#hf-suche')).focus();
 }
 function zeichneBib() {
-  if (bibTab === 'meine') zeichneMeine(); else if (bibTab === 'konten') zeichneKonten(); else zeichneLaden();
+  if (bibTab === 'meine') zeichneMeine(); else if (bibTab === 'konten') zeichneKonten(); else if (bibTab === 'cowork') zeichneAutoRollen(); else zeichneLaden();
   zeichneDownloads();
 }
 for (const b of document.querySelectorAll('.bib-tabs button')) b.addEventListener('click', () => zeigeTab(b.dataset.tab));
@@ -653,7 +721,7 @@ function zeichneDownloads() {
     const z = elem('div', 'dl');
     z.dataset.key = key;
     z.innerHTML = '<span class="m-name"></span><span class="m-info"></span><button class="m-knopf">Cancel</button><div class="m-fortschritt"><i></i></div>';
-    z.querySelector('.m-name').textContent = `${d.repo} · ${d.quant} → ${zielName(d.ziel)}`;
+    z.querySelector('.m-name').textContent = d.ziel === 'bibliothek' ? `${d.repo} → Ollama (Cowork · ${ROLLE_NAME[d.rolle] || ''})` : `${d.repo} · ${d.quant} → ${zielName(d.ziel)}`;
     z.querySelector('.m-info').textContent = downloadText(d);
     z.querySelector('.m-fortschritt i').style.width = prozent(d) + '%';
     z.querySelector('.m-knopf').addEventListener('click', () => window.api.downloadCancel(key));
@@ -675,7 +743,13 @@ window.api.onDownload(async (p) => {
     return;
   }
   downloads.delete(p.key);
-  if (p.status === 'success') {
+  if (p.status === 'success' && d.ziel === 'bibliothek') {
+    // empfohlenes Cowork-Modell fertig: gleich fuer die Rolle eintragen
+    await window.api.autoSetzen(d.rolle, 'ollama,' + d.repo);
+    hinweis(`${ROLLE_NAME[d.rolle]}: ${d.repo} is ready`);
+    liste = await window.api.models();
+    if (bibOffen() && bibTab === 'cowork') zeichneAutoRollen(true);
+  } else if (p.status === 'success') {
     hinweis(`Downloaded ${d.quant} to ${zielName(d.ziel)}`);
     if (d.ziel === 'lmstudio' && hf.repo === d.repo && Array.isArray(hf.dateien)) {
       const f = hf.dateien.find((x) => x.quant === d.quant);
@@ -708,18 +782,57 @@ function hauptLauf(m) {
 
 // "Saved": Glowline zaehlt die Tokens (neu / aus dem Cache / Ausgabe) und rechnet sie mit den Preisen
 // des gewaehlten Vergleichsmodells um. So passt der Betrag sofort, wenn man ein anderes Modell waehlt.
+// "Saved costs" je Bereich: Text-Bereiche zaehlen Tokens, Studio-Bereiche Bilder / Videosekunden / Zeichen
 const PREIS_MODELLE = [
   { id: 'sonnet', name: 'Claude Sonnet', eingabe: 3, cache: 0.3, ausgabe: 15 },
   { id: 'opus', name: 'Claude Opus', eingabe: 5, cache: 0.5, ausgabe: 25 },
   { id: 'haiku', name: 'Claude Haiku', eingabe: 1, cache: 0.1, ausgabe: 5 },
   { id: 'gpt5', name: 'GPT-5', eingabe: 1.25, cache: 0.125, ausgabe: 10 },
+  { id: 'gpt5mini', name: 'GPT-5 mini', eingabe: 0.25, cache: 0.025, ausgabe: 2 },
+  { id: 'gemini', name: 'Gemini 2.5 Pro', eingabe: 1.25, cache: 0.31, ausgabe: 10 },
 ];
-const preise = () => cfg.preise || PREIS_MODELLE[0];
-const tokenSumme = () => cfg.tokens || { neu: 0, cache: 0, ausgabe: 0 };
-function gespartJetzt() {
-  const p = preise(), t = tokenSumme();
-  return (cfg.gespartAlt || 0) + (t.neu * p.eingabe + t.cache * p.cache + t.ausgabe * p.ausgabe) / 1e6;
+const KOSTEN_BEREICHE = {
+  coding: { name: 'Coding', art: 'text', std: 'sonnet', info: 'coding agents in the terminal and the Code model in Cowork' },
+  denken: { name: 'Reasoning', art: 'text', std: 'gpt5', info: 'the Reasoning model in Cowork' },
+  chat: { name: 'Chat', art: 'text', std: 'haiku', info: 'fast and vision answers in Cowork' },
+  bild: { name: 'Images', art: 'medien', zaehler: 'bild', einheit: 'per image', std: 'gptimage', liste: [
+    { id: 'gptimage', name: 'GPT Image 1', je: 0.04 }, { id: 'flux', name: 'FLUX 1.1 Pro', je: 0.04 }, { id: 'imagen', name: 'Imagen 4 Ultra', je: 0.06 }] },
+  video: { name: 'Video', art: 'medien', zaehler: 'videoSek', einheit: 'per second', std: 'sora', liste: [
+    { id: 'sora', name: 'Sora 2', je: 0.1 }, { id: 'veofast', name: 'Veo 3 Fast', je: 0.15 }, { id: 'veo', name: 'Veo 3', je: 0.4 }] },
+  stimme: { name: 'Voice', art: 'medien', zaehler: 'zeichen', einheit: 'per 1,000 characters', teiler: 1000, std: 'eleven', liste: [
+    { id: 'eleven', name: 'ElevenLabs', je: 0.2 }, { id: 'openaitts', name: 'OpenAI TTS', je: 0.015 }] },
+};
+const LEER = { neu: 0, cache: 0, ausgabe: 0 };
+function kostenBereich(k) {
+  const b = KOSTEN_BEREICHE[k];
+  const x = (cfg.kosten && cfg.kosten[k]) || {};
+  if (b.art === 'text') {
+    const std = PREIS_MODELLE.find((m) => m.id === b.std);
+    return { modell: x.modell || b.std, preis: x.preis || { name: std.name, eingabe: std.eingabe, cache: std.cache, ausgabe: std.ausgabe }, tokens: x.tokens || { ...LEER } };
+  }
+  const std = b.liste.find((m) => m.id === b.std);
+  return { modell: x.modell || b.std, preis: x.preis || { name: std.name, je: std.je } };
 }
+const medienZaehler = () => ({ bild: 0, videoSek: 0, zeichen: 0, ...(cfg.medienZaehler || {}) });
+function gespartIn(k) {
+  const b = KOSTEN_BEREICHE[k], x = kostenBereich(k);
+  if (b.art === 'text') { const p = x.preis, t = x.tokens; return (t.neu * p.eingabe + t.cache * p.cache + t.ausgabe * p.ausgabe) / 1e6; }
+  return (medienZaehler()[b.zaehler] / (b.teiler || 1)) * (x.preis.je || 0);
+}
+function gespartJetzt() {
+  return (cfg.gespartAlt || 0) + Object.keys(KOSTEN_BEREICHE).reduce((a, k) => a + gespartIn(k), 0);
+}
+// welcher Bereich bekommt die Tokens: Terminal = Coding, Cowork je nach Rolle der Antwort
+function kostenBereichFuer(s) {
+  if (s.tab !== 'chat') return 'coding';
+  const r = typeof chat !== 'undefined' && chat.antwort && chat.antwort.rolle;
+  return r === 'coder' ? 'coding' : r === 'denker' ? 'denken' : 'chat';
+}
+function setzeKosten(k, patch) {
+  cfg.kosten = { ...(cfg.kosten || {}), [k]: { ...kostenBereich(k), ...patch } };
+  window.api.setConfig({ kosten: { [k]: cfg.kosten[k] } });
+}
+window.api.onKosten((z) => { cfg.medienZaehler = z; zeichneLeiste(); if (!$('#preise').classList.contains('versteckt')) zeichnePreise(); });
 function tokenAnteile(m, s) {
   const neu = s.neu != null ? s.neu : Math.max(0, s.eingabe - m.vorherEingabe);
   return { neu, cache: Math.max(0, s.eingabe - neu), ausgabe: s.ausgabe || 0 };
@@ -756,10 +869,9 @@ window.api.onStat((s) => {
     if (s.status === 'ok') {
       m.zuletzt = jetzt;
       if (s.eingabe && !istWolkeId(m.model)) {
-        const t = tokenAnteile(m, s), summe = tokenSumme();
-        cfg.tokens = { neu: summe.neu + t.neu, cache: summe.cache + t.cache, ausgabe: summe.ausgabe + t.ausgabe };
+        const t = tokenAnteile(m, s), k = kostenBereichFuer(s), summe = kostenBereich(k).tokens;
+        setzeKosten(k, { tokens: { neu: summe.neu + t.neu, cache: summe.cache + t.cache, ausgabe: summe.ausgabe + t.ausgabe } });
         m.vorherEingabe = s.eingabe;
-        window.api.setConfig({ tokens: cfg.tokens });
       }
     }
   }
@@ -771,6 +883,7 @@ const vor = (ms) => { const s = Math.round(ms / 1000); return s < 60 ? `${s}s ag
 const schoeneSkala = (v) => { for (const x of [50, 100, 150, 200, 300, 400, 500, 1000]) if (v <= x) return x; return Math.ceil(v / 500) * 500; };
 
 function zeichneLeiste() {
+  zeigeOrdner();
   const m = stats.get(aktiveKennung());
   const leiste = $('#leiste');
   const l = hauptLauf(m);
@@ -854,14 +967,15 @@ function zeichneLeiste() {
     $('#modell-info').textContent = sitzung && sitzung.tool === 'shell' ? 'PowerShell · no model'
       : sitzung && KONTO[sitzung.tool] ? `${WERKZEUG_NAME[sitzung.tool]} · own ${KONTO[sitzung.tool]}, models chosen inside it` : 'No model active';
   }
-  $('#tool-name').textContent = ansicht === 'studio' ? 'Studio · ' + BEREICHE[sz.bereich].name : ansicht === 'chat' ? MODI[chat.modus].name : sitzung ? WERKZEUG_NAME[sitzung.tool] : 'Tool';
+  $('#tool-name').textContent = ansicht === 'studio' ? 'Studio · ' + BEREICHE[sz.bereich].name : ansicht === 'chat' ? 'Cowork' : sitzung ? WERKZEUG_NAME[sitzung.tool] : 'Tool';
   $('#modell-name').textContent = modelId ? kurzName : sitzung && KONTO[sitzung.tool] && !imChat() && ansicht === 'terminal' ? 'own account' : 'no model';
   $('#modell-chip').title = (modelId || '') + '\nClick: manage models';
   $('#modell-punkt').classList.toggle('an', !!geladen);
 
   $('#gespart').textContent = zahl(gespartJetzt(), 2) + ' $';
-  const p = preise();
-  $('#f-gespart').title = `Saved costs: what your local tokens would have cost with ${p.name || 'your model'}\n(${p.eingabe} $ input / ${p.cache} $ cached / ${p.ausgabe} $ output per 1M tokens)\nClick to choose the model or enter your own prices`;
+  $('#f-gespart').title = 'Saved costs: what the same work would have cost in the cloud\n'
+    + Object.entries(KOSTEN_BEREICHE).map(([k, b]) => `${b.name}: ${zahl(gespartIn(k), 2)} $ (vs. ${kostenBereich(k).preis.name || 'your model'})`).join('\n')
+    + '\nClick to choose the models or enter your own prices';
 }
 
 // ---------------- Vergleichsmodell fuer "Saved" ----------------
@@ -870,48 +984,58 @@ $('#f-gespart').addEventListener('click', () => {
   schliesseMenues();
   if (offen) return;
   const r = $('#f-gespart').getBoundingClientRect();
-  $('#preise').style.left = Math.max(16, Math.min(window.innerWidth - 336, r.left - 20)) + 'px';
+  $('#preise').style.left = Math.max(16, Math.min(window.innerWidth - 396, r.left - 20)) + 'px';
   $('#preise').classList.remove('versteckt');
   zeichnePreise();
 });
 
+let kostenTab = 'coding';
 function zeichnePreise() {
-  const p = preise();
+  const k = kostenTab, b = KOSTEN_BEREICHE[k], x = kostenBereich(k), p = x.preis;
+  const tabs = $('#p-tabs');
+  tabs.innerHTML = '';
+  for (const [id, t] of Object.entries(KOSTEN_BEREICHE)) {
+    const e = elem('button', id === k ? 'an' : null, t.name);
+    e.title = t.info || '';
+    e.addEventListener('click', () => { kostenTab = id; zeichnePreise(); });
+    tabs.appendChild(e);
+  }
+  const text = b.art === 'text';
+  $('#p-titel').textContent = text ? `${b.name}: compare with` : `${b.name}: compare with (price ${b.einheit})`;
+  $('#p-einheit').textContent = text ? 'Name and price per 1M tokens (USD)' : `Name and price ${b.einheit} (USD)`;
+  $('#p-text').classList.toggle('versteckt', !text);
+  $('#p-medien').classList.toggle('versteckt', text);
   const box = $('#p-liste');
   box.innerHTML = '';
-  const aktiv = PREIS_MODELLE.find((x) => x.id === cfg.preisModell && x.eingabe === p.eingabe && x.cache === p.cache && x.ausgabe === p.ausgabe);
-  for (const x of [...PREIS_MODELLE, { id: 'eigen', name: 'Your own model' }]) {
-    const b = elem('button', 'p-modell' + ((aktiv ? aktiv.id === x.id : x.id === 'eigen') ? ' an' : ''));
-    b.append(elem('b', null, x.name), elem('small', null, x.id === 'eigen' ? 'enter name and prices below' : `${x.eingabe} $ in · ${x.ausgabe} $ out`));
-    b.addEventListener('click', () => {
-      if (x.id === 'eigen') {
-        setzePreise({ ...preise(), name: aktiv ? 'My model' : p.name }, 'eigen');
-        $('#p-name').select();
-        return;
-      }
-      setzePreise({ name: x.name, eingabe: x.eingabe, cache: x.cache, ausgabe: x.ausgabe }, x.id);
+  const liste = text ? PREIS_MODELLE : b.liste;
+  const gleich = (m) => (text ? m.eingabe === p.eingabe && m.cache === p.cache && m.ausgabe === p.ausgabe : m.je === p.je);
+  const aktiv = liste.find((m) => m.id === x.modell && gleich(m));
+  for (const m of [...liste, { id: 'eigen', name: 'Your own model' }]) {
+    const e = elem('button', 'p-modell' + ((aktiv ? aktiv.id === m.id : m.id === 'eigen') ? ' an' : ''));
+    e.append(elem('b', null, m.name), elem('small', null, m.id === 'eigen' ? 'enter name and price below' : text ? `${m.eingabe} $ in · ${m.ausgabe} $ out` : `${m.je} $ ${b.einheit.replace('per ', '/ ')}`));
+    e.addEventListener('click', () => {
+      if (m.id === 'eigen') { setzeKosten(k, { modell: 'eigen', preis: { ...p, name: aktiv ? 'My model' : p.name } }); zeichnePreise(); zeichneLeiste(); (text ? $('#p-name') : $('#p-mname')).select(); return; }
+      setzeKosten(k, { modell: m.id, preis: text ? { name: m.name, eingabe: m.eingabe, cache: m.cache, ausgabe: m.ausgabe } : { name: m.name, je: m.je } });
+      zeichnePreise();
+      zeichneLeiste();
     });
-    box.appendChild(b);
+    box.appendChild(e);
   }
-  for (const [id, k] of [['#p-name', 'name'], ['#p-eingabe', 'eingabe'], ['#p-cache', 'cache'], ['#p-ausgabe', 'ausgabe']]) {
-    if (document.activeElement !== $(id)) $(id).value = p[k] ?? '';
-  }
-  const t = tokenSumme();
-  $('#p-summe').textContent = `${kurz(t.neu)} new · ${kurz(t.cache)} cached · ${kurz(t.ausgabe)} output tokens`;
+  const felder = text ? [['#p-name', 'name'], ['#p-eingabe', 'eingabe'], ['#p-cache', 'cache'], ['#p-ausgabe', 'ausgabe']] : [['#p-mname', 'name'], ['#p-je', 'je']];
+  for (const [id, f] of felder) if (document.activeElement !== $(id)) $(id).value = p[f] ?? '';
+  const z = medienZaehler();
+  $('#p-summe').textContent = (text
+    ? `${kurz(x.tokens.neu)} new · ${kurz(x.tokens.cache)} cached · ${kurz(x.tokens.ausgabe)} output tokens`
+    : b.zaehler === 'bild' ? `${z.bild} images made` : b.zaehler === 'videoSek' ? `${z.videoSek} s of video made` : `${kurz(z.zeichen)} characters spoken`) + ` · ${zahl(gespartIn(k), 2)} $`;
+  $('#p-gesamt').textContent = `Total saved: ${zahl(gespartJetzt(), 2)} $`;
 }
 
-function setzePreise(p, id) {
-  cfg.preise = p;
-  cfg.preisModell = id;
-  window.api.setConfig({ preise: p, preisModell: id });
-  zeichnePreise();
-  zeichneLeiste();
-}
-
-for (const [id, k] of [['#p-name', 'name'], ['#p-eingabe', 'eingabe'], ['#p-cache', 'cache'], ['#p-ausgabe', 'ausgabe']]) {
+for (const [id, f] of [['#p-name', 'name'], ['#p-eingabe', 'eingabe'], ['#p-cache', 'cache'], ['#p-ausgabe', 'ausgabe'], ['#p-mname', 'name'], ['#p-je', 'je']]) {
   $(id).addEventListener('input', () => {
-    const v = k === 'name' ? $(id).value.slice(0, 40) : Math.max(0, parseFloat($(id).value) || 0);
-    setzePreise({ ...preise(), [k]: v }, 'eigen');
+    const v = f === 'name' ? $(id).value.slice(0, 40) : Math.max(0, parseFloat($(id).value) || 0);
+    setzeKosten(kostenTab, { modell: 'eigen', preis: { ...kostenBereich(kostenTab).preis, [f]: v } });
+    zeichnePreise();
+    zeichneLeiste();
   });
 }
 
@@ -919,15 +1043,16 @@ $('#p-reset').addEventListener('click', () => {
   const b = $('#p-reset');
   if (!b.classList.contains('sicher')) {
     b.classList.add('sicher');
-    b.textContent = 'Click again to reset';
+    b.textContent = 'Click again to reset all';
     setTimeout(() => { b.classList.remove('sicher'); b.textContent = 'Reset counter'; }, 3000);
     return;
   }
   b.classList.remove('sicher');
   b.textContent = 'Reset counter';
-  cfg.tokens = { neu: 0, cache: 0, ausgabe: 0 };
+  for (const k of Object.keys(KOSTEN_BEREICHE)) if (KOSTEN_BEREICHE[k].art === 'text') setzeKosten(k, { tokens: { ...LEER } });
+  cfg.medienZaehler = { bild: 0, videoSek: 0, zeichen: 0 };
   cfg.gespartAlt = 0;
-  window.api.setConfig({ tokens: cfg.tokens, gespartAlt: 0 });
+  window.api.setConfig({ medienZaehler: cfg.medienZaehler, gespartAlt: 0 });
   zeichnePreise();
   zeichneLeiste();
 });
@@ -961,12 +1086,18 @@ window.api.onStatus((s) => {
 // ---------------- Start ----------------
 (async () => {
   cfg = await window.api.getConfig();
+  ordneMenue();
   // Umstellung von altem "gespart"-Betrag auf Token-Zaehler: der bisherige Betrag bleibt erhalten
-  if (!cfg.tokens) {
+  if (!cfg.tokens && !cfg.kosten) {
     cfg.gespartAlt = cfg.gespart || 0;
-    cfg.tokens = { neu: 0, cache: 0, ausgabe: 0 };
-    if (!cfg.preisModell) { cfg.preise = { ...PREIS_MODELLE[0] }; delete cfg.preise.id; cfg.preisModell = 'sonnet'; }
-    window.api.setConfig({ gespartAlt: cfg.gespartAlt, tokens: cfg.tokens, preise: cfg.preise, preisModell: cfg.preisModell });
+    window.api.setConfig({ gespartAlt: cfg.gespartAlt });
+  }
+  // Umstellung auf Bereiche (3.3): bisheriger Zaehler + Vergleichsmodell werden "Coding"
+  if (!cfg.kosten) {
+    const alt = { tokens: cfg.tokens || { ...LEER } };
+    if (cfg.preise) { alt.preis = { name: cfg.preise.name, eingabe: cfg.preise.eingabe, cache: cfg.preise.cache, ausgabe: cfg.preise.ausgabe }; alt.modell = cfg.preisModell || 'eigen'; }
+    cfg.kosten = { coding: { ...kostenBereich('coding'), ...alt } };
+    window.api.setConfig({ kosten: cfg.kosten });
   }
   term.options.fontSize = cfg.fontSize || 14;
   try { fit.fit(); } catch {}

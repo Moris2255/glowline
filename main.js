@@ -12,6 +12,7 @@ const studio = require('./studio');
 const agenten = require('./agenten');
 const einrichtung = require('./einrichtung');
 const erstellen = require('./erstellen');
+const autoChat = require('./auto');
 const { Readable } = require('stream');
 
 const HOME = os.homedir();
@@ -146,27 +147,73 @@ async function lmModelle(L) {
 
 // ---------- Chat (eingebaut, ueber den Mess-Proxy -> Leiste misst mit) ----------
 const chats = new Map();
-async function chatSenden({ id, model: modellId, system, nachrichten, medien, anhang, erzwinge, letztesMedium }) {
+// Modell-Id -> Backend; Cloud-Abos (nur im Werkzeug) und belegte Grafikkarte abfangen
+function chatZiel(modellId) {
+  const { backend, model } = teileModell(String(modellId || ''));
+  const b = backend || 'ollama';
+  const w = konten.WOLKEN[b];
+  if (!model) throw new Error('No model selected');
+  if (w && w.nurWerkzeug) throw new Error(`${w.name} works only inside ${WERKZEUG[w.nurWerkzeug]}. For chat, add an API key under Models → Accounts or pick a local model.`);
+  if (!w && studio.beschaeftigt().gpu) throw new Error('Studio is using the graphics card right now. Local chat works again when the job is done – cloud models work anytime.');
+  return { b, w, model };
+}
+
+async function chatSenden({ id, model: modellId, system, nachrichten, medien, anhang, erzwinge, letztesMedium, auto: istAuto, bildFrage, vorigeRolle, rolle: vorgabeRolle }) {
   const ac = new AbortController();
   chats.set(id, ac);
   const melde = (p) => sende('chat', { id, ...p });
+  let autoRolle = null;
   try {
-    const { backend, model } = teileModell(String(modellId || ''));
-    const b = backend || 'ollama';
-    const w = konten.WOLKEN[b];
-    if (!model) throw new Error('No model selected');
-    if (w && w.nurWerkzeug) throw new Error(`${w.name} works only inside ${WERKZEUG[w.nurWerkzeug]}. For chat, add an API key under Models → Accounts or pick a local model.`);
     const msgs = (Array.isArray(nachrichten) ? nachrichten : []).filter((m) => m && /^(user|assistant)$/.test(m.role)).map((m) => ({ role: m.role, content: String(m.content) }));
+    const frageText = msgs.length ? msgs[msgs.length - 1].content : '';
+    // Auto: Glowline sucht das Modell selbst aus (sortiert und schreibt Prompts mit dem schnellen Modell)
+    const rollen = istAuto ? await autoChat.rollen() : null;
+    if (rollen) modellId = rollen.schnell.id || modellId;
+    if (istAuto && !modellId) throw new Error('No model installed yet – open Models → Express setup or download one.');
+    let { b, w, model } = chatZiel(modellId);
     // lokales Modell: der Studio-Motor gibt vorher den Grafikspeicher frei
-    if (!w && studio.beschaeftigt().gpu) throw new Error('Studio is using the graphics card right now. Local chat works again when the job is done – cloud models work anytime.');
     if (!w) await Promise.race([studio.frei(), new Promise((ok) => setTimeout(ok, 1500))]);
+    // Auto: Frage zu einem Bild ("was ist darauf?") geht ans Sehen-Modell statt ans Studio
+    let bild = null;
+    if (istAuto) {
+      if (anhang && !autoChat.BILD_TUN.test(frageText)) bild = anhang;
+      else if (!anhang && bildFrage && !erstellen.WORTE.test(frageText)) bild = bildFrage;
+      else if (!anhang && letztesMedium && letztesMedium.bild && autoChat.BILD_FRAGE.test(frageText)) bild = letztesMedium.bild;
+    }
     // "Erstelle mir ein Bild von …": dann macht das Studio die Arbeit statt einer Textantwort
-    if (medien && (await erstellen.versuche({ modell: String(modellId), nachrichten: msgs, ac, melde, anhang, erzwinge, letztesMedium }))) return;
+    if (medien && !bild && (await erstellen.versuche({ modell: String(modellId), nachrichten: msgs, ac, melde, anhang, erzwinge, letztesMedium }))) return;
+    let ohneDenken = false;
+    if (istAuto) {
+      if (anhang && !bild) bild = anhang; // das Studio wollte nichts damit machen: dann eben anschauen
+      // /think, /code, /fast oder /thinking on geben die Rolle vor
+      const rolle = bild ? 'sehen' : autoChat.ROLLEN.includes(vorgabeRolle) ? vorgabeRolle : autoChat.rolleFuer(frageText, vorigeRolle);
+      autoRolle = rolle;
+      if (bild && !rollen.sehen.id) {
+        melde({ rolle, text: 'To look at images, Auto needs a vision model – download one under Models → Download (e.g. qwen3-vl or llama3.2-vision), or pick one for “Vision” under Models → Cowork.', fertig: true });
+        return;
+      }
+      modellId = rollen[rolle].id || modellId;
+      ({ b, w, model } = chatZiel(modellId));
+      system = [system, autoChat.SYSTEM[rolle]].filter(Boolean).join('\n\n');
+      // schnelle Antworten ohne Denkphase (nur Ollama-Modelle, die Denken koennen – sonst gibt es einen Fehler)
+      const caps = autoChat.faehigkeiten(modellId);
+      ohneDenken = rolle === 'schnell' && b === 'ollama' && !!caps && caps.includes('thinking');
+      melde({ rolle, modell: modellId, ...(bild ? { bild } : {}) });
+    }
+    if (bild) {
+      if (!(typeof bild === 'string' && (studio.inAusgabe(bild) || freigegeben.has(path.resolve(bild))) && fs.existsSync(bild))) throw new Error('Image not found');
+      const daten = fs.readFileSync(bild).toString('base64');
+      const typ = /\.png$/i.test(bild) ? 'image/png' : /\.webp$/i.test(bild) ? 'image/webp' : 'image/jpeg';
+      const letzte = msgs[msgs.length - 1];
+      letzte.content = w && w.format === 'anthropic'
+        ? [{ type: 'image', source: { type: 'base64', media_type: typ, data: daten } }, { type: 'text', text: letzte.content }]
+        : [{ type: 'text', text: letzte.content }, { type: 'image_url', image_url: { url: `data:${typ};base64,${daten}` } }];
+    }
     const anthropic = w && w.format === 'anthropic';
     const url = `http://127.0.0.1:${cfg.port}/s/chat/${b}` + (anthropic ? '/v1/messages' : '/v1/chat/completions');
     const body = anthropic
       ? { model, max_tokens: 8192, stream: true, ...(system ? { system } : {}), messages: msgs }
-      : { model, stream: true, stream_options: { include_usage: true }, messages: [...(system ? [{ role: 'system', content: system }] : []), ...msgs] };
+      : { model, stream: true, stream_options: { include_usage: true }, ...(ohneDenken ? { reasoning_effort: 'none' } : {}), messages: [...(system ? [{ role: 'system', content: system }] : []), ...msgs] };
     const r = await fetch(url, {
       method: 'POST', signal: ac.signal,
       headers: { 'content-type': 'application/json', authorization: 'Bearer glowline', 'x-api-key': 'glowline', 'anthropic-version': '2023-06-01' },
@@ -209,7 +256,8 @@ async function chatSenden({ id, model: modellId, system, nachrichten, medien, an
     }
     melde({ ...trenne(), fertig: true });
   } catch (e) {
-    melde({ fertig: true, fehler: ac.signal.aborted ? 'stopped' : e.message });
+    // Auto: sagen, welches Modell nicht wollte – und wo man ein anderes waehlt
+    melde({ fertig: true, fehler: ac.signal.aborted ? 'stopped' : e.message + (autoRolle ? ` – the ${autoChat.NAME[autoRolle]} model failed. You can pick another one above the chat.` : '') });
   } finally {
     chats.delete(id);
   }
@@ -553,6 +601,14 @@ async function herunterladen(d) {
   downloads.set(key, ac);
   const melde = (o) => sende('download', { key, ...o });
   try {
+    // Cowork "Use recommended": nur Modelle aus der Empfehlungsliste, direkt aus der Ollama-Bibliothek
+    if (ziel === 'bibliothek') {
+      const erlaubt = Object.keys(einrichtung.STUFEN).flatMap((st) => Object.values(empfehlungFuer(st)).map((e) => e.name));
+      if (!erlaubt.includes(repo)) throw new Error('invalid model');
+      await ollamaHolen(repo, ac, melde);
+      melde({ status: 'success', fertig: true });
+      return;
+    }
     if (!REPO.test(repo) || !/^[\w-]+$/.test(quant)) throw new Error('invalid model');
     if (ziel === 'ollama') await ollamaHolen(`hf.co/${repo}:${quant}`, ac, melde);
     else if (ziel === 'lmstudio') await dateienHolen(repo, d.files, d.total, path.join(lmModellOrdner(), ...repo.split('/')), ac, melde);
@@ -698,6 +754,60 @@ ipcMain.handle('konten:status', () => konten.status());
 ipcMain.handle('konten:setzen', (_e, id, wert) => { konten.setzeSchluessel(id, wert); return konten.status(); });
 ipcMain.on('link:oeffnen', (_e, url) => { if (/^https:\/\/[\w.-]+\//.test(String(url))) shell.openExternal(url); });
 ipcMain.on('chat:senden', (_e, a) => chatSenden(a));
+ipcMain.handle('auto:rollen', async (_e, neu) => ({ rollen: await autoChat.rollen(!!neu), namen: autoChat.NAME }));
+ipcMain.handle('auto:setzen', (_e, rolle, id) => {
+  if (!autoChat.ROLLEN.includes(rolle)) return;
+  cfg.autoRollen = { ...(cfg.autoRollen || {}), [rolle]: typeof id === 'string' ? id : '' };
+  speichereConfig();
+  autoChat.vergiss();
+});
+// Empfohlenes Modell je Rolle passend zum PC (gleiche Stufen wie die Express-Einrichtung)
+const SEHEN_STUFE = { schnell: ['qwen3-vl:4b', 3.3], mittel: ['qwen3-vl:8b', 6.1], stark: ['qwen3-vl:30b', 19.6] };
+function empfehlungFuer(stufe) {
+  const st = einrichtung.STUFEN[stufe] || einrichtung.STUFEN.schnell;
+  const h = einrichtung.HELFER.normal, c = st.coder.normal, dk = st.denker.normal, v = SEHEN_STUFE[stufe] || SEHEN_STUFE.schnell;
+  return {
+    schnell: { name: h[0], gb: h[1], variante: einrichtung.varianteVon(h) },
+    coder: { name: c[0], gb: c[1], variante: einrichtung.varianteVon(c) },
+    denker: { name: dk[0], gb: dk[1], variante: einrichtung.varianteVon(dk) },
+    sehen: { name: v[0], gb: v[1] },
+  };
+}
+ipcMain.handle('auto:empfehlung', async () => {
+  const sys = await einrichtung.system();
+  const tags = await fetch(cfg.backends.ollama + '/api/tags', { signal: AbortSignal.timeout(4000) }).then((r) => r.json()).catch(() => null);
+  const namen = new Set(((tags && tags.models) || []).map((m) => m.name));
+  const da = (n) => n && (namen.has(n) ? n : namen.has(n + ':latest') ? n + ':latest' : null);
+  const rollen = {};
+  for (const [r, e] of Object.entries(empfehlungFuer(sys.empfohlen))) {
+    const vorhanden = da(e.variante) || da(e.name);
+    rollen[r] = { name: e.name, gb: e.gb, id: vorhanden ? 'ollama,' + vorhanden : null };
+  }
+  return {
+    stufe: (einrichtung.STUFEN[sys.empfohlen] || {}).name || '', ollama: !!tags,
+    pc: [sys.gpu ? `${sys.gpu.name.replace(/^NVIDIA\s+(GeForce\s+)?/i, '')} ${Math.round(sys.gpu.vram)} GB` : 'no NVIDIA GPU', `${Math.round(sys.ram)} GB RAM`].join(' · '),
+    rollen,
+  };
+});
+// "Saved costs" fuer Bilder, Videos und Stimme: jedes lokal erzeugte Ergebnis zaehlen (Cloud-Auftraege kosten ja wirklich)
+const studioAuftragEcht = studio.auftrag;
+studio.auftrag = async (a, ...rest) => {
+  const r = await studioAuftragEcht(a, ...rest);
+  try {
+    const m = studio.KATALOG[a && a.modell];
+    const n = r && !r.fehler && Array.isArray(r.dateien) ? r.dateien.length : 0;
+    if (m && !m.wolke && n) {
+      const z = { bild: 0, videoSek: 0, zeichen: 0, ...(cfg.medienZaehler || {}) };
+      if (m.art === 'bild') z.bild += n;
+      else if (m.art === 'video') z.videoSek += Math.max(1, Math.min(10, +a.sekunden || 5));
+      else if (m.art === 'stimme') z.zeichen += String(a.prompt || '').length;
+      cfg.medienZaehler = z;
+      speichereConfig();
+      sende('kosten', z);
+    }
+  } catch {}
+  return r;
+};
 ipcMain.on('chat:stopp', (_e, id) => { const ac = chats.get(id); if (ac) ac.abort(); });
 ipcMain.handle('lmstudio:start', () => lmServerStarten());
 
@@ -765,13 +875,15 @@ ipcMain.on('studio:abbrechen', (_e, v) => studio.abbrechen(v));
 ipcMain.on('studio:auftrag', (_e, a) => studio.auftrag({ ...a, id: 'ui' + String(a.id || Date.now()), vonAgent: false }, vramFrei));
 ipcMain.handle('studio:galerie', () => studio.galerie());
 ipcMain.handle('studio:waehle', async (_e, art) => {
-  const filter = art === 'audio' ? [{ name: 'Audio', extensions: ['wav', 'mp3', 'flac', 'ogg', 'm4a'] }] : [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }];
+  const filter = art === 'audio' ? [{ name: 'Audio', extensions: ['wav', 'mp3', 'flac', 'ogg', 'm4a'] }]
+    : art === 'bildvideo' ? [{ name: 'Images and videos', extensions: ['png', 'jpg', 'jpeg', 'webp', 'mp4', 'webm'] }]
+      : [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }];
   const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: filter });
   if (r.canceled) return null;
   freigegeben.add(path.resolve(r.filePaths[0]));
   return r.filePaths[0];
 });
-ipcMain.on('studio:freigeben', (_e, f) => { if (typeof f === 'string' && /\.(png|jpe?g|webp|wav|mp3|flac|ogg|m4a)$/i.test(f)) freigegeben.add(path.resolve(f)); });
+ipcMain.on('studio:freigeben', (_e, f) => { if (typeof f === 'string' && /\.(png|jpe?g|webp|mp4|webm|wav|mp3|flac|ogg|m4a)$/i.test(f)) freigegeben.add(path.resolve(f)); });
 ipcMain.on('studio:zeigen', (_e, f) => { if (f && studio.inAusgabe(f)) shell.showItemInFolder(f); else if (!f) { fs.mkdirSync(studio.P().ausgabe, { recursive: true }); shell.openPath(studio.P().ausgabe); } });
 ipcMain.handle('studio:wegwerfen', async (_e, f) => { if (!studio.inAusgabe(f)) return false; await shell.trashItem(f); return true; });
 ipcMain.handle('config:get', () => cfg);
@@ -952,7 +1064,7 @@ async function testLauf(ordner) {
       await js(`zeigeTerminal(); document.querySelector('#tool-chip').click()`);
       await warte(600);
       await bild('m-zu');
-      await js(`document.querySelector('#tools [data-klapp="workspace"]').click()`);
+      await js(`document.querySelectorAll('#tools [data-modus]').length`);
       await warte(400);
       await bild('m-workspace');
       console.log('MENUE2', await js(`[...document.querySelectorAll('#tools > button')].filter((b) => getComputedStyle(b).display !== 'none').map((b) => b.querySelector('b').textContent).join(' | ')`));
@@ -1026,6 +1138,179 @@ async function testLauf(ordner) {
       console.log('OHNE FERTIG', await js(`JSON.stringify(ein.stand.schritte.map((x) => x.titel + ':' + x.status + (x.fehler ? '(' + x.fehler + ')' : ''))) + ' | ' + document.querySelector('#ein-lauf-summe').textContent + ' | retry=' + !document.querySelector('#ein-nochmal').classList.contains('versteckt') + ' | cfg=' + cfg.einrichtung + ',' + cfg.defaultModel`));
       console.log('OHNE INSTALLER', await js(`[...document.querySelectorAll('#ein-inhalt .inst')].map((z) => z.textContent).join(' | ') || 'keiner'`));
       await bild('o-fertig');
+    }
+    if (was.includes('befehlecht')) {
+      await js(`zeigeWorkspace('auto'); chat.verlaeufe.auto = []; chat.fest = ''; zeichneChat()`);
+      for (const t of ['/code what is 2+2? answer in one line', 'frag lfm3: sag hallo in einem wort']) {
+        await js(`document.querySelector('#chat-text').value = ${JSON.stringify(t)}; sendeChat()`);
+        for (let i = 0; i < 240 && (await js('!!chat.laeuft')); i++) await warte(500);
+        console.log('ECHT', t, '->', await js(`JSON.stringify((() => { const n = verlauf().slice(-1)[0]; return { rolle: n.rolle || '', modell: n.modell, text: String(n.content || n.fehler).slice(0, 80) }; })())`), '| user:', await js(`verlauf().slice(-2)[0].content`));
+      }
+    }
+    if (was.includes('kosten')) {
+      // Saved costs: Tabs je Bereich, Studio-Zaehler kommen vom Hauptprozess
+      await js(`zeigeTerminal(); cfg.kosten = { coding: { modell: 'sonnet', preis: { name: 'Claude Sonnet', eingabe: 3, cache: 0.3, ausgabe: 15 }, tokens: { neu: 1000000, cache: 0, ausgabe: 100000 } } }; zeichneLeiste()`);
+      win.webContents.send('kosten', { bild: 5, videoSek: 20, zeichen: 3000 });
+      await warte(400);
+      await js(`document.querySelector('#f-gespart').click()`);
+      await warte(400);
+      console.log('KOSTEN TABS', await js(`[...document.querySelectorAll('#p-tabs button')].map((b) => b.textContent).join(',')`), '| gesamt', await js(`document.querySelector('#p-gesamt').textContent`));
+      for (const t of ['coding', 'denken', 'chat', 'bild', 'video', 'stimme']) {
+        await js(`kostenTab = '${t}'; zeichnePreise()`);
+        await warte(200);
+        if (t === 'bild') await bild('kosten-bild');
+        console.log('KOSTEN', t, await js(`document.querySelector('#p-titel').textContent + ' | ' + [...document.querySelectorAll('#p-liste b')].map((b) => b.textContent).join(',') + ' | ' + document.querySelector('#p-summe').textContent`));
+      }
+      // eigener Preis fuer Video
+      await js(`kostenTab = 'video'; zeichnePreise(); const i = document.querySelector('#p-je'); i.value = '0.5'; i.dispatchEvent(new Event('input'))`);
+      console.log('KOSTEN EIGEN', await js(`document.querySelector('#p-summe').textContent + ' | ' + document.querySelector('#p-gesamt').textContent + ' | leiste ' + document.querySelector('#gespart').textContent`));
+      await bild('kosten-video');
+    }
+    if (was.includes('cowork')) {
+      // Cowork = ein Knopf, Ordner in der Leiste, Rollen im Modellfenster, festes/genanntes Modell
+      await js(`zeigeTerminal(); zeichneLeiste()`);
+      await warte(500);
+      console.log('CW ORDNER', await js(`getComputedStyle(document.querySelector('#ordner-chip')).display + ' ' + document.querySelector('#ordner-name').textContent`));
+      await js(`document.querySelector('#tool-chip').click()`);
+      await warte(500);
+      await bild('cw-menue');
+      console.log('CW MENUE', await js(`[...document.querySelectorAll('#tools > button:not(.unter):not(.aus) b, #tools > .klapp b')].map((b) => b.textContent).join(' | ')`));
+      await js(`document.querySelector('#tools [data-modus]').click()`);
+      await warte(800);
+      console.log('CW CHAT', await js(`'modi=' + document.querySelector('#chat-modi').classList.contains('versteckt') + ' rollen=' + document.querySelector('#chat-rollen').classList.contains('versteckt') + ' ordner=' + getComputedStyle(document.querySelector('#ordner-chip')).display + ' titel=' + document.querySelector('#titel-text').textContent`));
+      await bild('cw-chat');
+      await js(`document.querySelector('#chat-modelle').click()`);
+      await warte(2500);
+      await bild('cw-modelle');
+      console.log('CW ROLLEN', await js(`[...document.querySelectorAll('#auto-rollen .rolle')].map((r) => r.querySelector('b').textContent + '=' + r.querySelector('select').selectedOptions[0].textContent).join(' | ')`));
+      console.log('CW GENANNT', await js(`['frag gemma: was ist 2+2', 'ask kat-coder to fix this', 'mach das mit dem Bild', 'mit python', 'hallo'].map((t) => t + ' -> ' + (genanntesModell(t) || '-')).join(' | ')`));
+      await js(`schliesseBib(); setzeChatModell(${JSON.stringify(process.env.GLOWLINE_TEST_MODELL || 'lfm3:1.7b')})`);
+      await warte(500);
+      await bild('cw-fest');
+      console.log('CW FEST', await js(`document.querySelector('#chat-rollen').textContent + ' | ' + document.querySelector('#chat-text').placeholder`));
+      await js(`[...document.querySelectorAll('#chat-rollen button')][0].click()`);
+      await warte(300);
+      console.log('CW ZURUECK', await js(`chat.fest + '|' + document.querySelector('#chat-rollen').classList.contains('versteckt')`));
+      // Befehle
+      const tippe = (t) => js(`(() => { const x = document.querySelector('#chat-text'); x.focus(); x.value = ${JSON.stringify('X')}.replace('X', ${JSON.stringify(t)}); x.dispatchEvent(new Event('input')); })()`);
+      await tippe('/');
+      await warte(300);
+      console.log('CW VORSCHLAG /', await js(`document.querySelectorAll('#chat-befehle button').length + ' sichtbar=' + !document.querySelector('#chat-befehle').classList.contains('versteckt')`));
+      await tippe('/th');
+      await warte(300);
+      await bild('cw-befehle');
+      console.log('CW VORSCHLAG /th', await js(`[...document.querySelectorAll('#chat-befehle b')].map((b) => b.textContent).join(',')`));
+      for (const t of ['/help', '/goal learn Python basics', '/thinking on', '/model gemma', '/auto', '/xyz']) {
+        await tippe(t);
+        await js(`sendeChat()`);
+        await warte(400);
+        console.log('CW BEFEHL', t, '->', await js(`(document.querySelector('#chat-rollen').textContent || '-') + ' | fest=' + chat.fest + ' denken=' + chat.immerDenken + ' ziel=' + chat.ziel + ' | letzte=' + ((verlauf().slice(-1)[0] || {}).content || '').slice(0, 60).split(String.fromCharCode(10)).join(' ')`));
+      }
+      await bild('cw-status');
+      await js(`document.querySelector('#chat-modelle').click()`);
+      await warte(3500);
+      await bild('cw-empfehlung');
+      console.log('CW EMPF', await js(`document.querySelector('.rollen-pc') ? document.querySelector('.rollen-pc').textContent : '-'`), '||', await js(`[...document.querySelectorAll('#auto-rollen .rolle')].map((r) => r.querySelector('b').textContent + ': ' + ((r.querySelector('.rolle-empf') || {}).textContent || '-') + ' ' + ((r.querySelector('.rolle-empf-name') || {}).textContent || '')).join(' | ')`));
+    }
+    if (was.includes('profi')) {
+      // Advanced-Modus: Schalter, Felder je Bereich, Werte landen im Auftrag (Auftrag wird nur abgefangen)
+      await js(`zeigeStudio('video'); cfg.studioProfi = false; zeichneStudio()`);
+      await warte(800);
+      console.log('PROFI AUS', await js(`!!document.querySelector('.s-profi') + ' felder=' + document.querySelectorAll('.s-profi-felder input').length`));
+      await js(`document.querySelector('.s-profi input').click()`);
+      await warte(500);
+      await bild('p-video');
+      console.log('PROFI VIDEO', await js(`[...document.querySelectorAll('.s-profi-felder label')].map((l) => l.querySelector('span').textContent + '=' + l.querySelector('input').placeholder).join(' | ')`));
+      for (const b of ['bild', 'upscale', 'stimme']) {
+        await js(`zeigeStudio('${b}')`);
+        await warte(600);
+        console.log('PROFI', b, await js(`[...document.querySelectorAll('.s-profi-felder label span')].map((x) => x.textContent).join(', ') || 'keine'`));
+      }
+      await bild('p-upscale');
+      // Werte eintragen und den Auftrag ansehen statt starten
+      const echtAuftrag = studio.auftrag;
+      let gefangen = null;
+      studio.auftrag = (x) => { gefangen = x; return Promise.resolve({ fehler: 'cancelled' }); };
+      await js(`zeigeStudio('video'); sz.felder.video.prompt = 'test'; zeichneStudio(); const s = (k, v) => { const i = document.querySelector('[data-k="profi-' + k + '"]'); i.value = v; i.dispatchEvent(new Event('input')); }; s('sekunden', 8); s('schritte', 99); s('fps', 16); document.querySelector('#studio-los').click()`);
+      await warte(500);
+      studio.auftrag = echtAuftrag;
+      console.log('PROFI AUFTRAG', JSON.stringify(gefangen));
+      console.log('PROFI WF', JSON.stringify((() => { const wf = studio.workflowTest({ modell: 'wan22-5b', prompt: 'x', breite: 1280, hoehe: 704, sekunden: 8, schritte: 99, fps: 16, cfg: 'abc' }); return { length: wf[6].inputs.length, steps: wf[8].inputs.steps, cfg: wf[8].inputs.cfg, fps: wf[10].inputs.fps }; })()));
+    }
+    if (was.includes('videoupscale')) {
+      // echtes Video aus der Galerie hochskalieren (Grafikkarte!)
+      const v = process.env.GLOWLINE_TEST_VIDEO ? { datei: process.env.GLOWLINE_TEST_VIDEO } : studio.galerie().find((x) => /\.mp4$/i.test(x.datei) && !/[\\/]upscale[\\/]/.test(x.datei));
+      if (process.env.GLOWLINE_TEST_VIDEO) freigegeben.add(path.resolve(v.datei));
+      console.log('VUP QUELLE', v && v.datei.split(/[\\/]/).pop());
+      await js(`zeigeStudio('video'); sz.auswahl = { datei: ${JSON.stringify(v ? v.datei : '')} }; zeichneStudio()`);
+      await warte(1200);
+      console.log('VUP KNOEPFE', await js(`[...document.querySelectorAll('.s-aktionen button')].map((b) => b.textContent).join(',')`));
+      await js(`[...document.querySelectorAll('.s-aktionen button')].find((b) => b.textContent === 'Upscale →').click()`);
+      await warte(1200);
+      await bild('v-upscale-feld');
+      console.log('VUP FELD', await js(`document.querySelector('.s-datei video') ? 'video da' : 'kein video'`), await js(`(document.querySelector('#studio-los') || {}).textContent`));
+      const t0 = Date.now();
+      const r = await studio.auftrag({ id: 'vup' + Date.now(), modell: 'esrgan-x4', bildDatei: v.datei }, vramFrei);
+      console.log('VUP ERGEBNIS', JSON.stringify(r), ((Date.now() - t0) / 1000).toFixed(0) + 's');
+    }
+    if (was.includes('anpassen')) {
+      // Werkzeug-Menue anpassen: nur Codex + Claude Code, Codex zuerst; ueberlebt einen Neustart
+      const sichtbar = () => js(`[...document.querySelectorAll('#tools > button')].filter((b) => getComputedStyle(b).display !== 'none').map((b) => b.querySelector('b').textContent).join(' | ')`);
+      await js(`zeigeTerminal(); document.querySelector('#tool-chip').click()`);
+      await warte(500);
+      console.log('ANP START', await sichtbar());
+      await js(`document.querySelector('#tools-anpassen-knopf').click()`);
+      await warte(400);
+      await bild('t-anpassen');
+      console.log('ANP LISTE', await js(`[...document.querySelectorAll('.anp-zeile span')].map((x) => x.textContent).join(' | ')`));
+      for (const name of ['OpenCode', 'Antigravity', 'More agents', 'Cowork', 'Studio']) await js(`[...document.querySelectorAll('.anp-zeile')].find((z) => z.querySelector('span').textContent === ${JSON.stringify(name)}).querySelector('input').click()`);
+      await js(`[...document.querySelectorAll('.anp-zeile')].find((z) => z.querySelector('span').textContent === 'Codex').querySelectorAll('button')[0].click()`);
+      await warte(300);
+      await bild('t-angepasst');
+      await js(`[...document.querySelectorAll('.tools-fuss button')].find((b) => b.textContent === 'Done').click()`);
+      await warte(300);
+      console.log('ANP DANACH', await sichtbar());
+      await bild('t-menue-neu');
+      await js('location.reload()');
+      await warte(4000);
+      await js(`document.querySelector('#tool-chip').click()`);
+      await warte(500);
+      console.log('ANP NEUSTART', await sichtbar());
+      await js(`document.querySelector('#tools-anpassen-knopf').click(); [...document.querySelectorAll('.tools-fuss button')].find((b) => b.textContent === 'Reset').click(); [...document.querySelectorAll('.tools-fuss button')].find((b) => b.textContent === 'Done').click()`);
+      console.log('ANP RESET', await sichtbar());
+      await js(`schliesseMenues()`);
+    }
+    if (was.includes('auto')) {
+      // Auto-Chat: Rollen anzeigen, je Nachricht das passende Modell (Studio wird mit GLOWLINE_TEST_ATTRAPPE vorgespielt)
+      const letzte = () => js(`(() => { const v = verlauf(); const n = v[v.length - 1]; return JSON.stringify({ rolle: n.rolle, modell: n.modell, text: String(n.fehler || n.content || '').replace(/[ \\n]+/g, ' ').slice(0, 110), denken: !!n.denken, art: n.medien && n.medien.art }); })()`);
+      const fertig = async () => { for (let i = 0; i < 240; i++) { await warte(500); if (await js('!chat.laeuft')) break; } await warte(300); return letzte(); };
+      const sag = async (t) => { await js(`document.querySelector('#chat-text').value = ${JSON.stringify(t)}; sendeChat()`); return fertig(); };
+      console.log('AUTO SELBST', JSON.stringify(Object.fromEntries(Object.entries(await autoChat.rollen(true)).map(([k, v]) => [k, v.id]))));
+      await js(`zeigeWorkspace('auto')`);
+      await warte(2500);
+      console.log('AUTO LEISTE', await js(`[...document.querySelectorAll('#chat-rollen .rolle')].map((r) => r.querySelector('span').textContent + '=' + r.querySelector('select').selectedOptions[0].textContent).join(' | ')`));
+      console.log('AUTO MENUE', await js(`(document.querySelector('#tool-chip').click(), [...document.querySelectorAll('#tools [data-modus] b, #tools [data-studio] b')].map((x) => x.textContent).join(' | '))`));
+      await js(`schliesseMenues()`);
+      await bild('a-leer');
+      console.log('AUTO HALLO', await sag('Hi, wie geht es dir?'));
+      console.log('AUTO CSS', await sag('Wie mache ich in CSS ein div mittig?'));
+      console.log('AUTO NACHFRAGE', await sag('und wenn es nur waagerecht sein soll?'));
+      console.log('AUTO MATHE', await sag('Löse: 2x + 7 = 3x - 5'));
+      console.log('AUTO DANKE', await sag('danke!'));
+      await bild('a-text');
+      await js(`chat.anhang = ${JSON.stringify((studio.galerie().find((x) => /\.png$/i.test(x.datei)) || {}).datei || '')}; zeichneAnhang()`);
+      console.log('AUTO SEHEN', await sag('Was ist auf dem Bild?'));
+      console.log('AUTO SEHEN2', await sag('Welche Farben kommen darin vor?'));
+      console.log('AUTO BILD', await sag('Erstelle ein Bild von einem Hund am Strand'));
+      await bild('a-ende');
+      console.log('AUTO LEISTE MODELL', await js(`document.querySelector('#modell-name').textContent`));
+      const vorher = await js('verlauf().length');
+      await js('location.reload()');
+      await warte(4000);
+      console.log('AUTO NACH NEUSTART', await js(`chat.modus + ' ' + (chat.verlaeufe.auto || []).length`), 'vorher', vorher);
+      await js(`zeigeWorkspace()`);
+      await warte(1500);
+      await bild('a-neustart');
     }
     if (was.includes('chatecht') || was.includes('chatohnestudio')) {
       // echter Studio-Auftrag aus dem Chat (bzw. Studio nicht eingerichtet: GLOWLINE_STUDIO = leerer Ordner)
@@ -1468,6 +1753,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
       studio: process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_ATTRAPPE ? chatStudioAttrappe() : studio,
       erlaubt: (f) => typeof f === 'string' && (studio.inAusgabe(f) || freigegeben.has(path.resolve(f))) && fs.existsSync(f),
     });
+    autoChat.init({ cfg: () => cfg });
     einrichtung.init({
       cfg: () => cfg, sende, studio, ollamaHolen, ollamaInstalliert,
       setzeConfig: (neu) => { Object.assign(cfg, neu); speichereConfig(); sende('config', cfg); },

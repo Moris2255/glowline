@@ -10,7 +10,7 @@ const SORTIEREN = `Classify the user's LAST message. Answer with exactly one wor
 image = they want you to create a picture, photo, drawing, logo or wallpaper, or change the image you just created
 video = they want you to create a video, clip or animation, or animate an image
 voice = they want words spoken out loud or read aloud
-upscale = they want an existing image made bigger or sharper
+upscale = they want an existing image or video made bigger or sharper
 chat = everything else: questions, explanations, advice, ideas, thanks, also questions ABOUT images or videos
 
 Examples:
@@ -23,6 +23,7 @@ Examples:
 "animiere das" -> video
 "bring das Bild zum Leben" -> video
 "mach das Bild schärfer" -> upscale
+"(You just created a video.) mach das Video schärfer" -> upscale
 "erklär mir Photosynthese" -> chat
 "(You just created an image.) mach den Himmel lila" -> image
 "(You just created an image.) danke, sieht super aus" -> chat
@@ -172,6 +173,7 @@ async function versuche(o) {
   if (!quelle && o.erzwinge && erlaubt(o.erzwinge.quelle)) quelle = o.erzwinge.quelle;
   const meintLetztes = art === 'upscale' || /animier|animat|beweg|\bmove|lebendig|to life|daraus|davon|from (it|this|that)|this (image|picture|photo)|(das|dieses|dem) (bild|foto)|the (image|picture|photo)|\b(es|it)\b.*(beweg|move|animat|animier)/i.test(wunsch);
   if (!quelle && meintLetztes && vorher && vorher.bild && erlaubt(vorher.bild)) quelle = vorher.bild;
+  if (!quelle && art === 'upscale' && vorher && vorher.video && erlaubt(vorher.video)) quelle = vorher.video; // "mach das Video schärfer"
   if (art === 'upscale' && !quelle) return fehlt(de ? 'Schick mir zuerst ein Bild: zieh es in den Chat oder klick auf 📎.' : 'Send me an image first: drop it into the chat or click 📎.');
 
   // Prompt verbessern (Upscale braucht keinen)
@@ -212,6 +214,7 @@ async function versuche(o) {
   const fertigText = de
     ? { image: 'Hier ist dein Bild.', video: 'Hier ist dein Video.', upscale: 'Hier ist dein Bild in 4× Größe.', voice: 'Hier ist die Sprachausgabe.' }
     : { image: 'Here is your image.', video: 'Here is your video.', upscale: 'Here is your image at 4× size.', voice: 'Here is the voice recording.' };
+  if (art === 'upscale' && /\.(mp4|webm|mov)$/i.test(String(quelle))) fertigText.upscale = de ? 'Hier ist dein schärferes Video.' : 'Here is your sharper video.';
   melde({ fertig: true, text: fertigText[art], medien: { ...info, status: null, dateien: r.dateien || [] } });
   return true;
 }

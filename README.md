@@ -2,6 +2,8 @@
 
 A local AI workspace for Windows: run **Claude Code**, **Codex**, **OpenCode**, **Antigravity** and more coding agents against **local models** (Ollama, LM Studio) or your own subscriptions and API keys, chat with any model, write prompts, and create **images, videos, upscales and voices** on your own GPU – all in one window with a live stats bar at the bottom.
 
+*A vibe-coded side project – built together with AI, tested on a real gaming PC.*
+
 ![logo](build/icon.png)
 
 ## Express setup
@@ -29,7 +31,7 @@ Glowline saves each model with a fixed context size (e.g. `qwen3.5:9b-64k`) and 
 | **Prompt** | prompt tokens vs. the model's context window |
 | **Output / Turn** | tokens of the last reply, duration of the current turn |
 | **GPU power / VRAM** | live from `nvidia-smi` |
-| **Saved costs** | what the same tokens would have cost with a cloud model – click it to pick Claude Sonnet / Opus / Haiku, GPT-5 or enter your own model and prices |
+| **Saved costs** | what the same work would have cost in the cloud – split into Coding, Reasoning, Chat, Images, Video and Voice. Click it to compare each one with a well-known model (Claude, GPT-5, Gemini, GPT Image, Sora, Veo, ElevenLabs …) or enter your own prices |
 
 ## How it works
 
@@ -46,15 +48,18 @@ Glowline starts a small measuring proxy on `127.0.0.1:3460`. The coding tools ta
 
 Tools that are not installed show their install command right in the terminal.
 
+The **folder button** in the bar shows the working folder – click it to pick another one. **Customize list** (bottom of the tool menu) lets you reorder the entries and hide the ones you don't need – e.g. keep only Codex and Claude Code.
+
 Models can be loaded/unloaded from the model menu. Press **F11** for fullscreen.
 
-## Workspace
+## Cowork
 
-Everything lives in the tool menu at the bottom right – no extra windows.
+Open **Cowork** from the tool menu at the bottom right – no extra windows.
 
-- **Chat** – talk to any model, local or cloud. Thinking is shown separately and folds away.
-- **Create right in the chat** – just ask: *“create an image of a tree”*, *“make a TikTok video of a dancing cat”*, *“read this aloud: …”*. Your chat model recognises the request, writes a better prompt and the Studio makes it on your GPU – the result appears in the chat. Follow-ups work too (*“make the sky purple”*), images get **Upscale 4×** and **Animate** buttons, and you can attach your own image with 📎 or drag & drop. Normal questions stay normal chat. Needs the Studio set up; small models (e.g. the fast helper) sometimes misread a request.
-- **Prompt helper** – type an idea in plain words and get a ready prompt for video, image, voice or a coding task. Video/image prompts come with a negative prompt; **→ Create in Studio** sends them straight to the Studio, **→ Send to Claude Code** pastes a coding task into the running session.
+- **One chat for everything** – Cowork picks the right model for each message: a fast one for quick questions, your coder for code and error messages, a thinking model for maths, plans and tricky decisions, a vision model for questions about an attached image – and the Studio for images, videos, voice and upscales. Follow-up questions stay with the same model. Your chats are kept on this PC across restarts.
+- **Your models, your choice** – **Models → Cowork** shows which model does what; set any role to another model (local or cloud) or leave it on Auto. Name a model in your message (*“ask gemma: …”*) to use it just once, or pick one bottom right to use it for every message until you click **Back to Auto**. **Use recommended** picks (and downloads, if needed) the model that fits your PC for each role.
+- **Commands** – type `/` for a list: `/clear`, `/stop`, `/retry`, `/copy`, `/export`, `/think …`, `/code …`, `/fast …`, `/thinking on|off`, `/image …`, `/video …`, `/voice …`, `/upscale`, `/goal …` (keeps every answer focused on a goal), `/model …`, `/auto`, `/models` and `/help`.
+- **Create right in the chat** – just ask: *“create an image of a tree”*, *“make a TikTok video of a dancing cat”*, *“read this aloud: …”*. Glowline writes a better prompt and the Studio makes it on your GPU – the result appears in the chat. Follow-ups work too (*“make the sky purple”*), images get **Upscale 4×** and **Animate** buttons, videos an **Upscale** button, and you can attach your own image with 📎 or drag & drop. Needs the Studio set up.
 
 ## Accounts
 
@@ -66,7 +71,7 @@ Under **Models → Accounts**:
 - **Higgsfield API key** – for cloud video in the Studio (see below).
 - **Hugging Face token** (optional) – for gated model downloads.
 
-"Saved costs" only counts local tokens.
+"Saved costs" only counts local work – cloud chats and cloud videos are not counted.
 
 ## Studio
 
@@ -77,13 +82,14 @@ Images, video, upscaling and voice – running fully inside Glowline. The first 
 | Images | FLUX.2 klein 4B – fast, 4 steps | Apache-2.0 | 16 GB |
 | Images | Z-Image Turbo – photorealistic, good with text | Apache-2.0 | 21 GB |
 | Video | Wan 2.2 5B – text or image to video, up to 5 s | Apache-2.0 | 18 GB |
-| Upscale | Real-ESRGAN x4 | BSD-3 | 70 MB |
+| Upscale | Real-ESRGAN x4 – images 4× bigger, videos sharper (~2560×1408, sound kept) | BSD-3 | 70 MB |
 | Voice | Chatterbox Multilingual – speech + voice cloning, 20+ languages | MIT | ~4 GB |
 
 **Cloud video (optional):** with a [Higgsfield API key](https://open.higgsfield.ai/api-keys) the Video tab also offers **Wan 3.0 Prime** and **Seedance 2.0** – up to 15 s with sound, no GPU needed. These run on Higgsfield's servers and are paid from your Higgsfield balance per second of video (the button says *(paid)*); a start image is uploaded to Higgsfield. Cancel is free while the job is still queued, and failed or filtered jobs are not charged. Coding agents can't start paid cloud jobs.
 
 - **✨ Improve prompt** uses your chat model to turn a short idea into a strong prompt.
-- Results appear in a gallery per tab: *Animate →* sends an image to Video, *Upscale →* to Upscale. Everything is saved under `studio\ausgabe`.
+- **Advanced mode** *(use at your own risk)* – the simple settings are tuned for your PC; switch this on to set width, height, length, frames per second, steps, guidance and shift yourself. Empty fields keep the default, and values are limited to safe ranges.
+- Results appear in a gallery per tab: *Animate →* sends an image to Video, *Upscale →* sends an image or video to Upscale. Everything is saved under `studio\ausgabe`.
 - Before a job, Glowline unloads language models from the GPU (8 GB is not enough for both) and frees the GPU again when you chat with a local model.
 - Interrupted model downloads resume where they stopped.
 - Only clone voices you are allowed to use.

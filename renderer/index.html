@@ -16,13 +16,16 @@
   <main id="terms">
     <section id="chat" class="versteckt">
       <div class="chat-kopf">
-        <div id="chat-modi" class="chat-modi"></div>
+        <div id="chat-modi" class="chat-modi versteckt"></div>
         <div class="platz"></div>
+        <button id="chat-modelle" title="Which model Cowork uses for what">Models</button>
         <button id="chat-neu" title="Start over">New chat</button>
       </div>
+      <div id="chat-rollen" class="versteckt"></div>
       <div id="chat-verlauf"></div>
+      <div id="chat-befehle" class="versteckt"></div>
       <div class="chat-eingabe">
-        <button id="chat-bild" title="Attach an image (to upscale or animate it)">📎</button>
+        <button id="chat-bild" title="Attach an image (ask about it, upscale or animate it)">📎</button>
         <div id="chat-anhang" class="versteckt"></div>
         <textarea id="chat-text" rows="1" spellcheck="false"></textarea>
         <button id="chat-los">Send</button>
@@ -85,7 +88,8 @@
         <label id="l-gespart">Saved costs</label><b id="gespart">0.00 $</b>
       </div>
       <div class="platz"></div>
-      <button class="chip" id="tool-chip" title="Switch tool or folder">
+      <button class="chip" id="ordner-chip" title="Working folder – click to choose another"><span class="ordner-symbol">⌂</span><span id="ordner-name">–</span></button>
+      <button class="chip" id="tool-chip" title="Switch tool">
         <span id="tool-name">Claude Code</span><span class="pfeil">▾</span>
       </button>
       <button class="chip" id="modell-chip" title="Manage models">
@@ -96,7 +100,7 @@
 
   <!-- Werkzeug-Menue -->
   <div id="tools" class="menue versteckt">
-    <div class="m-gruppe">Coding</div>
+    <div class="m-gruppe" id="tools-kopf">Open</div>
     <button data-tool="claude"><b>Claude Code</b><small>Anthropic API</small></button>
     <button data-tool="codex"><b>Codex</b><small>Responses API</small></button>
     <button data-tool="opencode"><b>OpenCode</b><small>OpenAI API</small></button>
@@ -107,33 +111,31 @@
     <button class="unter" data-g="agenten" data-tool="copilot"><b>GitHub Copilot</b><small>GitHub account</small></button>
     <button class="unter" data-g="agenten" data-tool="droid"><b>Droid</b><small>Factory account</small></button>
     <button class="unter" data-g="agenten" data-tool="cline"><b>Cline</b><small>Cline account</small></button>
-    <div class="m-gruppe">More</div>
-    <button class="klapp" data-klapp="workspace"><span><b>Workspace</b><small>chat and prompt helper</small></span><i class="pfeil">›</i></button>
-    <button class="unter" data-g="workspace" data-modus="chat"><b>Chat</b><small>talk to any model, local or cloud</small></button>
-    <button class="unter" data-g="workspace" data-modus="video"><b>Prompt helper</b><small>video, image, voice and coding prompts</small></button>
-    <button class="klapp" data-klapp="studio"><span><b>Studio</b><small>images, video, upscale and voice</small></span><i class="pfeil">›</i></button>
-    <button class="unter" data-g="studio" data-studio="bild"><b>Images</b><small>FLUX.2 klein, Z-Image</small></button>
-    <button class="unter" data-g="studio" data-studio="video"><b>Video</b><small>Wan 2.2 local, Higgsfield cloud</small></button>
-    <button class="unter" data-g="studio" data-studio="upscale"><b>Upscale</b><small>4× sharper images</small></button>
-    <button class="unter" data-g="studio" data-studio="stimme"><b>Voice</b><small>speech and voice cloning</small></button>
-    <div class="m-gruppe">Folder</div>
-    <button id="ordner-wahl"><b id="ordner-name">–</b><small>Click to choose another folder</small></button>
-    <div class="m-fuss">Switching restarts the session</div>
+    <button data-modus="auto"><b>Cowork</b><small>one chat for everything – picks the right model itself</small></button>
+    <button data-studio=""><b>Studio</b><small>images, video, upscale and voice</small></button>
+    <div class="m-fuss tools-fuss"><span>Switching restarts the session</span><button id="tools-anpassen-knopf">Customize list</button></div>
+    <div id="tools-anpassen"></div>
   </div>
 
   <!-- Vergleichsmodell fuer "Saved" -->
   <div id="preise" class="menue versteckt">
-    <div class="m-gruppe">Compare your local use with</div>
+    <div id="p-tabs"></div>
+    <div class="m-gruppe" id="p-titel">Compare your local use with</div>
     <div id="p-liste"></div>
-    <div class="m-gruppe">Name and price per 1M tokens (USD)</div>
-    <div class="p-felder">
+    <div class="m-gruppe" id="p-einheit">Name and price per 1M tokens (USD)</div>
+    <div class="p-felder" id="p-text">
       <label class="p-breit">Model<input id="p-name" spellcheck="false" maxlength="40"></label>
       <label>Input<input id="p-eingabe" type="number" min="0" step="0.01"></label>
       <label>Cached<input id="p-cache" type="number" min="0" step="0.01"></label>
       <label>Output<input id="p-ausgabe" type="number" min="0" step="0.01"></label>
     </div>
+    <div class="p-felder" id="p-medien">
+      <label class="p-zwei">Model<input id="p-mname" spellcheck="false" maxlength="40"></label>
+      <label>Price<input id="p-je" type="number" min="0" step="0.001"></label>
+    </div>
     <div class="p-fuss"><span id="p-summe"></span><button id="p-reset">Reset counter</button></div>
-    <div class="m-fuss">Prices change – check the provider's price list.</div>
+    <div class="m-fuss" id="p-gesamt"></div>
+    <div class="m-fuss">Approximate list prices – they change, so check the provider's price list or enter your own.</div>
   </div>
 
   <!-- Modelle: kleines Menue mit Favoriten -->
@@ -149,7 +151,7 @@
     <div class="bib-fenster">
       <div class="bib-kopf">
         <b>Models</b>
-        <div class="bib-tabs"><button data-tab="meine" class="an">My models</button><button data-tab="laden">Download</button><button data-tab="konten">Accounts</button></div>
+        <div class="bib-tabs"><button data-tab="meine" class="an">My models</button><button data-tab="laden">Download</button><button data-tab="konten">Accounts</button><button data-tab="cowork">Cowork</button></div>
         <div class="platz"></div>
         <button id="bib-express" class="m-knopf" title="Let Glowline pick and install models that fit your PC">Express setup</button>
         <button id="bib-zu" title="Close (Esc)">✕</button>
@@ -167,6 +169,12 @@
         <div class="bib-zwei">
           <div id="hf-treffer" class="bib-scroll"></div>
           <div id="hf-details" class="bib-scroll"></div>
+        </div>
+      </div>
+      <div id="bib-cowork" class="bib-seite versteckt">
+        <div class="bib-scroll cowork-seite">
+          <p class="cowork-info">Cowork picks a model for every message by itself. Here you can see which one it uses for what – and set a role to a model you like (local or cloud). <b>Auto</b> means Glowline chooses from your installed models.<br>Tip: name a model in your message (e.g. “ask gemma: …”) to use it just for that message.</p>
+          <div id="auto-rollen"></div>
         </div>
       </div>
       <div id="bib-konten" class="bib-seite versteckt">
