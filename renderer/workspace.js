@@ -150,18 +150,23 @@ function zeichneChat() {
   if (!v.length) {
     const l = elem('div', 'chat-leer');
     l.append(elem('b', null, MODI[chat.modus].name), elem('span', null, chat.modus === 'chat'
-      ? 'Chat with any of your models – local or cloud. Pick the model bottom right.'
+      ? 'Chat with any of your models – local or cloud. You can also ask for images, videos, voice or upscales, e.g. “create an image of a tree” – the Studio makes them right here.'
       : 'Type your idea in plain words. The model turns it into a ready-to-use ' + MODI[chat.modus].name.toLowerCase() + '.'));
     box.appendChild(l);
   }
   for (const n of v) box.appendChild(nachrichtElem(n));
   zeichneKnopf();
+  zeichneAnhang();
   box.scrollTop = box.scrollHeight;
 }
 
 function nachrichtElem(n) {
   const z = elem('div', 'nachricht ' + n.role + (n.fehler ? ' fehler' : ''));
-  if (n.role === 'user') { z.textContent = n.content; return z; }
+  if (n.role === 'user') {
+    z.textContent = n.content;
+    if (n.anhang) { const b = elem('img', 'n-anhang'); b.src = dateiUrl(n.anhang); z.prepend(b); }
+    return z;
+  }
   if (n.denken && !n.content) z.append(elem('div', 'denken', 'Thinking… ' + n.denken.slice(-160)));
   else if (n.denken) {
     const d = elem('details', 'denken');
@@ -169,8 +174,9 @@ function nachrichtElem(n) {
     z.appendChild(d);
   }
   const inhalt = elem('div', 'inhalt');
-  inhalt.innerHTML = n.fehler ? esc(n.fehler) : markdown(n.content || (n.laeuft ? '…' : ''));
+  inhalt.innerHTML = n.fehler ? esc(n.fehler) : markdown(n.content || (n.laeuft && !n.medien ? '…' : ''));
   z.appendChild(inhalt);
+  if (n.medien) { z.appendChild(chatMedienElem(n)); return z; }
   if (!n.laeuft && n.content) {
     const fuss = elem('div', 'n-fuss');
     const kopie = elem('button', null, 'Copy');
@@ -206,31 +212,139 @@ function nachrichtElem(n) {
   return z;
 }
 
+// Ergebnis eines Studio-Auftrags im Chat: Fortschritt, dann Bild / Video / Ton mit Knoepfen
+function chatMedienElem(n) {
+  const m = n.medien;
+  const box = elem('div', 'n-medien');
+  if (m.fehlt) {
+    const b = elem('button', 'm-knopf', 'Open Studio');
+    b.addEventListener('click', () => zeigeStudio(m.fehlt));
+    box.appendChild(b);
+    return box;
+  }
+  const f = m.dateien && m.dateien[0];
+  if (f) {
+    const art = /\.(png|jpe?g|webp)$/i.test(f) ? 'img' : /\.(mp4|webm)$/i.test(f) ? 'video' : 'audio';
+    const e = elem(art);
+    if (art !== 'img') { e.controls = true; e.preload = 'metadata'; }
+    if (art === 'video') e.loop = true;
+    e.src = dateiUrl(f);
+    box.appendChild(e);
+  } else if (n.laeuft && m.status) {
+    const st = elem('div', 'n-status');
+    st.appendChild(elem('span', null, m.status + (m.prozent ? ` · ${m.prozent} %` : '')));
+    if (m.vorgang) {
+      const b = elem('div', 'balken');
+      const i = elem('i');
+      i.style.width = (m.prozent || 0) + '%';
+      b.appendChild(i);
+      st.appendChild(b);
+    }
+    box.appendChild(st);
+  }
+  if (m.prompt) {
+    const d = elem('details');
+    d.append(elem('summary', null, (m.art === 'voice' ? 'Text' : 'Prompt') + (m.modell ? ' · ' + m.modell : '')), elem('div', null, m.prompt));
+    box.appendChild(d);
+  }
+  if (f && !n.laeuft) {
+    const fuss = elem('div', 'n-fuss');
+    const knopf = (text, tun) => { const b = elem('button', null, text); b.addEventListener('click', tun); fuss.appendChild(b); };
+    if (m.art === 'image') {
+      knopf('Upscale 4×', () => sendeChat({ text: 'Upscale this image', erzwinge: { art: 'upscale', quelle: f } }));
+      knopf('Animate', () => sendeChat({ text: 'Animate this image', erzwinge: { art: 'video', quelle: f, bildPrompt: m.prompt || '' } }));
+    }
+    knopf('Show in folder', () => window.api.studioZeigen(f));
+    box.appendChild(fuss);
+  }
+  return box;
+}
+
+// Bild anhaengen (zum Hochskalieren oder Animieren): 📎 oder in den Chat ziehen
+function zeichneAnhang() {
+  const box = $('#chat-anhang');
+  box.innerHTML = '';
+  $('#chat-bild').classList.toggle('versteckt', chat.modus !== 'chat');
+  box.classList.toggle('versteckt', !chat.anhang || chat.modus !== 'chat');
+  if (!chat.anhang) return;
+  const i = elem('img');
+  i.src = dateiUrl(chat.anhang);
+  const x = elem('button', null, '✕');
+  x.title = 'Remove';
+  x.addEventListener('click', () => { chat.anhang = null; zeichneAnhang(); });
+  box.append(i, x);
+}
+$('#chat-bild').addEventListener('click', async () => {
+  const p = await window.api.studioWaehle('bild');
+  if (p) { chat.anhang = p; zeichneAnhang(); $('#chat-text').focus(); }
+});
+$('#chat').addEventListener('dragover', (e) => { if (chat.modus === 'chat') e.preventDefault(); });
+$('#chat').addEventListener('drop', (e) => {
+  if (chat.modus !== 'chat') return;
+  e.preventDefault();
+  const d = e.dataTransfer.files[0];
+  const p = d && window.api.pfadVon(d);
+  if (!p || !/\.(png|jpe?g|webp)$/i.test(p)) { hinweis('Please drop an image'); return; }
+  window.api.studioFreigeben(p);
+  chat.anhang = p;
+  zeichneAnhang();
+  $('#chat-text').focus();
+});
+
+// letztes Bild/Video/Ton im Chat, damit "mach es rot" oder "animiere das" wissen, was gemeint ist
+function letztesMedium() {
+  const v = verlauf();
+  for (let i = v.length - 1; i >= 0; i--) {
+    const n = v[i];
+    if (n.role === 'user' && n.anhang) return { art: 'image', bild: n.anhang, prompt: '' };
+    if (n.medien && n.medien.dateien && n.medien.dateien.length) {
+      const f = n.medien.dateien[0];
+      return { art: n.medien.art, prompt: n.medien.prompt || '', bild: /\.(png|jpe?g|webp)$/i.test(f) ? f : null };
+    }
+    if (n.role === 'assistant' && !n.fehler) return null; // dazwischen normal gechattet
+  }
+  return null;
+}
+// was das Modell vom Verlauf sieht: erzeugte Medien als kurze Notiz
+const fuerModell = (n) => ({
+  role: n.role,
+  content: n.medien && n.medien.dateien
+    ? `[Created ${n.medien.art === 'voice' ? 'a voice recording of the text' : n.medien.art === 'upscale' ? 'a 4× upscale' : 'an ' + n.medien.art + ' with the prompt'}: ${n.medien.prompt || ''}]`
+    : n.content + (n.anhang ? ' [attached an image]' : ''),
+});
+
 function zeichneKnopf() {
   $('#chat-los').textContent = chat.laeuft ? 'Stop' : 'Send';
   $('#chat-los').classList.toggle('stopp', !!chat.laeuft);
 }
 
 // ---------------- Senden ----------------
-function sendeChat() {
-  if (chat.laeuft) { window.api.chatStopp(chat.laeuft); return; }
-  const text = $('#chat-text').value.trim();
-  if (!text) return;
+function sendeChat(vorgabe) {
+  if (chat.laeuft) { if (!vorgabe) window.api.chatStopp(chat.laeuft); return; }
+  const text = vorgabe ? vorgabe.text : $('#chat-text').value.trim();
+  if (!text) { if (chat.anhang) hinweis('Say what to do with the image, e.g. “upscale it” or “animate it”'); return; }
   const model = chatModell();
   if (!model) { hinweis('Pick a model first (bottom right)'); return; }
   const v = verlauf();
-  v.push({ role: 'user', content: text });
+  const mitStudio = chat.modus === 'chat';
+  const vorher = mitStudio ? letztesMedium() : null;
+  const anhang = mitStudio && !vorgabe ? chat.anhang : null;
+  v.push({ role: 'user', content: text, anhang });
   const antwort = { role: 'assistant', content: '', denken: '', laeuft: true, modell: model };
   v.push(antwort);
-  $('#chat-text').value = '';
-  passeHoeheAn();
+  if (!vorgabe) {
+    $('#chat-text').value = '';
+    chat.anhang = null;
+    passeHoeheAn();
+  }
   const id = 'c' + ++chat.nr;
   chat.laeuft = id;
   chat.antwort = antwort;
   neueEingabe = true;
   window.api.chat({
     id, model, system: MODI[chat.modus].system || cfg.chatSystem || '',
-    nachrichten: v.filter((n) => n !== antwort && !n.fehler).map((n) => ({ role: n.role, content: n.content })),
+    nachrichten: v.filter((n) => n !== antwort && !n.fehler).map(fuerModell),
+    medien: mitStudio, anhang, letztesMedium: vorher, erzwinge: vorgabe && vorgabe.erzwinge,
   });
   zeichneChat();
 }
@@ -240,6 +354,7 @@ window.api.onChat((p) => {
   const a = chat.antwort;
   if (p.text != null) a.content = p.text;
   if (p.denken != null) a.denken = p.denken;
+  if (p.medien) a.medien = { ...(a.medien || {}), ...p.medien };
   if (p.fertig) {
     a.laeuft = false;
     if (p.fehler && !(p.fehler === 'stopped' && a.content)) a.fehler = p.fehler === 'stopped' ? 'Stopped.' : p.fehler;
@@ -255,6 +370,16 @@ window.api.onChat((p) => {
   if (unten) box.scrollTop = box.scrollHeight;
 });
 
+// Fortschritt des Studio-Auftrags in die laufende Chat-Antwort
+window.api.onStudio((p) => {
+  const a = chat.antwort;
+  if (!a || !a.medien || !a.medien.vorgang || p.vorgang !== a.medien.vorgang || p.fertig) return;
+  if (p.prozent != null) a.medien.prozent = p.prozent;
+  if (p.text) a.medien.status = p.text;
+  const box = $('#chat-verlauf');
+  if (ansicht === 'chat' && box.lastElementChild) box.replaceChild(nachrichtElem(a), box.lastElementChild);
+});
+
 function passeHoeheAn() {
   const t = $('#chat-text');
   t.style.height = 'auto';
@@ -264,10 +389,11 @@ $('#chat-text').addEventListener('input', passeHoeheAn);
 $('#chat-text').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendeChat(); }
 });
-$('#chat-los').addEventListener('click', sendeChat);
+$('#chat-los').addEventListener('click', () => sendeChat());
 $('#chat-neu').addEventListener('click', () => {
   if (chat.laeuft) window.api.chatStopp(chat.laeuft);
   chat.verlaeufe[chat.modus] = [];
+  chat.anhang = null;
   zeichneChat();
   $('#chat-text').focus();
 });

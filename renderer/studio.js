@@ -79,7 +79,7 @@ function zeichneStudio() {
   const st = sz.st;
   $('#studio-haupt').classList.toggle('einrichtung', !st || !st.eingerichtet);
   if (!st) { links.append(elem('div', 's-leer', 'Loading…')); return; }
-  if (!st.eingerichtet) { zeichneEinrichtung(rechts); return; }
+  if (!st.eingerichtet) { zeichneStudioEinrichtung(rechts); return; }
   zeichneFelder(links);
   zeichneVorschau(rechts);
   links.scrollTop = scroll;
@@ -133,7 +133,7 @@ function sicherKnopf(text, schluessel, aktion) {
 const abbrechenMit = (vorgang) => (b) => { b.disabled = true; b.classList.remove('sicher'); b.textContent = 'Cancelling…'; window.api.studioAbbrechen(vorgang); };
 
 // ---------- Einrichten (einmalig) ----------
-function zeichneEinrichtung(box) {
+function zeichneStudioEinrichtung(box) {
   const k = elem('div', 's-einrichten');
   k.append(elem('b', null, 'Glowline Studio'),
     elem('p', null, 'Create images, videos, sharper upscales and voices on your own graphics card – private and free. '
@@ -522,6 +522,7 @@ window.api.onStudio((p) => {
       if (!l || l.fertig) { sz.auswahl = { vorgang: p.vorgang }; if (p.art && BEREICHE[p.art]) sz.bereich = p.art; if (ansicht === 'studio') zeichneStudio(); }
     }
     if (p.fertig) {
+      if (p.vonChat) { ladeStudio(); return; }
       if (p.fehler && p.fehler !== 'cancelled') hinweis(fehlerText(p.fehler));
       else if (!p.fehler && ansicht !== 'studio') hinweis('Studio: ' + (BEREICHE[p.art === 'bild' && /upscale/.test(p.modell || '') ? 'upscale' : p.art] || { name: 'Job' }).name + ' ready');
       ladeStudio();

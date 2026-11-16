@@ -53,6 +53,7 @@ Models can be loaded/unloaded from the model menu. Press **F11** for fullscreen.
 Everything lives in the tool menu at the bottom right – no extra windows.
 
 - **Chat** – talk to any model, local or cloud. Thinking is shown separately and folds away.
+- **Create right in the chat** – just ask: *“create an image of a tree”*, *“make a TikTok video of a dancing cat”*, *“read this aloud: …”*. Your chat model recognises the request, writes a better prompt and the Studio makes it on your GPU – the result appears in the chat. Follow-ups work too (*“make the sky purple”*), images get **Upscale 4×** and **Animate** buttons, and you can attach your own image with 📎 or drag & drop. Normal questions stay normal chat. Needs the Studio set up; small models (e.g. the fast helper) sometimes misread a request.
 - **Prompt helper** – type an idea in plain words and get a ready prompt for video, image, voice or a coding task. Video/image prompts come with a negative prompt; **→ Create in Studio** sends them straight to the Studio, **→ Send to Claude Code** pastes a coding task into the running session.
 
 ## Accounts

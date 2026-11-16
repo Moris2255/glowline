@@ -11,6 +11,7 @@ const konten = require('./konten');
 const studio = require('./studio');
 const agenten = require('./agenten');
 const einrichtung = require('./einrichtung');
+const erstellen = require('./erstellen');
 const { Readable } = require('stream');
 
 const HOME = os.homedir();
@@ -145,7 +146,7 @@ async function lmModelle(L) {
 
 // ---------- Chat (eingebaut, ueber den Mess-Proxy -> Leiste misst mit) ----------
 const chats = new Map();
-async function chatSenden({ id, model: modellId, system, nachrichten }) {
+async function chatSenden({ id, model: modellId, system, nachrichten, medien, anhang, erzwinge, letztesMedium }) {
   const ac = new AbortController();
   chats.set(id, ac);
   const melde = (p) => sende('chat', { id, ...p });
@@ -159,6 +160,8 @@ async function chatSenden({ id, model: modellId, system, nachrichten }) {
     // lokales Modell: der Studio-Motor gibt vorher den Grafikspeicher frei
     if (!w && studio.beschaeftigt().gpu) throw new Error('Studio is using the graphics card right now. Local chat works again when the job is done – cloud models work anytime.');
     if (!w) await Promise.race([studio.frei(), new Promise((ok) => setTimeout(ok, 1500))]);
+    // "Erstelle mir ein Bild von …": dann macht das Studio die Arbeit statt einer Textantwort
+    if (medien && (await erstellen.versuche({ modell: String(modellId), nachrichten: msgs, ac, melde, anhang, erzwinge, letztesMedium }))) return;
     const anthropic = w && w.format === 'anthropic';
     const url = `http://127.0.0.1:${cfg.port}/s/chat/${b}` + (anthropic ? '/v1/messages' : '/v1/chat/completions');
     const body = anthropic
@@ -840,6 +843,33 @@ function fenster() {
   win.on('leave-full-screen', () => sende('vollbild', false));
 }
 
+// Test: Studio-Auftraege aus dem Chat nur vorspielen (ohne Grafikkarte); Ergebnis = vorhandene Datei aus der Galerie
+function chatStudioAttrappe() {
+  const ende = { bild: /\.png$/i, upscale: /\.png$/i, video: /\.mp4$/i, stimme: /\.wav$/i };
+  return {
+    ...studio,
+    status: () => {
+      const s = studio.status();
+      for (const m of Object.values(s.modelle)) m.da = !(process.env.GLOWLINE_TEST_ATTRAPPE === 'ohnevideo' && m.art === 'video');
+      return { ...s, eingerichtet: true };
+    },
+    auftrag: async (a) => {
+      const art = studio.KATALOG[a.modell].art;
+      const kopf = { vorgang: 'auftrag:' + a.id, art, modell: a.modell, prompt: a.prompt || '', vonChat: true };
+      console.log('ATTRAPPE', JSON.stringify({ ...a, prompt: String(a.prompt || '').slice(0, 140) }));
+      for (const p of [0, 40, 80]) {
+        sende('studio', { ...kopf, prozent: p, text: 'Generating' });
+        await new Promise((ok) => setTimeout(ok, 500));
+      }
+      const g = studio.galerie().map((x) => x.datei);
+      const f = g.find((x) => ende[art].test(x)) || g[0]; // kein Beispiel dieser Art: irgendeine Datei
+      const r = f ? { dateien: [f] } : { fehler: 'no sample file' };
+      sende('studio', { ...kopf, fertig: true, ...r });
+      return r;
+    },
+  };
+}
+
 // Unsichtbarer Selbsttest: GLOWLINE_TEST=<Ordner fuer Bilder>, Fenster bleibt verborgen
 async function testLauf(ordner) {
   const warte = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -996,6 +1026,56 @@ async function testLauf(ordner) {
       console.log('OHNE FERTIG', await js(`JSON.stringify(ein.stand.schritte.map((x) => x.titel + ':' + x.status + (x.fehler ? '(' + x.fehler + ')' : ''))) + ' | ' + document.querySelector('#ein-lauf-summe').textContent + ' | retry=' + !document.querySelector('#ein-nochmal').classList.contains('versteckt') + ' | cfg=' + cfg.einrichtung + ',' + cfg.defaultModel`));
       console.log('OHNE INSTALLER', await js(`[...document.querySelectorAll('#ein-inhalt .inst')].map((z) => z.textContent).join(' | ') || 'keiner'`));
       await bild('o-fertig');
+    }
+    if (was.includes('chatecht') || was.includes('chatohnestudio')) {
+      // echter Studio-Auftrag aus dem Chat (bzw. Studio nicht eingerichtet: GLOWLINE_STUDIO = leerer Ordner)
+      await js(`zeigeWorkspace('chat'); cfg.chatModel = 'ollama,lfm3:1.7b'; zeichneChat(); document.querySelector('#chat-text').value = 'Erstelle mir ein Bild von einem Leuchtturm bei Sonnenuntergang'; sendeChat()`);
+      for (let i = 0; i < 240; i++) { await warte(1000); if (i === 12) await bild('e-laeuft'); if (await js('!chat.laeuft')) break; }
+      await warte(1500);
+      console.log('ECHT', await js(`(() => { const v = verlauf(); const n = v[v.length - 1]; return JSON.stringify({ text: n.fehler || n.content, medien: n.medien && { ...n.medien, prompt: String(n.medien.prompt || '').slice(0, 100) } }); })()`));
+      console.log('ECHT BILD', await js(`(() => { const i = document.querySelector('#chat-verlauf .n-medien img'); return i ? i.naturalWidth + 'x' + i.naturalHeight : 'kein Bild'; })()`));
+      await bild('e-ergebnis');
+      if (was.includes('chatohnestudio')) {
+        await js(`document.querySelector('#chat-verlauf .n-medien .m-knopf').click()`);
+        await warte(2500);
+        console.log('ECHT STUDIOSEITE', await js(`document.querySelector('#studio').innerText.replace(/\s+/g, ' ').slice(0, 300)`));
+        await bild('e-studioseite');
+      }
+    }
+    if (was.includes('chatstudio')) {
+      // "Chat fuer alles": echtes kleines Sprachmodell entscheidet, Studio wird vorgespielt (GLOWLINE_TEST_ATTRAPPE)
+      const letzte = () => js(`(() => { const v = verlauf(); const n = v[v.length - 1]; const m = n.medien || {}; return JSON.stringify({ text: String(n.fehler || n.content || '').slice(0, 90), art: m.art, prompt: String(m.prompt || '').slice(0, 120), datei: m.dateien && m.dateien[0] ? m.dateien[0].split(/[\\\\/]/).pop() : undefined, fehlt: m.fehlt, quelle: m.quelle ? m.quelle.split(/[\\\\/]/).pop() : undefined }); })()`);
+      const fertig = async () => { for (let i = 0; i < 120; i++) { await warte(500); if (await js('!chat.laeuft')) break; } await warte(300); return letzte(); };
+      const sag = async (t) => { await js(`document.querySelector('#chat-text').value = ${JSON.stringify(t)}; sendeChat()`); return fertig(); };
+      const knopf = async (name) => { await js(`[...document.querySelectorAll('#chat-verlauf .n-fuss button')].filter((b) => b.textContent === ${JSON.stringify(name)}).pop().click()`); return fertig(); };
+      await js(`zeigeWorkspace('chat'); cfg.chatModel = ${JSON.stringify(process.env.GLOWLINE_TEST_CHATMODELL || 'ollama,lfm3:1.7b')}; zeichneChat()`);
+      await warte(800);
+      await bild('c-leer');
+      if (process.env.GLOWLINE_TEST_ATTRAPPE === 'ohnevideo') {
+        console.log('CS OHNEVIDEO', await sag('Mach ein Video von Wellen am Strand'), '| knopf:', await js(`(document.querySelector('#chat-verlauf .n-medien .m-knopf') || {}).textContent`));
+        await bild('c-ohnevideo');
+      } else {
+        await js(`document.querySelector('#chat-text').value = 'Erstelle mir ein Bild von einem Baum im Herbst'; sendeChat()`);
+        await warte(2200);
+        await bild('c-laeuft');
+        console.log('CS BILD', await fertig());
+        await bild('c-bild');
+        console.log('CS FOLGE', await sag('mach den Himmel lila'));
+        console.log('CS GROESSER', await sag('mach den Baum größer'));
+        console.log('CS WITZ', await sag('Erzähl mir einen Witz'));
+        console.log('CS FRAGE', await sag('Was ist ein gutes Bildformat für Instagram?'));
+        console.log('CS ANIMIEREN', await knopf('Animate'));
+        console.log('CS STIMME', await sag('Lies mir vor: Guten Morgen, heute wird ein schöner Tag'));
+        console.log('CS TIKTOK', await sag('Mach ein TikTok Video von einer tanzenden Katze'));
+        console.log('CS UPSCALE', await knopf('Upscale 4×'));
+        // angehaengtes Bild hochskalieren
+        await js(`chat.anhang = ${JSON.stringify((studio.galerie().find((x) => /\.png$/i.test(x.datei)) || {}).datei || '')}; zeichneAnhang()`);
+        await warte(400);
+        await bild('c-anhang');
+        console.log('CS ANHANG', await sag('skalier das bitte hoch'));
+        await bild('c-ende');
+        console.log('CS ATTRAPPE-LOG oben, Nachrichten:', await js('verlauf().length'));
+      }
     }
     if (was.includes('installer')) {
       // Installer-Knoepfe im Modellfenster (Ollama + LM Studio "fehlen", Nachbau-Server liefert die Dateien)
@@ -1383,6 +1463,11 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     }
     studio.init(process.env.GLOWLINE_STUDIO || cfg.studioOrdner || path.join(process.env.LOCALAPPDATA || app.getPath('userData'), 'Glowline', 'studio'),
       (k, x) => { sende(k, x); if (k === 'studio') einrichtung.studioEreignis(x); }, (id) => konten.schluessel(id));
+    erstellen.init({
+      cfg: () => cfg, teileModell, konten, vramFrei,
+      studio: process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_ATTRAPPE ? chatStudioAttrappe() : studio,
+      erlaubt: (f) => typeof f === 'string' && (studio.inAusgabe(f) || freigegeben.has(path.resolve(f))) && fs.existsSync(f),
+    });
     einrichtung.init({
       cfg: () => cfg, sende, studio, ollamaHolen, ollamaInstalliert,
       setzeConfig: (neu) => { Object.assign(cfg, neu); speichereConfig(); sende('config', cfg); },

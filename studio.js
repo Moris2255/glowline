@@ -437,7 +437,7 @@ function auftrag(a, vorVramFrei) {
   const ac = new AbortController();
   laufend.set(key, ac);
   const km = KATALOG[a.modell];
-  const kopf = { vorgang: key, art: km ? km.art : null, modell: a.modell, prompt: a.prompt || '', vonAgent: !!a.vonAgent, wolke: !!(km && km.wolke) };
+  const kopf = { vorgang: key, art: km ? km.art : null, modell: a.modell, prompt: a.prompt || '', vonAgent: !!a.vonAgent, vonChat: !!a.vonChat, wolke: !!(km && km.wolke) };
   const melde = (x) => sende('studio', { ...kopf, ...x });
   if (km && km.wolke) {
     // Cloud: sofort los, ohne auf die Grafikkarte zu warten
