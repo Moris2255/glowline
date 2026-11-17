@@ -299,6 +299,7 @@ function neueSeite() { const s = liveLeeren() + schiebe(live.zeile); live.zeile 
 // die letzten Zeilen merken, um sie nach einer Groessenaenderung neu zu zeigen
 const bisher = [];
 let kopfIndex = null; // wo Glims erste Bildzeile in bisher steht (damit er nach dem Neuaufbau weiter lebt)
+let kopfMitGlim = true; // im sehr schmalen Fenster kommt der Kopf ohne Glim
 const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 // leuchtender Punkt (pulsiert) und ein Glanz, der ueber das Status-Wort laeuft
 function glimmen() {
@@ -498,6 +499,8 @@ function schneideFarbig(s, w) {
 function neuAufbauen() {
   const H = hoehe(), w = spalten() - 1;
   log('neuAufbauen', breiteFenster(), hoeheFenster());
+  // Kopf passend zur neuen Breite neu bauen (mit oder ohne Glim)
+  if (FARBE && kopfIndex != null && kopfIndex >= 1) bisher.splice(kopfIndex - 1, 7, ...kopf());
   const platz = Math.max(0, H - 6);
   const ab = Math.max(0, bisher.length - platz);
   const zeilen = bisher.slice(ab).map((z) => (breite(z) > w + 1 ? schneideFarbig(z, w) : z));
@@ -505,7 +508,7 @@ function neuAufbauen() {
   live.zeile = 0;
   live.kopf = null;
   // Glim mitnehmen, wenn er noch zu sehen ist
-  const k = FARBE && kopfIndex != null && kopfIndex >= ab ? kopfIndex - ab : -1;
+  const k = FARBE && kopfMitGlim && kopfIndex != null && kopfIndex >= ab ? kopfIndex - ab : -1;
   let s = zeilenSchreiben(k < 0 ? zeilen : zeilen.slice(0, k));
   if (k >= 0) { live.kopf = live.zeile + 1; s += zeilenSchreiben(zeilen.slice(k)); }
   out('\x1b[?2026h\x1b[?25l' + geheZu(1) + '\x1b[J' + s + liveZeichnen() + '\x1b[?25h\x1b[?2026l');
@@ -556,7 +559,7 @@ function pixelZeilen(raster, pal = GLIM_FARBEN) {
 // Kopf drucken und merken, wo Glim steht (zum Blinzeln)
 function zeigeKopf() {
   drucke(kopf());
-  live.kopf = FARBE ? live.zeile - 5 : null;
+  live.kopf = FARBE && kopfMitGlim ? live.zeile - 5 : null;
   kopfIndex = bisher.length - 6;
 }
 // Glim lebt, solange er oben zu sehen ist: der Bauch leuchtet auf und ab, ab und zu blinzelt er
@@ -564,7 +567,7 @@ const GLIM_ZU = GLIM.map((z, i) => (i === 3 ? z.replace(/TE/g, 'ww') : z));
 const glimTier = { zu: false, naechstesBlinzeln: Date.now() + 3000 };
 function blinzeln() {
   setInterval(() => {
-    if (live.kopf == null || !live.gezeichnet) return;
+    if (live.kopf == null || !live.gezeichnet || !kopfMitGlim) return;
     const jetzt = Date.now();
     if (!glimTier.zu && jetzt > glimTier.naechstesBlinzeln) { glimTier.zu = true; glimTier.auf = jetzt + 160; }
     if (glimTier.zu && jetzt > glimTier.auf) { glimTier.zu = false; glimTier.naechstesBlinzeln = jetzt + 3500 + Math.random() * 4500; }
@@ -592,6 +595,9 @@ function kopf() {
   ];
   const text = roh.map((t) => (breite(t) > textBreite ? schneideFarbig(t, textBreite - 1) + f(C.dunkel, '…') : t));
   if (!FARBE) return ['', '  Glowline ' + v + ' · Cowork', '  ' + ordner, '  /help for all commands', ''];
+  // sehr schmales Fenster: ohne Glim und Rahmen (passt sonst nicht und bricht um) – gleich viele Zeilen
+  kopfMitGlim = w >= 44;
+  if (!kopfMitGlim) return ['', ...roh.map((t) => '  ' + (breite(t) > w - 2 ? schneideFarbig(t, w - 3) + f(C.dunkel, '…') : t)), ''];
   // Glim und die Infos in einem schmalen Rahmen (so breit wie der Inhalt)
   const bild = pixelZeilen(GLIM);
   const innen = 1 + 16 + 3 + Math.max(...text.map(breite)) + 2;
@@ -1205,7 +1211,8 @@ function groesseErhalten(s, z) {
   const neu = s !== breiteFenster() || z !== hoeheFenster();
   fenster.spalten = s; fenster.zeilen = z;
   if (groesseWarten) { const w = groesseWarten; groesseWarten = null; w(); return; }
-  if (neu) { clearTimeout(groesseUhr); groesseUhr = setTimeout(neuAufbauen, 25); }
+  // Glim pausiert bis zum Neuaufbau (sonst blinzelt er kurz an der alten Stelle ins umgebrochene Bild)
+  if (neu) { live.kopf = null; clearTimeout(groesseUhr); groesseUhr = setTimeout(neuAufbauen, 25); }
 }
 // beim Start kurz auf die erste Antwort warten (hoechstens 400 ms)
 function ersteGroesse() {

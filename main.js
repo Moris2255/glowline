@@ -1746,6 +1746,17 @@ async function testLauf(ordner) {
       await tippe(`$env:GLOWLINE_CLI_LOG='${path.join(ordner, 'cli.log')}'; ${start}\r`, 5000);
       await bild('t-start');
       console.log('TERMINAL KOPF', /╭─/.test(sauber()) && /Glowline \d/.test(sauber()) && !/Glow-/.test(sauber()) && /help for all commands/.test(sauber()) ? 'ok' : 'FEHLT', '| eingabe=' + /Ask anything/.test(sauber()));
+      // ganz schmal: Kopf ohne Glim und Rahmen, danach wieder mit Glim
+      {
+        const [c0, r0] = [p.cols, p.rows];
+        roh = '';
+        p.resize(40, 24); await warte(2500); await bild('t-schmal');
+        // nur der Neuaufbau in der schmalen Breite zaehlt (davor wiederholt Windows kurz das alte Bild)
+        const schmal = sauber().slice(Math.max(0, sauber().lastIndexOf('Glowline ')));
+        roh = '';
+        p.resize(c0, r0); await warte(2500);
+        console.log('TERMINAL SCHMAL', /Glowline \d/.test(schmal) && !/[▀▄]/.test(schmal) && /[▀▄]/.test(sauber()) ? 'ok' : 'FEHLT: ' + [/Glowline \d/.test(schmal), !/[▀▄]/.test(schmal), /[▀▄]/.test(sauber())].join(' ') + ' ' + (schmal.match(/.{0,40}[▀▄].{0,40}/) || [''])[0]);
+      }
       await tippe('Hallo, wer bist du?', 400); await bild('t-tippen');
       await tippe('\r', 7000); await bild('t-antwort');
       console.log('TERMINAL ANTWORT', /●/.test(sauber()) ? 'ok' : 'FEHLT', '| stat=' + /⎿/.test(sauber()));
