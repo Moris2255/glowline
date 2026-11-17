@@ -1164,8 +1164,21 @@ function setzeZoom() {
 // ---------- Fenster: Startart, Schliessen, Infobereich ----------
 let wirklichBeenden = false, tray = null;
 function startFenster() {
+  // gerade nach einem Update neu gestartet: so wieder aufgehen, wie das Fenster vorher war
+  const nu = cfg.nachUpdate;
+  if (nu) {
+    delete cfg.nachUpdate; speichereConfig();
+    if (Date.now() - (nu.zeit || 0) < 10 * 60 * 1000 && ['vollbild', 'gross', 'normal', 'minimiert', 'tray'].includes(nu.art)) { startFenster.grenzen = nu.grenzen; return nu.art; }
+  }
   if (['vollbild', 'gross', 'normal', 'minimiert'].includes(cfg.startFenster)) return cfg.startFenster;
   return cfg.startVollbild === false ? 'gross' : 'vollbild';
+}
+// vor dem Neustart fuers Update: Fensterzustand merken (startFenster nimmt ihn beim naechsten Start)
+function merkeFensterFuerUpdate() {
+  const da = win && !win.isDestroyed();
+  const art = !da || !win.isVisible() ? 'tray' : win.isMinimized() ? 'minimiert' : win.isFullScreen() ? 'vollbild' : win.isMaximized() ? 'gross' : 'normal';
+  cfg.nachUpdate = { zeit: Date.now(), art, grenzen: da ? win.getNormalBounds() : null };
+  speichereConfig();
 }
 function normalGroesse() {
   const wa = screen.getPrimaryDisplay().workArea;
@@ -1229,8 +1242,10 @@ function fenster() {
   else win.once('ready-to-show', () => {
     // mit Windows gestartet: unsichtbar im Infobereich (Link-Teilen laeuft trotzdem)
     if (process.argv.includes('--tray')) { trayAnlegen(); return; }
-    const art = startFenster();
-    if (art === 'normal') { win.setBounds(normalGroesse()); win.show(); }
+    const art = startFenster(), grenzen = startFenster.grenzen;
+    if (grenzen) win.setBounds(grenzen); // nach einem Update: wieder an derselben Stelle
+    if (art === 'tray') { trayAnlegen(); return; }
+    if (art === 'normal') { win.setBounds(grenzen || normalGroesse()); win.show(); }
     else if (art === 'gross') { win.maximize(); win.show(); }
     else if (art === 'minimiert') win.minimize();
     else { win.show(); win.setFullScreen(true); }
@@ -1962,6 +1977,15 @@ async function testLauf(ordner) {
       console.log('UPDATE LADEN', 'bereit=' + l.bereit, 'geladen=' + l.geladen + '/' + l.gesamt, 'fehler=' + l.fehler);
       await warte(400);
       console.log('UPDATE CHIP2', await js(`document.querySelector('#update-text').textContent`));
+      // Neustart nach dem Update: Fensterzustand gemerkt und beim naechsten Start genau einmal benutzt
+      if (l.bereit) {
+        await update.jetzt();
+        const nu = cfg.nachUpdate && cfg.nachUpdate.art, a1 = startFenster(), a2 = startFenster();
+        cfg.nachUpdate = { zeit: 0, art: 'tray' };
+        const alt = startFenster();
+        console.log('UPDATE FENSTER', nu && a1 === nu && a2 === alt && !cfg.nachUpdate && alt !== 'tray' ? 'ok' : 'FEHLT', nu, a1, a2, alt);
+        delete startFenster.grenzen;
+      }
       console.log('UPDATE VERGLEICH', update.neuer('4.5.10', '4.5.9'), update.neuer('4.5.2', '4.5.2'), update.neuer('v4.6.0', '4.5.9'), update.neuer('4.4.9', '4.5.0'));
       update.beimBeenden();
     }
@@ -2573,7 +2597,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     update.init({
       version: app.getVersion(), link: LINK_APP, cfg: () => cfg, sende, ladeDatei: studio.ladeDatei, test: !!process.env.GLOWLINE_TEST,
       ordner: process.env.GLOWLINE_TEST ? path.join(process.env.GLOWLINE_TEST, 'update') : path.join(app.getPath('userData'), 'update'),
-      beenden: () => { wirklichBeenden = true; app.quit(); },
+      beenden: () => { wirklichBeenden = true; app.quit(); }, vorNeustart: merkeFensterFuerUpdate,
     });
     hoeren.init({
       cfg: () => cfg, setzeCfg: (p) => { Object.assign(cfg, mische(cfg, p)); speichereConfig(); }, sende, ladeDatei: studio.ladeDatei, test: !!process.env.GLOWLINE_TEST, sprache: () => app.getLocale(),

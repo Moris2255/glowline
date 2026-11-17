@@ -103,6 +103,8 @@ function abbrechen() { if (ac) ac.abort(); }
 // still installieren; neustart = Glowline danach wieder oeffnen
 function installieren(neustart) {
   if (!st.bereit || !datei || !fs.existsSync(datei)) return false;
+  // startet Glowline danach neu: vorher merken, wie das Fenster gerade ist (minimiert, im Infobereich, ...)
+  if (neustart && d.vorNeustart) d.vorNeustart();
   if (d.test) { console.log('UPDATE WUERDE INSTALLIEREN', path.basename(datei), neustart ? 'mit Neustart' : 'ohne Neustart'); return true; }
   const args = ['/S', '--updated'];
   if (neustart) args.push('--force-run');
