@@ -1709,8 +1709,8 @@ async function testLauf(ordner) {
       await js(`zeigeTerminal(); starteSitzung({ tool: 'shell', cwd: ${JSON.stringify(ordner)} })`); await warte(3000);
       const id = await js('sitzung.id');
       const p = ptys.get(id);
-      let roh = '';
-      p.onData((x) => { roh += x; });
+      let roh = '', gesamt = '';
+      p.onData((x) => { roh += x; gesamt += x; });
       const tippe = async (t, ms = 600) => { p.write(t); await warte(ms); };
       const sauber = () => roh.replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '').replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
       const cli = cliPfad();
@@ -1724,6 +1724,8 @@ async function testLauf(ordner) {
       await tippe('Hallo, wer bist du?', 400); await bild('t-tippen');
       await tippe('\r', 7000); await bild('t-antwort');
       console.log('TERMINAL ANTWORT', /●/.test(sauber()) ? 'ok' : 'FEHLT', '| stat=' + /⎿/.test(sauber()));
+      // Leiste unten: Werte wie im Fenster
+      console.log('TERMINAL LEISTE', /first \d+\.\ds/.test(sauber()) && /ctx \d/.test(sauber()) ? 'ok' : 'FEHLT: ' + (sauber().match(/⏵[^\n]{0,160}/g) || []).slice(-1).join(''));
       await tippe('/', 700); await bild('t-befehle');
       console.log('TERMINAL BEFEHLE', /\/help/.test(sauber()) && /\/think/.test(sauber()) ? 'ok' : 'FEHLT');
       await tippe('im', 500); await bild('t-befehle2');
@@ -1751,6 +1753,7 @@ async function testLauf(ordner) {
       await tippe('/effort\r', 800);
       console.log('TERMINAL EFFORT', /› high/.test(sauber()) && /Effort high – every message goes to the reasoning model/.test(sauber()) ? 'ok' : 'FEHLT: high=' + /› high/.test(sauber()) + ' denken=' + /always thinking/.test(sauber()) + ' ' + sauber().replace(/[─\s]+/g, ' ').slice(-400));
       await tippe('/effort medium\r', 600);
+      console.log('TERMINAL GESPART', /saved 0\.42 \$ today/.test(gesamt.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')) ? 'ok' : 'FEHLT');
       roh = '';
       await tippe('/autostart on\r', 1200); await bild('t-autostart');
       console.log('TERMINAL AUTOSTART', /starts with Windows/.test(sauber()) && cfg.testAutostart === true ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-200));

@@ -378,15 +378,24 @@ function liveZeilen() {
 }
 function fusszeile(w) {
   if (S.hinweis && Date.now() < S.hinweisBis) return kuerze('  ' + f(C.gelb, S.hinweis), w);
-  const teile = [];
   const modus = S.fest ? modellName(S.fest) + ' (fixed)' : S.immerDenken ? 'Auto · always thinking' : S.immerSchnell ? 'Auto · fast' : 'Auto' + (S.zuletztModell ? ' · ' + modellName(S.zuletztModell) : '');
-  teile.push(f(C.hell, '⏵ ') + f(C.leise, modus));
-  if (S.tps) teile.push(f(C.leise, Math.round(S.tps) + ' tok/s'));
-  const g = S.gpu;
-  if (g && g.total) teile.push(f(C.leise, `GPU ${g.util}% · ${(g.used / 1024).toFixed(1)}/${Math.round(g.total / 1024)} GB`));
-  if (S.ziel) teile.push(f(C.leise, 'goal: ' + kuerze(S.ziel, 24)));
-  const links = '  ' + teile.join(f(C.dunkel, ' · '));
+  // wie die Leiste im Fenster: [Wichtigkeit, Text] – wird es zu eng, fallen die unwichtigsten zuerst weg
+  const g = S.gpu, wert = (zahlTxt, rest) => f(C.hell, zahlTxt) + f(C.leise, rest);
+  const teile = [[9, f(C.hell, '⏵ ') + f(C.leise, modus)]];
+  if (S.tps) teile.push([8, wert(Math.round(S.tps) + '', ' tok/s')]);
+  if (S.ttft != null) teile.push([4, f(C.leise, 'first ') + wert(S.ttft.toFixed(1) + 's', '')]);
+  if (S.ausgabe) teile.push([3, wert(kurzZahl(S.ausgabe), ' tok')]);
+  if (S.kontext) teile.push([5, f(C.leise, 'ctx ') + wert(kurzZahl(S.kontext), '')]);
+  if (g && g.total) teile.push([7, f(C.leise, 'GPU ') + wert(g.util + '%', '')], [6, wert((g.used / 1024).toFixed(1), `/${Math.round(g.total / 1024)} GB`)]);
+  if (S.gespart >= 0.01) teile.push([2, f(C.leise, 'saved ') + wert(S.gespart.toFixed(2) + ' $', ' today')]);
+  if (S.ziel) teile.push([1, f(C.leise, 'goal: ' + kuerze(S.ziel, 24))]);
   const rechts = f(C.dunkel, S.laeuft ? 'Esc stop' : S.letztes ? 'Ctrl+O open · / commands' : '/ commands');
+  const baue = () => '  ' + teile.map((t) => t[1]).join(f(C.dunkel, ' · '));
+  let links = baue();
+  while (teile.length > 1 && breite(links) + breite(rechts) + 2 > w) {
+    let k = 1; for (let i = 2; i < teile.length; i++) if (teile[i][0] < teile[k][0]) k = i;
+    teile.splice(k, 1); links = baue();
+  }
   const platz = w - breite(links) - breite(rechts);
   return platz > 1 ? links + ' '.repeat(platz) + rechts : kuerze(links, w);
 }
@@ -650,7 +659,7 @@ function senden(text, vorgabe = {}) {
   v.push(antwort);
   const L = { antwort, start: Date.now(), req: null, gestoppt: false };
   S.laeuft = L;
-  S.tps = null;
+  S.tps = null; S.ttft = null; S.ausgabe = 0;
   const tick = setInterval(bald, 90);
   return new Promise((fertig) => {
     let ende = false;
@@ -682,7 +691,12 @@ function senden(text, vorgabe = {}) {
           try { o = JSON.parse(z); } catch { continue; }
           if (o.chat) { empfange(L, o.chat); if (o.chat.fertig) schluss(o.chat.fehler || null); }
           else if (o.studio && antwort.medien) { if (o.studio.prozent != null) antwort.medien.prozent = o.studio.prozent; if (o.studio.text) antwort.medien.status = o.studio.text; }
-          else if (o.stat) { if (o.stat.tps) S.tps = o.stat.tps; if (o.stat.tokens) L.tokens = o.stat.tokens; }
+          else if (o.stat) {
+            if (o.stat.tps) S.tps = o.stat.tps;
+            if (o.stat.tokens) L.tokens = S.ausgabe = o.stat.tokens;
+            if (o.stat.ttft != null) S.ttft = o.stat.ttft;
+            if (o.stat.kontext) S.kontext = o.stat.kontext;
+          }
         }
       });
       res.on('end', () => schluss(ende ? null : 'Glowline closed the connection'));
@@ -1242,7 +1256,7 @@ async function start() {
   setInterval(frageGroesse, 150).unref();
   // GPU-Anzeige alle paar Sekunden
   setInterval(async () => {
-    try { const s = await anfrage('GET', '/status'); const neu = JSON.stringify(s.gpu); if (neu !== JSON.stringify(S.gpu)) { S.gpu = s.gpu; bald(); } } catch {}
+    try { const s = await anfrage('GET', '/status'); const neu = JSON.stringify([s.gpu, s.gespart]); if (neu !== JSON.stringify([S.gpu, S.gespart])) { S.gpu = s.gpu; S.gespart = s.gespart; bald(); } } catch {}
   }, 4000).unref();
   S.gpu = info && info.gpu;
   malen();

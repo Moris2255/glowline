@@ -46,7 +46,8 @@ async function anfrage(req, res, schluessel, port) {
       const c = d.cfg();
       return json(res, 200, { version: d.version, chatModel: c.chatModel || '', chatSystem: c.chatSystem || '', modelle: flach(l), gpu: await d.gpu() });
     }
-    if (req.method === 'GET' && url.pathname === '/status') return json(res, 200, { gpu: await d.gpu() });
+    // Leiste unten: GPU und heute gesparte $
+    if (req.method === 'GET' && url.pathname === '/status') { const st = d.statistik(), h = (st.tage || {})[st.heute] || {}; return json(res, 200, { gpu: await d.gpu(), gespart: h.dollar || 0 }); }
     // fuer /usage und /stats: Tageszahlen der Stats-Seite (Tokens, Anfragen, gesparte $, Modelle, Studio)
     if (req.method === 'GET' && url.pathname === '/stats') return json(res, 200, { ...d.statistik(), gpu: await d.gpu() });
     if (req.method === 'POST' && url.pathname === '/chat') {
@@ -60,7 +61,12 @@ async function anfrage(req, res, schluessel, port) {
       const hoer = (kanal, p) => {
         if (kanal === 'studio' && p && vorgang && p.vorgang === vorgang && !p.fertig) schreib({ studio: { prozent: p.prozent, text: p.text } });
       };
-      const stat = (s) => { if (s && s.tab === 'chat' && (s.phase === 'lauf' || s.phase === 'ende')) schreib({ stat: { tps: s.tps, tokens: s.tokens || s.ausgabe } }); };
+      const stat = (s) => {
+        if (!s || s.tab !== 'chat') return;
+        if (s.phase === 'erstes') schreib({ stat: { ttft: s.ttft } });
+        else if (s.phase === 'lauf') schreib({ stat: { tps: s.tps, tokens: s.tokens } });
+        else if (s.phase === 'ende' && s.status === 'ok') schreib({ stat: { tps: s.tps, tokens: s.ausgabe, ttft: s.ttft, kontext: s.eingabe } });
+      };
       d.hoerer.add(hoer);
       const proxy = d.proxy();
       if (proxy) proxy.on('stat', stat);
