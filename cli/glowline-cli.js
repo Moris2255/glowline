@@ -658,7 +658,8 @@ function senden(text, vorgabe = {}) {
       if (ende) return;
       ende = true;
       clearInterval(tick);
-      S.sitzung.nachrichten++; S.sitzung.tokens += L.tokens || 0;
+      if (!fehler) S.sitzung.nachrichten++;
+      S.sitzung.tokens += L.tokens || 0;
       abschliessen(L, fehler).then(() => {
         S.laeuft = null;
         bald();
@@ -1103,11 +1104,16 @@ function taste(k) {
 // ---------- Fenstergroesse vom Terminal ----------
 let groesseWarten = null;
 function frageGroesse() {
-  if (fenster.offen > 3) return; // Terminal antwortet nicht – nicht weiter fragen
+  if (fenster.offen > 3) {
+    // Terminal antwortet nicht – nicht weiter fragen. Hat es frueher geantwortet, ging nur eine Antwort verloren: neu anfangen.
+    if (!fenster.antwort || Date.now() - fenster.antwort < 3000) return;
+    fenster.offen = 0;
+  }
   fenster.offen++;
   out('\x1b[?2026h\x1b7\x1b[9999;9999H\x1b[6n\x1b8\x1b[?2026l');
 }
 function groesseErhalten(s, z) {
+  fenster.antwort = Date.now();
   if (s < 20 || z < 5) return;
   const neu = s !== breiteFenster() || z !== hoeheFenster();
   fenster.spalten = s; fenster.zeilen = z;
@@ -1132,6 +1138,8 @@ function eingang(d) {
       pasteText += einPuffer.slice(0, e);
       einPuffer = einPuffer.slice(e + 6);
       imPaste = false;
+      // eine Groessen-Antwort, die mitten ins Einfuegen gefallen ist, nicht als Text einfuegen
+      pasteText = pasteText.replace(/\x1b\[(\d+);(\d+)R/g, (_, z, s) => { if (fenster.offen) { fenster.offen--; groesseErhalten(+s, +z); } return ''; });
       einfuegen(pasteText.replace(/\r\n?/g, '\n').replace(/\n$/, ''));
       pasteText = '';
       bald();
@@ -1144,7 +1152,9 @@ function eingang(d) {
       if (g) { einPuffer = einPuffer.slice(g[0].length); fenster.offen--; groesseErhalten(+g[2], +g[1]); continue; }
       const m = /^\x1b(\[[0-9;]*[~A-Za-z]|O[A-Za-z]|[bf])/.exec(einPuffer);
       if (m) { taste(m[0]); einPuffer = einPuffer.slice(m[0].length); continue; }
-      if (einPuffer.length === 1) { escUhr = setTimeout(() => { if (einPuffer === '\x1b') { einPuffer = ''; taste('\x1b'); } }, 40); break; }
+      // einzelnes Esc: kurz warten, ob noch etwas folgt (laenger, wenn eine Groessen-Antwort unterwegs ist –
+      // sonst wuerde eine geteilte Antwort wie ein Esc die laufende Antwort stoppen)
+      if (einPuffer.length === 1) { escUhr = setTimeout(() => { if (einPuffer === '\x1b') { einPuffer = ''; taste('\x1b'); } }, fenster.offen ? 200 : 40); break; }
       if (einPuffer[1] === '\r') { einfuegen('\n'); bald(); einPuffer = einPuffer.slice(2); continue; } // Alt+Enter
       einPuffer = einPuffer.slice(1);
       taste('\x1b');

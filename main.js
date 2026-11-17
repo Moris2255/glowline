@@ -616,21 +616,17 @@ async function baueBefehl(tool, modellId, tab) {
     else if (backend === 'abo') env.ANTHROPIC_BASE_URL = basis;
     else Object.assign(env, { ANTHROPIC_BASE_URL: basis, ANTHROPIC_AUTH_TOKEN: 'glowline' });
     const a = [q(exe)];
-    // Eigene Einstellungsdatei: optionale Nutzer-Einstellungen + leere Statuszeile (die Werte zeigt ja Glowline unten an)
+    // Eigene Einstellungsdatei: optionale Nutzer-Einstellungen, ohne Statuszeile (die Werte zeigt ja Glowline unten an).
+    // Keine leere Statuszeile drueber legen: auch eine leere kostet eine ganze Zeile unter der Eingabe. Und die
+    // Nutzer-Einstellungen nicht abschalten (--setting-sources): dann fehlen seine CLAUDE.md und Skills.
+    // Hat der Nutzer selbst eine Statuszeile eingerichtet, erscheint sie also – das ist seine Wahl.
     let einst = {};
     try { einst = JSON.parse(fs.readFileSync(cfg.claude.settings, 'utf8')); } catch {}
     if (cfg.claude.hideStatusLine) delete einst.statusLine;
-    // Eine leere Statuszeile kostet trotzdem eine Zeile unter der Eingabe. Hat der Nutzer eine eigene Statuszeile,
-    // seine Einstellungen deshalb selbst mitgeben (ohne Statuszeile) und Claude Code die Nutzer-Datei nicht laden lassen.
-    let nutzer = {};
-    try { nutzer = JSON.parse(fs.readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR || path.join(HOME, '.claude'), 'settings.json'), 'utf8')); } catch {}
-    const ohneNutzer = cfg.claude.hideStatusLine && !!nutzer.statusLine;
-    if (ohneNutzer) { einst = { ...nutzer, ...einst }; delete einst.statusLine; }
     if (einst.spinnerTipsEnabled === undefined) einst.spinnerTipsEnabled = false; // weniger Text unter der Eingabe
     const einstPfad = path.join(app.getPath('userData'), 'claude-settings.json');
     fs.writeFileSync(einstPfad, JSON.stringify(einst, null, 2));
     a.push('--settings', q(einstPfad));
-    if (ohneNutzer) a.push('--setting-sources', 'project,local');
     if (mitStudio) {
       const mcpPfad = path.join(app.getPath('userData'), 'claude-mcp.json');
       fs.writeFileSync(mcpPfad, JSON.stringify({ mcpServers: { 'glowline-studio': { type: 'http', url: agenten.url() } } }, null, 2));
