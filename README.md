@@ -78,7 +78,7 @@ Cowork also lives in your terminal. Open any terminal (PowerShell, cmd, Windows 
 
 ```
        ▄█▄
-     ▄█████▄      Glow-   Glowline 5.3.2 · Cowork
+     ▄█████▄      Glow-   Glowline 5.3.3 · Cowork
     ██ ███ ██     line    ~\Projekte\my-game
     ████▄████             / for commands · drag in an image · Esc stops
   ▄▄▄██▄▄▄██▄▄▄

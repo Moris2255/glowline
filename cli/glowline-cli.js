@@ -70,8 +70,13 @@ function kuerze(s, w) {
   for (const ch of String(s).replace(ANSI, '')) { const z = zb(ch.codePointAt(0)); if (b + z > w - 1) break; r += ch; b += z; }
   return r + '…';
 }
-const spalten = () => Math.max(30, (process.stdout.columns || 100));
-const zeilenHoch = () => Math.max(12, (process.stdout.rows || 30));
+// Fenstergroesse: Electron liest sie beim Start manchmal zu frueh (dann immer 120x30, ohne Aenderungen) –
+// deshalb fragt Glowline das Terminal selbst (Cursor nach ganz rechts unten, Position melden lassen)
+const fenster = { spalten: 0, zeilen: 0, offen: 0 };
+const breiteFenster = () => fenster.spalten || process.stdout.columns || 100;
+const hoeheFenster = () => fenster.zeilen || process.stdout.rows || 30;
+const spalten = () => Math.max(30, breiteFenster());
+const zeilenHoch = () => Math.max(12, hoeheFenster());
 const link = (url, text) => (FARBE ? `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\` : text);
 const dateiUrl = (p) => 'file:///' + p.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/').replace(/^([A-Za-z])%3A/, '$1:');
 const kurzPfad = (p) => { const h = os.homedir(); return p.toLowerCase().startsWith(h.toLowerCase()) ? '~' + p.slice(h.length) : p; };
@@ -268,7 +273,7 @@ const modellName = (id) => { if (!id) return ''; const m = info && info.modelle.
 // ---------- Bildschirm: Ausgabe waechst von oben, die Eingabe klebt immer ganz unten ----------
 // live.zeile = so viele Bildschirmzeilen sind oben mit Ausgabe belegt; darunter Luecke, dann Fortschritt + Eingabe
 const live = { gezeichnet: false, zeile: 0 };
-const hoehe = () => Math.max(6, process.stdout.rows || 30);
+const hoehe = () => Math.max(6, hoeheFenster());
 const geheZu = (z, s = 1) => `\x1b[${z};${s}H`;
 function liveLeeren() {
   if (!live.gezeichnet) return '';
@@ -409,7 +414,7 @@ function drucke(zeilen) {
   if (bisher.length > 400) bisher.splice(0, bisher.length - 400);
 }
 function zeilenSchreiben(zeilen) {
-  const H = hoehe(), W = process.stdout.columns || 100;
+  const H = hoehe(), W = breiteFenster();
   let s = '';
   for (const z of zeilen) {
     const n = Math.min(H, Math.max(1, Math.ceil(breite(z) / W)));
@@ -437,6 +442,7 @@ function schneideFarbig(s, w) {
 }
 function neuAufbauen() {
   const H = hoehe(), w = spalten() - 1;
+  log('neuAufbauen', breiteFenster(), hoeheFenster());
   const platz = Math.max(0, H - 6);
   const zeilen = bisher.slice(-platz).map((z) => (breite(z) > w + 1 ? schneideFarbig(z, w) : z));
   live.gezeichnet = false;
@@ -966,6 +972,24 @@ function taste(k) {
   bald();
 }
 // Eingabe zerlegen: Tasten, Escape-Sequenzen, eingefuegter Text
+// ---------- Fenstergroesse vom Terminal ----------
+let groesseWarten = null;
+function frageGroesse() {
+  if (fenster.offen > 3) return; // Terminal antwortet nicht – nicht weiter fragen
+  fenster.offen++;
+  out('\x1b[?2026h\x1b7\x1b[9999;9999H\x1b[6n\x1b8\x1b[?2026l');
+}
+function groesseErhalten(s, z) {
+  if (s < 20 || z < 5) return;
+  const neu = s !== breiteFenster() || z !== hoeheFenster();
+  fenster.spalten = s; fenster.zeilen = z;
+  if (groesseWarten) { const w = groesseWarten; groesseWarten = null; w(); return; }
+  if (neu) { clearTimeout(groesseUhr); groesseUhr = setTimeout(neuAufbauen, 60); }
+}
+// beim Start kurz auf die erste Antwort warten (hoechstens 400 ms)
+function ersteGroesse() {
+  return new Promise((ok) => { groesseWarten = ok; frageGroesse(); setTimeout(() => { if (groesseWarten === ok) { groesseWarten = null; ok(); } }, 400); });
+}
 let einPuffer = '', imPaste = false, pasteText = '', escUhr = null;
 const LOG = process.env.GLOWLINE_CLI_LOG;
 const log = (...x) => { if (LOG) try { fs.appendFileSync(LOG, x.map((y) => (typeof y === 'string' ? y : JSON.stringify(y))).join(' ') + '\n'); } catch {} };
@@ -987,6 +1011,9 @@ function eingang(d) {
     }
     if (einPuffer.startsWith('\x1b[200~')) { imPaste = true; einPuffer = einPuffer.slice(6); continue; }
     if (einPuffer[0] === '\x1b') {
+      // Antwort auf die Groessen-Frage (nur wenn gefragt – Shift+F3 sieht genauso aus)
+      const g = fenster.offen ? /^\x1b\[(\d+);(\d+)R/.exec(einPuffer) : null;
+      if (g) { einPuffer = einPuffer.slice(g[0].length); fenster.offen--; groesseErhalten(+g[2], +g[1]); continue; }
       const m = /^\x1b(\[[0-9;]*[~A-Za-z]|O[A-Za-z]|[bf])/.exec(einPuffer);
       if (m) { taste(m[0]); einPuffer = einPuffer.slice(m[0].length); continue; }
       if (einPuffer.length === 1) { escUhr = setTimeout(() => { if (einPuffer === '\x1b') { einPuffer = ''; taste('\x1b'); } }, 40); break; }
@@ -1047,6 +1074,10 @@ async function start() {
   log('stdin tty', tty.isatty(0), 'ein', ein === process.stdin ? 'stdin' : 'conin');
   ein.setRawMode(true);
   ein.setEncoding('utf8');
+  // Tasten schon jetzt lesen (die Groessen-Antwort kommt ueber die Tastatur-Leitung)
+  ein.on('data', eingang);
+  await ersteGroesse();
+  log('fenster', breiteFenster(), hoeheFenster(), 'stdout', process.stdout.columns, process.stdout.rows);
   // alten Inhalt nach oben in den Verlauf schieben: Glowline bekommt einen leeren Bildschirm
   out('\x1b[?2004h' + '\n'.repeat(hoehe()) + geheZu(1));
   live.zeile = 0;
@@ -1067,9 +1098,10 @@ async function start() {
   out(liveLeeren() + geheZu(1) + '\x1b[J');
   live.zeile = 0; bisher.length = 0;
   zeigeKopf();
-  ein.on('data', eingang);
   blinzeln();
-  process.stdout.on('resize', () => { clearTimeout(groesseUhr); groesseUhr = setTimeout(neuAufbauen, 80); });
+  process.stdout.on('resize', () => { frageGroesse(); clearTimeout(groesseUhr); groesseUhr = setTimeout(neuAufbauen, 80); });
+  // Fenster groesser/kleiner gezogen? Das Terminal jede Sekunde fragen (Electron meldet es oft nicht)
+  setInterval(frageGroesse, 1000).unref();
   // GPU-Anzeige alle paar Sekunden
   setInterval(async () => {
     try { const s = await anfrage('GET', '/status'); const neu = JSON.stringify(s.gpu); if (neu !== JSON.stringify(S.gpu)) { S.gpu = s.gpu; bald(); } } catch {}

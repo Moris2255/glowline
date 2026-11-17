@@ -1732,6 +1732,13 @@ async function testLauf(ordner) {
       console.log('TERMINAL AUTOSTART', /starts with Windows/.test(sauber()) && cfg.testAutostart === true ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-200));
       await tippe('/autostart off\r', 1000);
       console.log('TERMINAL AUTOSTART AUS', cfg.testAutostart === false ? 'ok' : 'FEHLT');
+      // Fenster kleiner ziehen: das Terminal-Programm muss es selbst merken (Electron meldet es nicht zuverlaessig)
+      const logDatei = path.join(ordner, 'cli.log');
+      const alt = [p.cols, p.rows];
+      p.resize(100, 24); await warte(2500); await bild('t-klein');
+      const logText = fs.existsSync(logDatei) ? fs.readFileSync(logDatei, 'utf8') : '';
+      console.log('TERMINAL GROESSE', /neuAufbauen 100 24/.test(logText) ? 'ok' : 'FEHLT', '| start=' + ((/fenster (\d+ \d+)/.exec(logText) || [])[1]) + ' pty=' + alt.join('x'));
+      p.resize(alt[0], alt[1]); await warte(2000);
       await tippe('/help\r', 1200); await bild('t-hilfe');
       roh = '';
       await tippe('Schreib eine sehr lange Geschichte\r', 2500); await bild('t-strom'); await tippe('\x1b', 1500); await bild('t-stopp');
