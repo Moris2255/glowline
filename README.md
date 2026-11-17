@@ -78,7 +78,7 @@ Cowork also lives in your terminal. Open any terminal (PowerShell, cmd, Windows 
 
 ```
 ╭───────────────────────────────────────────────────────────────────────────╮
-│    ▀▄      ▄▀      Glowline 5.3.7                                         │
+│    ▀▄      ▄▀      Glowline 5.3.8                                         │
 │ ▄▄ ███▀███▀██ ▄▄   Cowork · RTX 4060 Ti · 2.6 / 8 GB VRAM                 │
 │ ▀██ ▀██████▀ ██▀   ~\Projekte\my-game                                     │
 │     ▄██████▄                                                              │
@@ -93,7 +93,7 @@ Say hi to **Glim**, Glowline's mascot – a little firefly. When it flies, it le
 - **Images and videos** show up as a small colour preview right in the terminal, plus a clickable path – **Ctrl+O** opens the last result.
 - **Upscale**: drag an image or video into the terminal (or type its path) and say *upscale*, or use `/upscale <path>`. Drag an image in and ask *“what is in it?”* to use the vision model.
 - **Files** you ask for (*“make an HTML jump game”*, `/file …`) are saved in the folder you started `gl` in.
-- Commands: type `/` – the same as in the window plus `/open` and `/exit`. **Esc** stops an answer, **↑/↓** brings back earlier messages, **Ctrl+J** or `\` + Enter for a new line, **Ctrl+C** twice to leave.
+- Commands: type `/` – the same as in the window plus `/open` and `/exit`, and the everyday ones: `/model` (pick a model), `/effort low|medium|high` (fast model, Auto or always the reasoning model), `/usage` (tokens and saved costs for this chat, today and all time, plus GPU and VRAM) and `/stats` (a heatmap of your last weeks, streak, favourite models and Studio results). **Esc** stops an answer, **↑/↓** brings back earlier messages, **Ctrl+J** or `\` + Enter for a new line, **Ctrl+C** twice to leave.
 - `gl "question"` starts with a message, `gl -p "question"` answers once and exits (for scripts).
 - The Glowline app does the work: if it isn't running, `gl` starts it in the tray. Type `/autostart on` once and Glowline starts with Windows (hidden in the tray), so `gl` is ready right after you turn on your PC. Set up automatically after the update – open a **new** terminal window once. In PowerShell, `gl` normally means *Get-Location*; Glowline turns that alias off in your PowerShell profile so `gl` starts Glowline (`Get-Location` / `pwd` still work).
 

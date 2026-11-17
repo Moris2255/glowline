@@ -1741,6 +1741,20 @@ async function testLauf(ordner) {
       roh = '';
       await tippe('/model\r', 2000); await bild('t-modelle');
       console.log('TERMINAL MODELLE', /Models/.test(sauber()) ? 'ok' : 'FEHLT');
+      // /usage, /stats, /effort (mit ein paar gezaehlten Werten)
+      statistik.zaehle({ tokens: 12000, ausgabe: 3000, dollar: 0.42, model: 'ollama,fake-coder:7b' });
+      statistik.medien('bild', 2);
+      roh = '';
+      await tippe('/usage\r', 1200); await bild('t-usage');
+      console.log('TERMINAL USAGE', /Usage/.test(sauber()) && /This chat/.test(sauber()) && /0\.42 \$/.test(sauber()) ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-200));
+      roh = '';
+      await tippe('/stats\r', 1200); await bild('t-stats');
+      console.log('TERMINAL STATS', /Stats/.test(sauber()) && /■/.test(sauber()) && /Favourite models .*fake-coder:7b \d+%/.test(sauber()) && /Studio \d+ images?/.test(sauber()) ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-200));
+      roh = '';
+      await tippe('/effort high\r', 800);
+      await tippe('/effort\r', 800);
+      console.log('TERMINAL EFFORT', /› high/.test(sauber()) && /Effort high – every message goes to the reasoning model/.test(sauber()) ? 'ok' : 'FEHLT: high=' + /› high/.test(sauber()) + ' denken=' + /always thinking/.test(sauber()) + ' ' + sauber().replace(/[─\s]+/g, ' ').slice(-400));
+      await tippe('/effort medium\r', 600);
       roh = '';
       await tippe('/autostart on\r', 1200); await bild('t-autostart');
       console.log('TERMINAL AUTOSTART', /starts with Windows/.test(sauber()) && cfg.testAutostart === true ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-200));
@@ -2456,7 +2470,7 @@ function terminalStarten() {
     chatSenden, chatStopp: (id) => { const ac = chats.get(id); if (ac) ac.abort(); },
     hoerer: sendeHoerer, proxy: () => proxy, gpu: () => gpu(), modelle: () => modellListe(true), cfg: () => cfg,
     erlaubt: terminalErlaubt, freigeben: (f) => freigegeben.add(path.resolve(f)), vorschau: terminalVorschau,
-    kopieren: (t) => clipboard.writeText(t), autostart,
+    kopieren: (t) => clipboard.writeText(t), autostart, statistik: () => statistik.stand(),
     oeffnen: (f, zeigen) => {
       const p = terminalErlaubt(f) ? path.resolve(f) : eigeneDatei(f);
       if (!p) return false;

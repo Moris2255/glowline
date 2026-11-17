@@ -221,7 +221,8 @@ async function verbinden(melde) {
 // ---------- Zustand ----------
 const S = {
   verlauf: [], // { role, content, medien, datei, anhang, lokal, fehler, rolle, bild }
-  fest: '', immerDenken: false, ziel: '',
+  fest: '', immerDenken: false, immerSchnell: false, ziel: '',
+  sitzung: { start: Date.now(), nachrichten: 0, tokens: 0 },
   laeuft: null, // { req, antwort, start }
   wartend: null,
   eingabe: '', cursor: 0, // cursor = Index in [...eingabe]
@@ -258,6 +259,9 @@ const BEFEHLE = [
   { n: 'goal', arg: 'text | off', info: 'keep every answer focused on a goal' },
   { n: 'model', arg: 'name', info: 'use one model for everything (no name: list)' },
   { n: 'auto', info: 'let Cowork pick the model again' },
+  { n: 'effort', arg: 'low | medium | high', info: 'fast model, Auto or always the reasoning model' },
+  { n: 'usage', info: 'tokens and saved costs: this chat, today, all time' },
+  { n: 'stats', info: 'your last weeks: activity, favourite model, Studio results' },
   { n: 'autostart', arg: 'on | off', info: 'start Glowline with Windows, so gl is ready at once' },
   { n: 'exit', alias: ['quit'], info: 'leave (or Ctrl+C twice)' },
 ];
@@ -375,7 +379,7 @@ function liveZeilen() {
 function fusszeile(w) {
   if (S.hinweis && Date.now() < S.hinweisBis) return kuerze('  ' + f(C.gelb, S.hinweis), w);
   const teile = [];
-  const modus = S.fest ? modellName(S.fest) + ' (fixed)' : S.immerDenken ? 'Auto · always thinking' : 'Auto' + (S.zuletztModell ? ' · ' + modellName(S.zuletztModell) : '');
+  const modus = S.fest ? modellName(S.fest) + ' (fixed)' : S.immerDenken ? 'Auto · always thinking' : S.immerSchnell ? 'Auto · fast' : 'Auto' + (S.zuletztModell ? ' · ' + modellName(S.zuletztModell) : '');
   teile.push(f(C.hell, '⏵ ') + f(C.leise, modus));
   if (S.tps) teile.push(f(C.leise, Math.round(S.tps) + ' tok/s'));
   const g = S.gpu;
@@ -640,7 +644,7 @@ function senden(text, vorgabe = {}) {
     model, system: [(info && info.chatSystem) || '', S.ziel ? `The user's goal for this conversation: ${S.ziel}\nKeep your answers focused on this goal.` : ''].filter(Boolean).join('\n\n'),
     nachrichten: v.filter((n) => !n.fehler && !n.lokal).map(fuerModell),
     medien: mitStudio, anhang, letztesMedium: vorher, erzwinge, letzteDatei: letzteDatei(), datei: !!vorgabe.datei,
-    auto: istAuto, vorigeRolle: voriges && voriges.rolle, rolle: vorgabe.rolle || (S.immerDenken ? 'denker' : undefined),
+    auto: istAuto, vorigeRolle: voriges && voriges.rolle, rolle: vorgabe.rolle || (S.immerDenken ? 'denker' : S.immerSchnell ? 'schnell' : undefined),
     bildFrage: istAuto ? bildImGespraech(v.slice(0, -1)) : null, ordner: process.cwd(),
   };
   v.push(antwort);
@@ -654,6 +658,7 @@ function senden(text, vorgabe = {}) {
       if (ende) return;
       ende = true;
       clearInterval(tick);
+      S.sitzung.nachrichten++; S.sitzung.tokens += L.tokens || 0;
       abschliessen(L, fehler).then(() => {
         S.laeuft = null;
         bald();
@@ -676,7 +681,7 @@ function senden(text, vorgabe = {}) {
           try { o = JSON.parse(z); } catch { continue; }
           if (o.chat) { empfange(L, o.chat); if (o.chat.fertig) schluss(o.chat.fehler || null); }
           else if (o.studio && antwort.medien) { if (o.studio.prozent != null) antwort.medien.prozent = o.studio.prozent; if (o.studio.text) antwort.medien.status = o.studio.text; }
-          else if (o.stat && o.stat.tps) S.tps = o.stat.tps;
+          else if (o.stat) { if (o.stat.tps) S.tps = o.stat.tps; if (o.stat.tokens) L.tokens = o.stat.tokens; }
         }
       });
       res.on('end', () => schluss(ende ? null : 'Glowline closed the connection'));
@@ -810,6 +815,78 @@ async function vorschauDrucken(d) {
 
 // ---------- Befehle ----------
 function lokal(zeilen) { drucke(['', ...zeilen, '']); }
+
+// ---------- /usage und /stats (Zahlen von der Stats-Seite der App) ----------
+const kurzZahl = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(Math.round(n || 0)));
+const datumKey = (z) => `${z.getFullYear()}-${String(z.getMonth() + 1).padStart(2, '0')}-${String(z.getDate()).padStart(2, '0')}`;
+const gpuKurz = (g) => (g && g.name ? String(g.name).replace(/^NVIDIA\s+(GeForce\s+)?/i, '') : '');
+const passend = (r) => { const w = spalten() - 1; return r.map((z) => (breite(z) > w ? schneideFarbig(z, w - 1) + f(C.dunkel, '…') : z)); };
+function usageZeilen(st) {
+  const tage = st.tage || {}, h = tage[st.heute] || {};
+  const alle = { tokens: 0, anfragen: 0, dollar: 0 };
+  for (const t of Object.values(tage)) for (const k in alle) alle[k] += t[k] || 0;
+  const min = Math.max(1, Math.round((Date.now() - S.sitzung.start) / 60000));
+  const n = S.sitzung.nachrichten, g = st.gpu;
+  const zeile = (k, v) => '  ' + f(C.text, k.padEnd(12)) + v;
+  const r = [f(C.hell + C.fett, '  Usage')];
+  r.push(zeile('This chat', f(C.hell, n + (n === 1 ? ' answer' : ' answers')) + f(C.leise, ` · ${kurzZahl(S.sitzung.tokens)} tokens written · ${min} min`)));
+  r.push(zeile('Today', f(C.hell, kurzZahl(h.tokens) + ' tokens') + f(C.leise, ` · ${h.anfragen || 0} requests · saved `) + f(C.hell, (h.dollar || 0).toFixed(2) + ' $')));
+  r.push(zeile('All time', f(C.hell, kurzZahl(alle.tokens) + ' tokens') + f(C.leise, ` · ${alle.anfragen} requests · saved `) + f(C.hell, alle.dollar.toFixed(2) + ' $')));
+  if (g && g.total) r.push(zeile('GPU now', f(C.leise, [gpuKurz(g), g.util + '%', `${(g.used / 1024).toFixed(1)} / ${Math.round(g.total / 1024)} GB VRAM`].filter(Boolean).join(' · '))));
+  r.push('', f(C.dunkel, '  Everything runs on your PC, so there is no limit. “Saved” is what the same tokens would cost in the cloud.'));
+  return passend(r);
+}
+function statsZeilen(st) {
+  const tage = st.tage || {};
+  const WOCHEN = Math.max(4, Math.min(20, Math.floor((spalten() - 10) / 2)));
+  // Heatmap wie auf der Stats-Seite: Spalten = Wochen, Zeilen = Montag bis Sonntag
+  const heute = new Date(); heute.setHours(12, 0, 0, 0);
+  const montag = new Date(heute); montag.setDate(heute.getDate() - ((heute.getDay() + 6) % 7) - 7 * (WOCHEN - 1));
+  const werte = Object.values(tage).map((t) => t.tokens || 0).filter(Boolean).sort((a, b) => a - b);
+  const grenze = (q) => werte[Math.floor((werte.length - 1) * q)];
+  const stufe = (v) => (!v ? 0 : v <= grenze(0.25) ? 1 : v <= grenze(0.5) ? 2 : v <= grenze(0.75) ? 3 : 4);
+  const FARBEN = [C.dunkel, rgb(105, 103, 99), rgb(155, 152, 147), rgb(205, 202, 197), rgb(255, 253, 248)];
+  const r = [f(C.hell + C.fett, '  Stats') + f(C.leise, `  – last ${WOCHEN} weeks`), ''];
+  ['Mon', '', 'Wed', '', 'Fri', '', 'Sun'].forEach((name, tg) => {
+    let z = '  ' + f(C.dunkel, name.padEnd(4));
+    for (let wo = 0; wo < WOCHEN; wo++) {
+      const d = new Date(montag); d.setDate(montag.getDate() + wo * 7 + tg);
+      if (d > heute) break;
+      const s = stufe((tage[datumKey(d)] || {}).tokens);
+      z += FARBEN[s] + (s ? '■' : '·') + C.aus + ' ';
+    }
+    r.push(z);
+  });
+  // Zahlen fuer denselben Zeitraum
+  const ab = datumKey(montag);
+  const zeitraum = Object.entries(tage).filter(([k]) => k >= ab).map(([, t]) => t);
+  const summe = (k) => zeitraum.reduce((a, t) => a + (t[k] || 0), 0);
+  const aktiv = zeitraum.filter((t) => t.anfragen || t.tokens).length;
+  const tageGesamt = Math.round((heute - montag) / 864e5) + 1;
+  let serie = 0;
+  for (const d = new Date(heute); ; d.setDate(d.getDate() - 1)) {
+    const t = tage[datumKey(d)];
+    if (t && (t.anfragen || t.tokens)) serie++;
+    else if (datumKey(d) === st.heute) continue; // heute noch nichts: ab gestern zaehlen
+    else break;
+  }
+  r.push('');
+  r.push('  ' + f(C.hell, kurzZahl(summe('tokens')) + ' tokens') + f(C.leise, ' · ') + f(C.hell, summe('anfragen') + ' requests') + f(C.leise, ' · saved ') + f(C.hell, summe('dollar').toFixed(2) + ' $'));
+  r.push('  ' + f(C.leise, 'Active days ') + f(C.hell, aktiv + ' of ' + tageGesamt) + f(C.leise, ' · streak ') + f(C.hell, serie + (serie === 1 ? ' day' : ' days')));
+  const mod = {};
+  for (const t of zeitraum) for (const [n, v] of Object.entries(t.modelle || {})) mod[n] = (mod[n] || 0) + v;
+  const ges = Object.values(mod).reduce((a, b) => a + b, 0) || 1;
+  const top = Object.entries(mod).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  if (top.length) r.push('  ' + f(C.leise, 'Favourite models ') + top.map(([n, v]) => f(C.hell, n) + f(C.leise, ' ' + Math.round((v / ges) * 100) + '%')).join(f(C.leise, ' · ')));
+  const med = {};
+  for (const t of zeitraum) for (const [n, v] of Object.entries(t.medien || {})) med[n] = (med[n] || 0) + v;
+  const mt = [['bild', 'image', 'images'], ['video', 'video', 'videos'], ['upscale', 'upscale', 'upscales'], ['stimme', 'voice clip', 'voice clips']]
+    .filter(([k]) => med[k]).map(([k, e, m]) => f(C.hell, String(med[k])) + f(C.leise, ' ' + (med[k] === 1 ? e : m)));
+  if (mt.length) r.push('  ' + f(C.leise, 'Studio ') + mt.join(f(C.leise, ' · ')));
+  if (!zeitraum.length) r.push(f(C.leise, '  Nothing counted yet – ask something and come back.'));
+  r.push('', f(C.dunkel, '  More charts in the Glowline app under Stats.'));
+  return passend(r);
+}
 async function befehlOderSenden(text) {
   const t = text.trim();
   if (!t) return;
@@ -832,7 +909,8 @@ async function befehlOderSenden(text) {
     }
     case 'clear':
       if (S.laeuft) S.laeuft.stopp();
-      S.verlauf = []; S.ziel = ''; S.immerDenken = false; S.letztes = null;
+      S.verlauf = []; S.ziel = ''; S.immerDenken = false; S.immerSchnell = false; S.letztes = null;
+      S.sitzung = { start: Date.now(), nachrichten: 0, tokens: 0 };
       out(neueSeite());
       zeigeKopf();
       hinweis('New chat');
@@ -860,7 +938,7 @@ async function befehlOderSenden(text) {
       break;
     case 'thinking':
       S.immerDenken = rest ? !/^(off|aus|0|no|nein)$/i.test(rest) : !S.immerDenken;
-      if (S.immerDenken) S.fest = '';
+      if (S.immerDenken) { S.fest = ''; S.immerSchnell = false; }
       hinweis(S.immerDenken ? 'Every message now goes to the reasoning model' : 'Cowork picks the model again');
       break;
     case 'image': case 'video': case 'voice':
@@ -896,11 +974,31 @@ async function befehlOderSenden(text) {
       const q = rest.toLowerCase();
       const treffer = nr || l.find((x) => x.name.toLowerCase() === q || x.id.toLowerCase() === q) || l.find((x) => x.name.toLowerCase().startsWith(q)) || l.find((x) => x.id.toLowerCase().includes(q));
       if (!treffer) { hinweis('No model called “' + rest + '” – type /model for the list'); break; }
-      S.fest = treffer.id; S.immerDenken = false;
+      S.fest = treffer.id; S.immerDenken = false; S.immerSchnell = false;
       hinweis('Every message now goes to ' + treffer.name);
       break;
     }
-    case 'auto': S.fest = ''; S.immerDenken = false; hinweis('Cowork picks the model again'); break;
+    case 'auto': S.fest = ''; S.immerDenken = false; S.immerSchnell = false; hinweis('Cowork picks the model again'); break;
+    case 'effort': {
+      const jetzt = S.immerDenken ? 'high' : S.immerSchnell ? 'low' : 'medium';
+      const stufe = { low: 'low', l: 'low', fast: 'low', min: 'low', medium: 'medium', m: 'medium', mid: 'medium', auto: 'medium', high: 'high', h: 'high', max: 'high', think: 'high' }[rest.toLowerCase()];
+      if (!stufe) {
+        const r = [f(C.hell + C.fett, '  Effort') + f(C.leise, '  – now ') + f(C.hell, jetzt)];
+        for (const [s, i] of [['low', 'every message goes to the fast model – quickest answers'], ['medium', 'Auto: Cowork picks the right model for each message'], ['high', 'every message goes to the reasoning model – thinks longer']]) r.push('  ' + (s === jetzt ? f(C.hell, '› ' + s.padEnd(9)) : f(C.text, '  ' + s.padEnd(9))) + f(C.leise, i));
+        r.push(f(C.dunkel, '  /effort low | medium | high'));
+        lokal(r);
+        break;
+      }
+      S.fest = ''; S.immerDenken = stufe === 'high'; S.immerSchnell = stufe === 'low';
+      hinweis({ low: 'Effort low – every message goes to the fast model', medium: 'Effort medium – Cowork picks the model again', high: 'Effort high – every message goes to the reasoning model' }[stufe]);
+      break;
+    }
+    case 'usage': case 'stats': {
+      let st;
+      try { st = await anfrage('GET', '/stats'); } catch { hinweis('Could not read the stats'); break; }
+      lokal(b.n === 'usage' ? usageZeilen(st) : statsZeilen(st));
+      break;
+    }
     case 'autostart': {
       const an = /^(on|an|ein|yes|ja)$/i.test(rest) ? true : /^(off|aus|no|nein)$/i.test(rest) ? false : undefined;
       try {
@@ -934,7 +1032,7 @@ function absenden() {
   if (tr.length) {
     const b = tr[S.wahl] || tr[0];
     // Befehl mit Argument: erst vervollstaendigen, ohne Argument direkt ausfuehren
-    if (b.arg && !['model', 'upscale', 'goal', 'thinking'].includes(b.n)) { S.eingabe = '/' + b.n + ' '; S.cursor = [...S.eingabe].length; bald(); return; }
+    if (b.arg && !['model', 'upscale', 'goal', 'thinking', 'effort', 'autostart'].includes(b.n)) { S.eingabe = '/' + b.n + ' '; S.cursor = [...S.eingabe].length; bald(); return; }
     S.eingabe = '/' + b.n;
   }
   // "\" am Zeilenende + Enter = neue Zeile

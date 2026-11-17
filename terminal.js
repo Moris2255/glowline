@@ -7,7 +7,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 
-let d = null; // { chatSenden, chatStopp, hoerer, proxy, gpu, modelle, cfg, erlaubt, freigeben, oeffnen, kopieren, autostart, vorschau, version, datei, test }
+let d = null; // { chatSenden, chatStopp, hoerer, proxy, gpu, modelle, cfg, erlaubt, freigeben, oeffnen, kopieren, autostart, statistik, vorschau, version, datei, test }
 let server = null;
 const MEDIEN = /\.(png|jpe?g|webp|mp4|webm|wav|mp3|flac|ogg|m4a)$/i;
 
@@ -47,6 +47,8 @@ async function anfrage(req, res, schluessel, port) {
       return json(res, 200, { version: d.version, chatModel: c.chatModel || '', chatSystem: c.chatSystem || '', modelle: flach(l), gpu: await d.gpu() });
     }
     if (req.method === 'GET' && url.pathname === '/status') return json(res, 200, { gpu: await d.gpu() });
+    // fuer /usage und /stats: Tageszahlen der Stats-Seite (Tokens, Anfragen, gesparte $, Modelle, Studio)
+    if (req.method === 'GET' && url.pathname === '/stats') return json(res, 200, { ...d.statistik(), gpu: await d.gpu() });
     if (req.method === 'POST' && url.pathname === '/chat') {
       const a = await body(req);
       const id = 't' + Date.now().toString(36) + crypto.randomBytes(3).toString('hex');
