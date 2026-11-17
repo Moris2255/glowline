@@ -278,7 +278,7 @@ function promptFeld(f, platz, modus) {
   t.dataset.k = 'prompt';
   t.addEventListener('input', () => { f.prompt = t.value; zeichneKnopfStudio(); });
   t.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); starte(); } });
-  const v = elem('button', 's-verbessern', sz.verbessern ? 'Improving…' : modus === 'stimme' ? '✨ Write script' : '✨ Improve prompt');
+  const v = elem('button', 's-verbessern', sz.verbessern ? 'Improving…' : modus === 'stimme' ? 'Write script' : 'Improve prompt');
   // waehrend Studio rechnet, wuerde das Sprachmodell die Grafikkarte mitbenutzen
   v.title = studioRechnet() ? 'Available when the current job is done' : 'Your chat model (bottom right) turns your idea into a strong prompt';
   v.disabled = !!sz.verbessern || studioRechnet();
@@ -400,7 +400,7 @@ function zeichneFelder(box) {
   box.appendChild(los);
   // Nacht-Warteschlange: nur lokale Modelle auf dieser Grafikkarte
   if (!m.wolke && !sz.st.fern) {
-    const n = elem('button', 's-nacht-dazu', '🌙 Add to night queue');
+    const n = elem('button', 's-nacht-dazu', 'Add to night queue');
     n.id = 'studio-nacht';
     n.title = 'Collect jobs and let the Studio make them at night, one after another';
     n.addEventListener('click', zurNacht);
@@ -666,7 +666,7 @@ function zeichneNacht() {
   if (!s.liste.length) return;
   const wartet = s.liste.filter((e) => e.status === 'wartet').length;
   const kopf = elem('div', 's-nacht-kopf');
-  kopf.appendChild(elem('b', null, '🌙 Night queue'));
+  kopf.appendChild(elem('b', null, 'Night queue'));
   kopf.appendChild(elem('small', null, s.laeuft ? 'running…' : wartet ? `${wartet} waiting` : 'all done'));
   box.appendChild(kopf);
   const zeit = elem('div', 's-nacht-zeit');

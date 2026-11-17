@@ -97,13 +97,13 @@ Images, video, upscaling and voice – running fully inside Glowline. The first 
 
 **Cloud video (optional):** with a [Higgsfield API key](https://open.higgsfield.ai/api-keys) the Video tab also offers **Wan 3.0 Prime** and **Seedance 2.0** – up to 15 s with sound, no GPU needed. These run on Higgsfield's servers and are paid from your Higgsfield balance per second of video (the button says *(paid)*); a start image is uploaded to Higgsfield. Cancel is free while the job is still queued, and failed or filtered jobs are not charged. Coding agents can't start paid cloud jobs.
 
-- **✨ Improve prompt** uses your chat model to turn a short idea into a strong prompt.
+- **Improve prompt** uses your chat model to turn a short idea into a strong prompt.
 - **Advanced mode** *(use at your own risk)* – the simple settings are tuned for your PC; switch this on to set width, height, length, frames per second, steps, guidance and shift yourself. Empty fields keep the default, and values are limited to safe ranges.
 - Results appear in a gallery per tab: *Animate →* sends an image to Video, *Upscale →* sends an image or video to Upscale. Everything is saved under `studio\ausgabe`.
 - Before a job, Glowline unloads language models from the GPU (8 GB is not enough for both) and frees the GPU again when you chat with a local model.
 - Interrupted model downloads resume where they stopped.
 - Only clone voices you are allowed to use.
-- **🌙 Night queue** – *Add to night queue* collects jobs instead of starting them. Glowline makes them one after another at night (default 23:00 until 05:00 – at the end time it stops, and an unfinished job continues the next night). **Start now** doesn't wait for the night. Leave Glowline open or in the tray. Cloud models can't go in the queue (they cost money).
+- **Night queue** – *Add to night queue* collects jobs instead of starting them. Glowline makes them one after another at night (default 23:00 until 05:00 – at the end time it stops, and an unfinished job continues the next night). **Start now** doesn't wait for the night. Leave Glowline open or in the tray. Cloud models can't go in the queue (they cost money).
 
 ### Studio tools for coding agents
 
@@ -130,7 +130,7 @@ Got a PC with a strong graphics card and a laptop without one? Install **Glowlin
 That's it: Claude Code, Codex, OpenCode and Cowork on the laptop now run with the models on the PC. Downloads go to the PC too. Only devices in your home network can connect, and only after entering the code; **New code** on the PC disconnects all laptops. If Windows asks whether Glowline may use the network, allow it for private networks.
 
 - **Studio over Link** – the Studio tab on the laptop uses the PC's graphics card: images, videos, upscales and voice are made on the PC and saved on the laptop. Set up the Studio and download its models on the PC.
-- **Wake up the PC** – if the PC is asleep or off, **⏻ Wake up PC** in Link sends a Wake-on-LAN signal. On the PC turn on **Start with Windows** (in Models → Link) so Glowline is ready after waking, and allow waking once: network adapter → Properties → Power management → *Allow this device to wake the computer* (for a PC that is shut down, Wake-on-LAN must also be on in the BIOS). Works best from sleep mode.
+- **Wake up the PC** – if the PC is asleep or off, **Wake up PC** in Link sends a Wake-on-LAN signal. On the PC turn on **Start with Windows** (in Models → Link) so Glowline is ready after waking, and allow waking once: network adapter → Properties → Power management → *Allow this device to wake the computer* (for a PC that is shut down, Wake-on-LAN must also be on in the BIOS). Works best from sleep mode.
 
 ## Requirements
 

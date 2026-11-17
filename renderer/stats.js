@@ -49,7 +49,7 @@ async function zeichneStats() {
   const karten = elem('div', 'stats-karten');
   const karte = (titel, wert, extra, cls) => { const k = elem('div', 'stats-karte' + (cls ? ' ' + cls : '')); k.append(elem('small', null, titel), elem('b', null, wert)); if (extra) k.appendChild(elem('small', null, extra)); karten.appendChild(k); };
   karte('Tokens on your PC', statZahl(Math.max(tokensGesamt, summe((t) => t.tokens))), 'today ' + statZahl(heuteT.tokens || 0));
-  karte('Saved', Math.max(gespartJetzt(), summe((t) => t.dollar)).toFixed(2) + ' $', 'today ' + (heuteT.dollar || 0).toFixed(2) + ' $', 'gruen');
+  karte('Saved', Math.max(gespartJetzt(), summe((t) => t.dollar)).toFixed(2) + ' $', 'today ' + (heuteT.dollar || 0).toFixed(2) + ' $');
   karte('Requests', statZahl(summe((t) => t.anfragen)), 'today ' + statZahl(heuteT.anfragen || 0));
   karte('Current streak', serien.aktuell + (serien.aktuell === 1 ? ' day' : ' days'), 'longest ' + serien.laengste);
   karte('Active days', String(serien.aktiv), 'since you started counting');
@@ -97,7 +97,7 @@ async function zeichneStats() {
   // Kaestchen so gross, dass die 53 Wochen die Breite fuellen
   const groesse = () => { const z = Math.max(10, Math.min(24, Math.floor((hb.clientWidth - 64) / woche) - 3)); hb.style.setProperty('--z', z + 'px'); hb.scrollLeft = hb.scrollWidth; };
   setTimeout(groesse, 0);
-  new ResizeObserver(groesse).observe(hb);
+  new ResizeObserver(() => requestAnimationFrame(groesse)).observe(hb);
 
   // Lieblingsmodelle
   if (top.length) {

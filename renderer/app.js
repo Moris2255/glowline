@@ -41,9 +41,9 @@ let neueEingabe = false; // Enter gedrueckt -> naechste Anfrage startet einen ne
 const stats = new Map(); // Kennung -> Messwerte
 
 const THEMA = {
-  background: '#0c0d0f', foreground: '#e6e7e9', cursor: '#ffffff', cursorAccent: '#0c0d0f',
+  background: '#0e0e0e', foreground: '#e8e6e3', cursor: '#ffffff', cursorAccent: '#0e0e0e',
   selectionBackground: '#ffffff33',
-  black: '#1d1f23', red: '#ef5f58', green: '#5fd39a', yellow: '#e8b04a', blue: '#6aa5f8', magenta: '#c792ea', cyan: '#5fc9d6', white: '#e6e7e9',
+  black: '#1f1f1e', red: '#ef5f58', green: '#5fd39a', yellow: '#e8b04a', blue: '#6aa5f8', magenta: '#c792ea', cyan: '#5fc9d6', white: '#e6e7e9',
   brightBlack: '#6b6f76', brightRed: '#ff8178', brightGreen: '#7fe3b2', brightYellow: '#f5c870', brightBlue: '#8fbcff', brightMagenta: '#ddb0ff', brightCyan: '#8be0ea', brightWhite: '#ffffff',
 };
 

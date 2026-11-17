@@ -143,7 +143,7 @@ function linkVerbunden(box, st) {
   box.appendChild(k);
   const fuss = elem('div', 'ein-fuss');
   if (!st.online && st.wecken) {
-    const w = elem('button', 'm-knopf', lk.weckt ? 'Waking…' : '⏻ Wake up PC');
+    const w = elem('button', 'm-knopf', lk.weckt ? 'Waking…' : 'Wake up PC');
     w.id = 'link-wecken';
     w.disabled = !!lk.weckt;
     w.title = 'Sends a Wake-on-LAN signal to the PC';

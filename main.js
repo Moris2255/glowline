@@ -1113,7 +1113,7 @@ function setzeZoom() {
   const z = zoomJetzt();
   win.webContents.setZoomFactor(z);
   // Fensterknoepfe oben rechts gleich hoch wie die (mitgewachsene) Titelzeile
-  try { win.setTitleBarOverlay({ color: '#0c0d0f', symbolColor: '#c9cbcf', height: Math.round(36 * z) }); } catch {}
+  try { win.setTitleBarOverlay({ color: '#0e0e0e', symbolColor: '#cfccc7', height: Math.round(36 * z) }); } catch {}
 }
 
 // ---------- Fenster: Startart, Schliessen, Infobereich ----------
@@ -1164,12 +1164,12 @@ function fenster() {
     width: test ? +(process.env.GLOWLINE_TEST_B || 1900) : wa.width - 2 * RAND, height: test ? +(process.env.GLOWLINE_TEST_H || 1012) : wa.height - 2 * RAND,
     minWidth: 640, minHeight: 360,
     show: false,
-    backgroundColor: '#0c0d0f',
+    backgroundColor: '#0e0e0e',
     title: LINK_APP ? 'Glowline Link' : 'Glowline',
     icon: path.join(__dirname, 'build', 'icon.ico'),
     roundedCorners: true,
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#0c0d0f', symbolColor: '#c9cbcf', height: 36 },
+    titleBarOverlay: { color: '#0e0e0e', symbolColor: '#cfccc7', height: 36 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false,
       offscreen: !!process.env.GLOWLINE_TEST,
