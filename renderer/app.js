@@ -243,7 +243,7 @@ const START_WAHL = [['', 'Last used'], ['claude', 'Claude Code'], ['codex', 'Cod
 function startAnsicht() {
   const s = cfg.startMit || '';
   if (s === 'cowork') return zeigeWorkspace('auto');
-  if (s === 'studio' && !document.body.classList.contains('link-app')) return zeigeStudio();
+  if (s === 'studio') return zeigeStudio();
   if (ansicht !== 'terminal') zeigeTerminal();
   return starteSitzung(WERKZEUG_NAME[s] ? { tool: s } : {});
 }
@@ -270,6 +270,20 @@ function zeichneAnpassen() {
   auswahlZeile('Window', 'startFenster', [['vollbild', 'Full screen'], ['gross', 'Maximized'], ['normal', 'Window'], ['minimiert', 'Minimized']],
     ['vollbild', 'gross', 'normal', 'minimiert'].includes(cfg.startFenster) ? cfg.startFenster : cfg.startVollbild === false ? 'gross' : 'vollbild',
     (n) => 'Glowline starts: ' + n + ' (F11 switches full screen)');
+  auswahlZeile('Updates', 'updates', [['auto', 'Automatic'], ['fragen', 'Just tell me'], ['aus', 'Off']], cfg.updates || 'auto',
+    (n) => 'Updates: ' + n + (n === 'Automatic' ? ' – downloads in the background, installs when you quit' : ''));
+  const upd = elem('div', 'anp-zeile anp-update');
+  const updText = elem('span', null, 'Version ' + (updStand ? updStand.version : '…'));
+  const updK = elem('button', 'anp-knopf', 'Check now');
+  updK.addEventListener('click', async () => {
+    updK.disabled = true; updK.textContent = 'Checking…';
+    const s = await window.api.updatePruefen();
+    updK.disabled = false; updK.textContent = 'Check now';
+    zeigeUpdate(s);
+    hinweis(s.fehler ? s.fehler : s.neu ? 'Glowline ' + s.neu + ' is available – click “Update” bottom right' : 'You have the newest version (' + s.version + ')');
+  });
+  upd.append(updText, updK);
+  box.appendChild(upd);
   auswahlZeile('Close (X)', 'beimSchliessen', [['beenden', 'Quit'], ['minimieren', 'Minimize'], ['tray', 'Keep running in tray']], cfg.beimSchliessen || 'beenden',
     (n) => 'Close button: ' + n);
   box.appendChild(elem('div', 'm-gruppe', 'Show, hide and sort the list'));
@@ -506,12 +520,13 @@ function zeigeTab(tab) {
   $('#bib-konten').classList.toggle('versteckt', tab !== 'konten');
   $('#bib-cowork').classList.toggle('versteckt', tab !== 'cowork');
   $('#bib-dl').classList.toggle('versteckt', tab !== 'downloads');
+  $('#bib-stats').classList.toggle('versteckt', tab !== 'stats');
   $('#bib-downloads').classList.toggle('versteckt', tab === 'downloads');
   zeichneBib();
   if (tab === 'meine' || tab === 'laden') (tab === 'meine' ? $('#b-suche') : $('#hf-suche')).focus();
 }
 function zeichneBib() {
-  if (bibTab === 'meine') zeichneMeine(); else if (bibTab === 'konten') zeichneKonten(); else if (bibTab === 'cowork') zeichneAutoRollen(); else if (bibTab === 'downloads') { $('#dl-liste').dataset.schluessel = ''; zeichneDlSeite(); } else zeichneLaden();
+  if (bibTab === 'meine') zeichneMeine(); else if (bibTab === 'konten') zeichneKonten(); else if (bibTab === 'cowork') zeichneAutoRollen(); else if (bibTab === 'downloads') { $('#dl-liste').dataset.schluessel = ''; zeichneDlSeite(); } else if (bibTab === 'stats') zeichneStats(); else zeichneLaden();
   zeichneDownloads();
 }
 for (const b of document.querySelectorAll('.bib-tabs button')) b.addEventListener('click', () => zeigeTab(b.dataset.tab));
@@ -912,6 +927,8 @@ window.api.onStat((s) => {
       if (s.eingabe && !istWolkeId(m.model)) {
         const t = tokenAnteile(m, s), k = kostenBereichFuer(s), summe = kostenBereich(k).tokens;
         setzeKosten(k, { tokens: { neu: summe.neu + t.neu, cache: summe.cache + t.cache, ausgabe: summe.ausgabe + t.ausgabe } });
+        const p = kostenBereich(k).preis;
+        window.api.statistikZaehle({ tokens: t.neu + t.cache + t.ausgabe, ausgabe: t.ausgabe, model: m.model, dollar: (t.neu * p.eingabe + t.cache * p.cache + t.ausgabe * p.ausgabe) / 1e6 });
         m.vorherEingabe = s.eingabe;
       }
     }
@@ -1153,3 +1170,47 @@ window.api.onStatus((s) => {
   // erster Start ohne ein einziges Modell: den Einrichtungs-Assistenten anbieten
   if (!TESTMODUS && !cfg.einrichtung && liste && !liste.ollama.models.length && !liste.lmstudio.models.length && !(await window.api.linkStand().catch(() => ({}))).app) zeigeEinrichtung();
 })();
+
+// ---------- Auto-Update: Chip unten rechts ----------
+let updStand = null;
+function zeigeUpdate(s) {
+  if (!s) return;
+  updStand = s;
+  const chip = $('#update-chip');
+  if (!chip) return;
+  const zeigen = !!s.neu && s.modus !== 'aus';
+  chip.classList.toggle('versteckt', !zeigen);
+  if (!zeigen) return;
+  updatePopup(s);
+  $('#update-text').textContent = s.laedt ? `Update ${s.neu} · ${s.gesamt ? Math.floor((s.geladen / s.gesamt) * 100) : 0}%` : s.bereit ? `Restart to update (${s.neu})` : `Update ${s.neu}`;
+  chip.title = (s.fehler ? s.fehler + '\n\n' : '') + (s.bereit ? 'Downloaded and checked. Click to install now and restart – or it installs by itself when you quit Glowline.' : 'Click to download and install Glowline ' + s.neu) + (s.notizen ? '\n\nWhat\'s new:\n' + s.notizen.replace(/\*\*/g, '') : '');
+}
+// Pop-up "New update available": einmal pro Version (und nochmal, wenn es fertig geladen ist)
+function updatePopup(s) {
+  const pop = $('#update-pop');
+  const merk = s.neu + (s.bereit ? '-bereit' : '');
+  if (s.laedt || cfg.updateGesehen === merk || (cfg.updateGesehen === s.neu && !s.bereit)) return;
+  $('#up-titel').textContent = s.bereit ? `Glowline ${s.neu} is ready to install` : `New update available: Glowline ${s.neu}`;
+  const neu = String(s.notizen || '').replace(/\*\*/g, '').split(/\r?\n/).filter((z) => z.trim()).slice(0, 6).join('\n');
+  $('#up-text').textContent = (neu ? 'What’s new:\n' + neu + '\n\n' : '') + (s.bereit ? 'Downloaded and checked. Click “Restart now” – or it installs by itself next time you quit Glowline.' : 'You have ' + s.version + '. Updating takes about a minute; your chats and settings stay.');
+  $('#up-los').textContent = s.bereit ? 'Restart now' : 'Update now';
+  pop.dataset.merk = merk;
+  pop.classList.remove('versteckt');
+}
+function updatePopupZu() {
+  const pop = $('#update-pop');
+  pop.classList.add('versteckt');
+  cfg.updateGesehen = pop.dataset.merk;
+  window.api.setConfig({ updateGesehen: cfg.updateGesehen });
+}
+$('#up-zu').addEventListener('click', updatePopupZu);
+$('#up-spaeter').addEventListener('click', updatePopupZu);
+$('#up-los').addEventListener('click', () => { updatePopupZu(); $('#update-chip').click(); });
+window.api.onUpdate(zeigeUpdate);
+window.api.updateStand().then(zeigeUpdate).catch(() => {});
+$('#update-chip').addEventListener('click', async () => {
+  if (!updStand || updStand.laedt) return;
+  hinweis(updStand.bereit ? 'Installing the update – Glowline restarts in a moment' : 'Downloading the update – Glowline restarts when it is done');
+  const s = await window.api.updateJetzt();
+  if (s && s.fehler) hinweis(s.fehler);
+});

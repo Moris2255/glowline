@@ -5,16 +5,19 @@ const http = require('http');
 const dgram = require('dgram');
 const os = require('os');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const PORT = 3470, SUCH_PORT = 3471;
 const FRAGE = 'GLOWLINE_LINK?', ANTWORT = 'GLOWLINE_LINK!';
 
-let d = null; // Hilfen aus main.js: cfg, speichere, version, gpu, sende
+let d = null; // Hilfen aus main.js: cfg, speichere, version, gpu, sende, studio, vramFrei
 let server = null, rundruf = null;
 const versuche = new Map(); // IP -> [Zeitpunkte falscher Codes]
 const geraete = new Map(); // IP -> zuletzt gesehen
 
 function init(hilfen) { d = hilfen; }
+function setzeStudio(s) { d.studio = s; }
 
 // nur Heimnetz: private Adressen und dieser PC
 function heimnetz(ip) {
@@ -29,6 +32,20 @@ function adressen() {
   for (const [name, liste] of Object.entries(os.networkInterfaces())) {
     for (const x of liste || []) {
       if (x.family === 'IPv4' && !x.internal && heimnetz(x.address) && !/vethernet|virtual|vmware|vbox|wsl|hyper-v/i.test(name)) l.push(x.address);
+    }
+  }
+  return l;
+}
+
+// fuers Aufwecken (Wake-on-LAN): Netzwerkkarten dieses PCs mit Rundruf-Adresse ihres Netzes
+function weckListe() {
+  const l = [];
+  for (const [name, liste] of Object.entries(os.networkInterfaces())) {
+    for (const x of liste || []) {
+      if (x.family !== 'IPv4' || x.internal || !heimnetz(x.address) || /vethernet|virtual|vmware|vbox|wsl|hyper-v/i.test(name)) continue;
+      if (!/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(x.mac) || /^(00:){5}00$/.test(x.mac)) continue;
+      const a = x.address.split('.').map(Number), n = x.netmask.split('.').map(Number);
+      l.push({ mac: x.mac.toLowerCase(), rundruf: a.map((v, i) => (v & n[i]) | (~n[i] & 255)).join('.') });
     }
   }
   return l;
@@ -82,17 +99,71 @@ async function anfrage(req, res) {
     if (!c.schluessel) { c.schluessel = neuerSchluessel(); d.cfg().link = c; d.speichere(); }
     geraete.set(ip, Date.now());
     d.sende('link', stand());
-    return json(res, 200, { schluessel: c.schluessel, name: os.hostname() });
+    return json(res, 200, { schluessel: c.schluessel, name: os.hostname(), wecken: weckListe() });
   }
-  // alles andere nur mit Schluessel: /<schluessel>/ollama/..., /<schluessel>/lmstudio/..., /<schluessel>/status
-  const m = /^\/([0-9a-f]{48})(\/(ollama|lmstudio|status))(\/.*)?$/.exec(pfad);
+  // alles andere nur mit Schluessel: /<schluessel>/ollama/..., /<schluessel>/lmstudio/..., /<schluessel>/status, /<schluessel>/studio/...
+  const m = /^\/([0-9a-f]{48})(\/(ollama|lmstudio|status|studio))(\/.*)?$/.exec(pfad);
   if (!m || !c.schluessel || !crypto.timingSafeEqual(Buffer.from(m[1]), Buffer.from(c.schluessel))) { res.writeHead(401); return res.end(); }
   const neu = !geraete.has(ip);
   geraete.set(ip, Date.now());
   if (neu) d.sende('link', stand());
-  if (m[3] === 'status') return json(res, 200, { gpu: await d.gpu(), name: os.hostname() });
+  if (m[3] === 'status') return json(res, 200, { gpu: await d.gpu(), name: os.hostname(), wecken: weckListe() });
+  if (m[3] === 'studio') return studioAnfrage(req, res, m[4] || '');
   req.url = req.url.slice(1 + 48 + m[2].length) || '/';
   return weiterleiten(req, res, d.cfg().backends[m[3]]);
+}
+
+// ---------- PC: Studio fuer den Laptop ----------
+const fernLaeufe = new Map(); // vorgang -> res (Fortschritt als NDJSON an den Laptop)
+const ERLAUBT = /\.(png|jpe?g|webp|mp4|webm|wav|mp3|flac)$/i;
+function studioEreignis(x) {
+  const res = x && fernLaeufe.get(x.vorgang);
+  if (!res || x.fertig) return;
+  const { vorgang, ...rest } = x;
+  try { res.write(JSON.stringify({ e: rest }) + '\n'); } catch {}
+}
+async function studioAnfrage(req, res, rest) {
+  const st = d.studio;
+  if (!st) return json(res, 404, { error: 'no studio' });
+  if (rest === '/status' && req.method === 'GET') return json(res, 200, { ...st.status(), ordner: '', name: os.hostname() });
+  if (rest.startsWith('/datei') && req.method === 'GET') {
+    const n = new URL(req.url, 'http://x').searchParams.get('n') || '';
+    const f = path.resolve(st.P().ausgabe, n);
+    if (!ERLAUBT.test(f) || !st.inAusgabe(f) || !fs.existsSync(f)) return json(res, 404, { error: 'not found' });
+    res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': fs.statSync(f).size });
+    return fs.createReadStream(f).pipe(res);
+  }
+  if (rest === '/auftrag' && req.method === 'POST') {
+    const teile = [];
+    let groesse = 0;
+    for await (const x of req) { groesse += x.length; if (groesse > 220e6) return json(res, 413, { error: 'The file is too big to send to the PC' }); teile.push(x); }
+    let a;
+    try { a = JSON.parse(Buffer.concat(teile).toString('utf8')); } catch { return json(res, 400, { error: 'bad request' }); }
+    const id = 'link' + Date.now() + crypto.randomInt(1000);
+    const vorgang = 'auftrag:' + id;
+    const { bild, bildName, bildDatei, video, vonAgent, vonChat, id: _i, ...auftrag } = a || {};
+    let eingabe = null;
+    if (bild) {
+      const endung = path.extname(String(bildName || '.png')).toLowerCase();
+      if (!ERLAUBT.test(endung)) return json(res, 400, { error: 'This file type is not supported' });
+      eingabe = path.join(st.P().eingabe, 'link_' + id + endung);
+      fs.mkdirSync(path.dirname(eingabe), { recursive: true });
+      fs.writeFileSync(eingabe, Buffer.from(String(bild), 'base64'));
+    }
+    res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+    fernLaeufe.set(vorgang, res);
+    let fertig = false;
+    res.on('close', () => { if (!fertig) st.abbrechen(vorgang); });
+    let r;
+    try { r = await st.auftrag({ ...auftrag, ...(eingabe ? { bildDatei: eingabe } : {}), id, vonAgent: false, vonChat: !!vonChat }, d.vramFrei); } catch (e) { r = { fehler: e.message }; }
+    fertig = true;
+    fernLaeufe.delete(vorgang);
+    if (eingabe) fs.rm(eingabe, { force: true }, () => {});
+    const dateien = ((r && r.dateien) || []).filter((f) => st.inAusgabe(f)).map((f) => path.relative(st.P().ausgabe, f).replace(/\\/g, '/'));
+    res.end(JSON.stringify({ fertig: true, fehler: (r && r.fehler) || null, dateien }) + '\n');
+    return;
+  }
+  return json(res, 404, { error: 'not found' });
 }
 
 function rundrufStarten() {
@@ -187,7 +258,7 @@ async function koppeln(host, code, port = PORT) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
   const c = d.cfg().link || {};
-  c.verbindung = { host: h, port: p, schluessel: j.schluessel, name: j.name || h };
+  c.verbindung = { host: h, port: p, schluessel: j.schluessel, name: j.name || h, wecken: Array.isArray(j.wecken) ? j.wecken.slice(0, 6) : [] };
   d.cfg().link = c;
   umleiten();
   d.speichere();
@@ -224,8 +295,41 @@ async function laptopStand() {
   const v = (d.cfg().link || {}).verbindung;
   if (!v) return { verbunden: false };
   let online = false;
-  try { online = (await fetch(basis() + '/status', { signal: AbortSignal.timeout(2500) })).ok; } catch {}
-  return { verbunden: true, online, name: v.name, host: v.host };
+  try {
+    const r = await fetch(basis() + '/status', { signal: AbortSignal.timeout(2500) });
+    online = r.ok;
+    // Netzwerkkarten des PCs merken, damit man ihn spaeter aufwecken kann
+    const w = online && (await r.json().catch(() => ({}))).wecken;
+    if (Array.isArray(w) && w.length && JSON.stringify(w) !== JSON.stringify(v.wecken)) { v.wecken = w.slice(0, 6); d.speichere(); }
+  } catch {}
+  return { verbunden: true, online, name: v.name, host: v.host, wecken: !!(v.wecken && v.wecken.length) };
 }
 
-module.exports = { init, teilen, neuKoppeln, stand, suchen, koppeln, trennen, umleiten, fernGpu, laptopStand, heimnetz, PORT };
+// Laptop: PC per Wake-on-LAN aufwecken ("magisches Paket": 6 x FF, dann 16 x die MAC-Adresse)
+function wecken() {
+  const v = (d.cfg().link || {}).verbindung;
+  const liste = (v && v.wecken) || [];
+  if (!liste.length) throw new Error('Connect once while the PC is on – then it can be woken up');
+  return new Promise((ok) => {
+    const s = dgram.createSocket('udp4');
+    s.on('error', () => {});
+    s.bind(0, () => {
+      s.setBroadcast(true);
+      let offen = 0;
+      for (const w of liste) {
+        if (!/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(w.mac)) continue;
+        const mac = Buffer.from(w.mac.replace(/:/g, ''), 'hex');
+        const paket = Buffer.concat([Buffer.alloc(6, 0xff), ...Array(16).fill(mac)]);
+        const ziele = new Set(['255.255.255.255', v.host]);
+        if (/^[\d.]+$/.test(w.rundruf || '')) ziele.add(w.rundruf);
+        for (const z of ziele) for (const port of [9, 7]) { offen++; s.send(paket, port, z, () => { if (--offen === 0) { try { s.close(); } catch {} ok(true); } }); }
+      }
+      if (!offen) { try { s.close(); } catch {} ok(false); }
+    });
+  });
+}
+
+// Laptop: Adresse des Tors (fuers Studio ueber Link)
+const torBasis = () => basis();
+
+module.exports = { init, setzeStudio, teilen, neuKoppeln, stand, suchen, koppeln, trennen, umleiten, fernGpu, laptopStand, heimnetz, wecken, studioEreignis, torBasis, weckListe, PORT };

@@ -1,5 +1,5 @@
 // Glowline Link: am PC "Share this PC" (Code anzeigen), in der App "Glowline Link" einen PC im Heimnetz koppeln
-const lk = { stand: null, funde: null, sucht: false, host: '', fehler: null, laeuft: false };
+const lk = { stand: null, funde: null, sucht: false, host: '', fehler: null, laeuft: false, weckt: 0 };
 
 async function zeigeLink() {
   schliesseMenues();
@@ -54,7 +54,18 @@ function linkPc(box, st) {
   for (const a of st.adressen) info.appendChild(elem('span', 'ein-chip', a));
   info.appendChild(elem('span', 'ein-chip' + (st.geraete.length ? '' : ' aus'), st.geraete.length ? `${st.geraete.length} laptop${st.geraete.length > 1 ? 's' : ''} connected` : 'No laptop connected yet'));
   box.appendChild(info);
-  box.appendChild(elem('p', 'ein-text klein', 'If Windows asks whether Glowline may use the network, allow it for private networks. Only devices in your home network can connect, and only with the code.'));
+  box.appendChild(elem('p', 'ein-text klein', 'If Windows asks whether Glowline may use the network, allow it for private networks. Only devices in your home network can connect, and only with the code. Laptops can use this PC’s Studio too (images, videos, voice).'));
+  const auto = elem('label', 'link-auto');
+  const ac = elem('input');
+  ac.type = 'checkbox';
+  ac.id = 'link-autostart';
+  window.api.linkAutostart().then((an) => { ac.checked = !!an; }).catch(() => {});
+  ac.addEventListener('change', async () => { ac.checked = await window.api.linkAutostart(ac.checked); hinweis(ac.checked ? 'Glowline starts with Windows (hidden in the tray)' : 'Glowline no longer starts with Windows'); });
+  const at = elem('span');
+  at.append(elem('b', null, 'Start with Windows, so laptops can wake this PC'),
+    elem('small', null, 'Glowline then starts hidden in the tray. Waking works best from sleep mode; it must be allowed once: network adapter → Properties → Power management → “Allow this device to wake the computer” (and Wake-on-LAN in the BIOS for a PC that is shut down).'));
+  auto.append(ac, at);
+  box.appendChild(auto);
   const fuss = elem('div', 'ein-fuss');
   fuss.appendChild(elem('div', 'platz'));
   const neu = elem('button', 'm-knopf', 'New code');
@@ -127,9 +138,18 @@ function linkKoppeln(box) {
 
 function linkVerbunden(box, st) {
   const k = elem('div', 'ein-karte ein-gross' + (st.online ? ' empfohlen' : ''));
-  k.append(elem('b', null, (st.online ? '● ' : '○ ') + st.name), elem('span', null, st.online ? `Connected (${st.host}) – all models come from this PC.` : `${st.host} is not reachable right now – is the PC on and Glowline open there?`));
+  k.append(elem('b', null, (st.online ? '● ' : '○ ') + st.name), elem('span', null, st.online ? `Connected (${st.host}) – all models and the Studio come from this PC.`
+    : lk.weckt ? `Waking ${st.name}… (${lk.weckt} s) – this takes up to 2 minutes.` : `${st.host} is not reachable right now – is the PC on and Glowline open there?`));
   box.appendChild(k);
   const fuss = elem('div', 'ein-fuss');
+  if (!st.online && st.wecken) {
+    const w = elem('button', 'm-knopf', lk.weckt ? 'Waking…' : '⏻ Wake up PC');
+    w.id = 'link-wecken';
+    w.disabled = !!lk.weckt;
+    w.title = 'Sends a Wake-on-LAN signal to the PC';
+    w.addEventListener('click', linkWecken);
+    fuss.appendChild(w);
+  }
   fuss.appendChild(elem('div', 'platz'));
   const weg = elem('button', 'm-knopf', 'Disconnect');
   weg.addEventListener('click', async () => { await window.api.linkTrennen(); lk.stand = await window.api.linkStand(); zeichneLink(); linkSuchen(); });
@@ -137,6 +157,27 @@ function linkVerbunden(box, st) {
   ok.addEventListener('click', schliesseLink);
   fuss.append(weg, ok);
   box.appendChild(fuss);
+}
+
+// PC aufwecken und bis zu 2 Minuten warten, bis er antwortet
+async function linkWecken() {
+  try { await window.api.linkWecken(); } catch (e) { return hinweis(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); }
+  hinweis('Wake-up signal sent');
+  const start = Date.now();
+  lk.weckt = 1;
+  zeichneLink();
+  while (Date.now() - start < 120000) {
+    await new Promise((ok) => setTimeout(ok, 4000));
+    lk.weckt = Math.round((Date.now() - start) / 1000);
+    if (Date.now() - start > 20000 && Date.now() - start < 26000) window.api.linkWecken().catch(() => {}); // nochmal, falls das erste Signal verloren ging
+    lk.stand = await window.api.linkStand().catch(() => lk.stand);
+    if (lk.stand.online) break;
+    if (!$('#link').classList.contains('versteckt')) zeichneLink();
+  }
+  lk.weckt = 0;
+  if (lk.stand.online) { hinweis(lk.stand.name + ' is awake'); await linkNeuLaden(); }
+  else hinweis('The PC did not answer – is Wake-on-LAN turned on there?');
+  if (!$('#link').classList.contains('versteckt')) zeichneLink();
 }
 
 // nach dem Koppeln: Modelle vom PC holen und eins als Standard nehmen
@@ -150,12 +191,11 @@ window.api.onLink((s) => { if (lk.stand && !lk.stand.app) { lk.stand = { app: fa
 $('#bib-link').addEventListener('click', zeigeLink);
 window.zeigeLink = zeigeLink;
 
-// Glowline Link: Studio und Express-Einrichtung gibt es dort nicht; ohne Kopplung gleich den Verbinden-Dialog
+// Glowline Link: Express-Einrichtung gibt es dort nicht (das Studio rechnet auf dem PC); ohne Kopplung gleich den Verbinden-Dialog
 (async () => {
   const st = await window.api.linkStand().catch(() => null);
   if (!st || !st.app) return;
   document.body.classList.add('link-app');
   document.title = 'Glowline Link';
-  if (ansicht === 'studio') zeigeTerminal(); // Studio rechnet auf der eigenen Grafikkarte – gibt es im Link nicht
   if (!st.verbunden && !TESTMODUS) zeigeLink();
 })();

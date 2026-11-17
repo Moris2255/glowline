@@ -22,6 +22,14 @@ On the first start Glowline looks at your PC (graphics card, VRAM, RAM, free spa
 
 Glowline saves each model with a fixed context size (e.g. `qwen3.5:9b-64k`) and tells Claude Code and OpenCode about it, so long sessions don't silently overflow. Afterwards the coder is the default in the terminal and the fast helper in Chat. You can open the setup again any time under **Models → Express setup**; it keeps running in the background if you hide it.
 
+## Updates
+
+Glowline updates itself from the [releases on GitHub](https://github.com/Moris2255/glowline/releases): it checks every few hours, downloads a new version in the background, checks it (SHA-256) and installs it when you quit – a pop-up tells you about it, and **Restart now** installs right away. Change it under **Start & list → Updates**: *Automatic*, *Just tell me* or *Off*. Works from 5.0 on (older versions: install 5.0 once by hand). Glowline Link updates itself the same way.
+
+## Stats
+
+**Models → Stats** shows a heatmap of the last 12 months (like GitHub), your current and longest streak, active days, tokens and requests, what you saved, your most used models and what the Studio made. Only local use is counted, and everything stays on your PC.
+
 ## What it shows
 
 | | |
@@ -95,6 +103,7 @@ Images, video, upscaling and voice – running fully inside Glowline. The first 
 - Before a job, Glowline unloads language models from the GPU (8 GB is not enough for both) and frees the GPU again when you chat with a local model.
 - Interrupted model downloads resume where they stopped.
 - Only clone voices you are allowed to use.
+- **🌙 Night queue** – *Add to night queue* collects jobs instead of starting them. Glowline makes them one after another at night (default 23:00 until 05:00 – at the end time it stops, and an unfinished job continues the next night). **Start now** doesn't wait for the night. Leave Glowline open or in the tray. Cloud models can't go in the queue (they cost money).
 
 ### Studio tools for coding agents
 
@@ -118,7 +127,10 @@ Got a PC with a strong graphics card and a laptop without one? Install **Glowlin
 1. On the PC: **Models → Link → Share this PC**. Glowline shows a 6-digit code.
 2. On the laptop: open Glowline Link. It finds the PC in your network by itself – pick it, type the code, **Connect**.
 
-That's it: Claude Code, Codex, OpenCode and Cowork on the laptop now run with the models on the PC. Downloads go to the PC too. Only devices in your home network can connect, and only after entering the code; **New code** on the PC disconnects all laptops. If Windows asks whether Glowline may use the network, allow it for private networks. (Studio runs on the PC itself, not in Link.)
+That's it: Claude Code, Codex, OpenCode and Cowork on the laptop now run with the models on the PC. Downloads go to the PC too. Only devices in your home network can connect, and only after entering the code; **New code** on the PC disconnects all laptops. If Windows asks whether Glowline may use the network, allow it for private networks.
+
+- **Studio over Link** – the Studio tab on the laptop uses the PC's graphics card: images, videos, upscales and voice are made on the PC and saved on the laptop. Set up the Studio and download its models on the PC.
+- **Wake up the PC** – if the PC is asleep or off, **⏻ Wake up PC** in Link sends a Wake-on-LAN signal. On the PC turn on **Start with Windows** (in Models → Link) so Glowline is ready after waking, and allow waking once: network adapter → Properties → Power management → *Allow this device to wake the computer* (for a PC that is shut down, Wake-on-LAN must also be on in the BIOS). Works best from sleep mode.
 
 ## Requirements
 

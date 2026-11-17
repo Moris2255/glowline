@@ -14,6 +14,9 @@ const einrichtung = require('./einrichtung');
 const erstellen = require('./erstellen');
 const dateien = require('./dateien');
 const link = require('./link');
+const update = require('./update');
+const nacht = require('./nacht');
+const statistik = require('./statistik');
 // eigene App "Glowline Link" (gleicher Code, eigener Installer): nutzt die Modelle eines PCs im Heimnetz
 const LINK_APP = !!require('./package.json').glowlineLink || !!(process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_LINKAPP);
 const autoChat = require('./auto');
@@ -30,6 +33,7 @@ const STANDARD = {
   defaultTool: 'claude',
   startMit: '', // was beim Start aufgeht: '' = zuletzt benutzt, sonst Werkzeug-ID, 'cowork' oder 'studio'
   startFenster: '', // wie das Fenster startet: vollbild | gross (maximiert) | normal | minimiert ('' = vollbild, bzw. alt startVollbild)
+  updates: 'auto', // auto = im Hintergrund laden + beim Beenden installieren | fragen = nur Bescheid sagen | aus
   beimSchliessen: 'beenden', // X oben rechts: beenden | minimieren | tray (laeuft im Infobereich weiter)
   lastDir: HOME,
   ohneDenken: [], // Modelle ohne "Denken"-Unterstuetzung
@@ -844,6 +848,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'glowline', privileges: { standa
 
 function sende(kanal, ...a) {
   if (win && !win.isDestroyed()) win.webContents.send(kanal, ...a);
+  if (kanal === 'studio') link.studioEreignis(a[0]); // Fortschritt von Link-Auftraegen an den Laptop
 }
 
 ipcMain.handle('pty:spawn', async (_e, o) => {
@@ -928,6 +933,7 @@ studio.auftrag = async (a, ...rest) => {
     const m = studio.KATALOG[a && a.modell];
     const n = r && !r.fehler && Array.isArray(r.dateien) ? r.dateien.length : 0;
     if (m && !m.wolke && n) {
+      statistik.medien(m.art, n);
       const z = { bild: 0, videoSek: 0, zeichen: 0, ...(cfg.medienZaehler || {}) };
       if (m.art === 'bild') z.bild += n;
       else if (m.art === 'video') z.videoSek += Math.max(1, Math.min(10, +a.sekunden || 5));
@@ -1024,9 +1030,32 @@ ipcMain.handle('link:koppeln', async (_e, host, code) => {
   sende('config', cfg);
   return v;
 });
+ipcMain.handle('link:wecken', () => (LINK_APP ? link.wecken() : false));
+// PC: mit Windows starten (unsichtbar im Infobereich), damit ein Laptop ihn aufwecken und gleich benutzen kann
+ipcMain.handle('link:autostart', (_e, an) => {
+  if (LINK_APP) return false;
+  if (typeof an === 'boolean' && !process.env.GLOWLINE_TEST) app.setLoginItemSettings({ openAtLogin: an, path: process.execPath, args: ['--tray'] });
+  if (typeof an === 'boolean' && process.env.GLOWLINE_TEST) cfg.testAutostart = an;
+  return process.env.GLOWLINE_TEST ? !!cfg.testAutostart : app.getLoginItemSettings({ path: process.execPath, args: ['--tray'] }).openAtLogin;
+});
 ipcMain.handle('link:trennen', () => { if (LINK_APP) { link.trennen(); sende('config', cfg); } return true; });
 ipcMain.handle('installer:stand', (_e, id) => installerStand(id));
-ipcMain.on('installer:abbrechen', (_e, id) => { const s = installer.get(id); if (s && s.ac) s.ac.abort(); });
+// Auto-Update (update.js)
+// Nacht-Warteschlange (nacht.js)
+// Stats-Seite (statistik.js)
+ipcMain.handle('statistik:stand', () => statistik.stand());
+ipcMain.on('statistik:zaehle', (_e, x) => statistik.zaehle(x));
+ipcMain.handle('nacht:stand', () => (LINK_APP ? null : nacht.stand()));
+ipcMain.handle('nacht:dazu', (_e, a) => { if (LINK_APP) throw new Error('The night queue runs on your PC'); return nacht.dazu(a); });
+ipcMain.handle('nacht:weg', (_e, nr) => nacht.weg(String(nr)));
+ipcMain.handle('nacht:aufraeumen', () => nacht.aufraeumen());
+ipcMain.handle('nacht:zeiten', (_e, s, e) => nacht.zeiten(s, e));
+ipcMain.handle('nacht:jetzt', () => nacht.jetztStarten());
+ipcMain.handle('nacht:stopp', () => nacht.stoppen());
+ipcMain.handle('update:stand', () => update.stand());
+ipcMain.handle('update:pruefen', () => update.pruefen().catch((e) => ({ ...update.stand(), fehler: String((e && e.message) || e) })));
+ipcMain.handle('update:jetzt', () => update.jetzt());
+ipcMain.on('installer:abbrechen', (_e, id) => { if (id === 'update') return update.abbrechen(); const s = installer.get(id); if (s && s.ac) s.ac.abort(); });
 ipcMain.on('installer:oeffnen', (_e, id) => { const s = installer.get(id); if (s && s.fertig) shell.openPath(s.datei); });
 ipcMain.on('installer:zeigen', (_e, id) => { const s = installer.get(id); if (s && s.datei) shell.showItemInFolder(fs.existsSync(s.datei) ? s.datei : path.dirname(s.datei)); });
 ipcMain.handle('models:load', (_e, id, laden) => modellLaden(id, laden));
@@ -1034,7 +1063,7 @@ ipcMain.on('download:start', (_e, d) => herunterladen(d));
 ipcMain.on('download:cancel', (_e, key) => { const ac = downloads.get(key); if (ac) ac.abort(); });
 ipcMain.handle('hf:search', (_e, q) => hfSuche(q));
 ipcMain.handle('hf:files', (_e, repo) => hfDateien(repo));
-ipcMain.handle('studio:status', () => studio.status());
+ipcMain.handle('studio:status', async () => { if (studio.frisch) await studio.frisch(true); return studio.status(); });
 ipcMain.on('studio:einrichten', () => studio.einrichten());
 ipcMain.on('studio:modell', (_e, id) => studio.modellHolen(id));
 ipcMain.on('studio:abbrechen', (_e, v) => studio.abbrechen(v));
@@ -1153,6 +1182,8 @@ function fenster() {
   // Testmodus: Fenster ausserhalb des Bildschirms, ohne Fokus und ohne Taskleiste
   if (process.env.GLOWLINE_TEST) win.webContents.on('paint', (_e, _d, bild) => { win.letztesBild = bild; });
   else win.once('ready-to-show', () => {
+    // mit Windows gestartet: unsichtbar im Infobereich (Link-Teilen laeuft trotzdem)
+    if (process.argv.includes('--tray')) { trayAnlegen(); return; }
     const art = startFenster();
     if (art === 'normal') { win.setBounds(normalGroesse()); win.show(); }
     else if (art === 'gross') { win.maximize(); win.show(); }
@@ -1185,7 +1216,7 @@ function fenster() {
   win.on('moved', () => { if (!cfg.zoom) setzeZoom(); });
   // Schliessen aus Versehen: nachfragen, solange im Studio etwas laeuft
   win.on('close', (e) => {
-    if (process.env.GLOWLINE_TEST) return;
+    if (process.env.GLOWLINE_TEST || (!wirklichBeenden && ['minimieren', 'tray'].includes(cfg.beimSchliessen))) return; // laeuft ja weiter
     const b = studio.beschaeftigt();
     const ein = einrichtung.laeuft();
     const inst = [...installer.values()].some((x) => x.ac);
@@ -1195,7 +1226,7 @@ function fenster() {
       message: b.auftraege ? 'Studio is still generating' : ein ? 'The setup is still installing' : b.laden ? 'A Studio download is still running' : 'An installer is still downloading',
       detail: b.auftraege ? 'Closing Glowline cancels the running job.' : ein ? 'You can open the setup again later (Models → Express setup), finished parts are kept.' : 'You can resume the download later, it continues where it stopped.',
     });
-    if (r === 0) e.preventDefault();
+    if (r === 0) { e.preventDefault(); wirklichBeenden = false; }
   });
   win.on('enter-full-screen', () => sende('vollbild', true));
   win.on('leave-full-screen', () => sende('vollbild', false));
@@ -1616,8 +1647,44 @@ async function testLauf(ordner) {
         console.log('START', st || 'zuletzt', '->', await js(`ansicht + ' ' + (sitzung ? sitzung.tool : '-')`));
       }
       await js(`zeigeTerminal(); document.querySelector('#tool-chip').click(); document.querySelector('#tools-anpassen-knopf').click(); 1`); await warte(600); await bild('start-anpassen');
-      console.log('START MENUE', await js(`[...document.querySelectorAll('#tools-anpassen .anp-zeile span')].slice(0, 4).map((x) => x.textContent).join(' | ') + ' | fenster=' + document.querySelectorAll('#tools-anpassen select')[1].value + ' | schliessen=' + document.querySelectorAll('#tools-anpassen select')[2].value`));
+      console.log('START MENUE', await js(`[...document.querySelectorAll('#tools-anpassen .anp-zeile span')].slice(0, 4).map((x) => x.textContent).join(' | ') + ' | fenster=' + document.querySelectorAll('#tools-anpassen select')[1].value + ' | schliessen=' + document.querySelectorAll('#tools-anpassen select')[3].value`));
       await js(`schliesseMenues()`);
+    }
+    if (was.includes('stats')) {
+      await js(`oeffneBib('stats')`); await warte(1500); await bild('st-stats');
+      console.log('STATS', await js(`[...document.querySelectorAll('.stats-karte')].map((k) => k.children[0].textContent + '=' + k.children[1].textContent).join(' | ')`));
+      console.log('STATS HEAT', await js(`document.querySelectorAll('.stats-heat i').length + ' Felder, ' + document.querySelectorAll('.stats-heat i.s4').length + ' s4, monate ' + [...document.querySelectorAll('.stats-monate span')].filter((x) => x.textContent).length`));
+      await js(`schliesseBib()`);
+    }
+    if (was.includes('nacht')) {
+      await js(`zeigeStudio('bild')`); await warte(1500);
+      await js(`sz.felder.bild.prompt = 'a tree at night'; zeichneStudio(); document.querySelector('#studio-nacht').click()`); await warte(800);
+      await js(`sz.felder.bild.prompt = 'a cat on the moon'; zeichneStudio(); document.querySelector('#studio-nacht').click()`); await warte(800);
+      await bild('n-nacht');
+      console.log('NACHT', await js(`document.querySelector('#s-nacht').innerText.split(String.fromCharCode(10)).filter(Boolean).join(' | ')`));
+      await js(`[...document.querySelectorAll('.s-nacht-fuss button')].find((b) => b.textContent === 'Start now').click()`); await warte(6000);
+      await bild('n-nacht-fertig');
+      console.log('NACHT FERTIG', await js(`document.querySelector('#s-nacht').innerText.split(String.fromCharCode(10)).filter(Boolean).join(' | ')`));
+      const st = JSON.parse(await js(`JSON.stringify(nachtStand.liste.map((e) => e.status))`));
+      console.log('NACHT STATUS', st.join(','));
+      await js(`[...document.querySelectorAll('.s-nacht-fuss button')].find((b) => b.textContent === 'Clear done').click()`); await warte(500);
+      console.log('NACHT LEER', await js(`document.querySelector('#s-nacht').children.length`));
+    }
+    if (was.includes('update')) {
+      // Fake-GitHub (GLOWLINE_TEST_UPDATE): pruefen, Chip, laden + Pruefsumme, "installieren"
+      const p = await update.pruefen().catch((e) => ({ fehler: e.message }));
+      console.log('UPDATE PRUEFEN', 'neu=' + p.neu, 'version=' + p.version, 'fehler=' + p.fehler);
+      await warte(400);
+      console.log('UPDATE CHIP', await js(`(document.querySelector('#update-chip').classList.contains('versteckt') ? 'versteckt' : 'da') + ' | ' + document.querySelector('#update-text').textContent`));
+      await bild('u-popup');
+      console.log('UPDATE POPUP', await js(`(document.querySelector('#update-pop').classList.contains('versteckt') ? 'zu' : 'offen') + ' | ' + document.querySelector('#up-titel').textContent`));
+      await js(`document.querySelector('#up-spaeter').click()`);
+      const l = await update.laden();
+      console.log('UPDATE LADEN', 'bereit=' + l.bereit, 'geladen=' + l.geladen + '/' + l.gesamt, 'fehler=' + l.fehler);
+      await warte(400);
+      console.log('UPDATE CHIP2', await js(`document.querySelector('#update-text').textContent`));
+      console.log('UPDATE VERGLEICH', update.neuer('4.5.10', '4.5.9'), update.neuer('4.5.2', '4.5.2'), update.neuer('v4.6.0', '4.5.9'), update.neuer('4.4.9', '4.5.0'));
+      update.beimBeenden();
     }
     if (was.includes('fenster')) {
       // X-Knopf: minimieren bzw. in den Infobereich (ohne Sprechblase)
@@ -1640,6 +1707,7 @@ async function testLauf(ordner) {
         await js(`document.querySelector('#link-teilen').click()`); await warte(1500); await bild('l-pc-an');
         console.log('LINK PC', await js(`JSON.stringify(lk.stand)`), await js(`document.querySelector('.link-code b').textContent`));
         if (process.env.GLOWLINE_TEST_LINK_AUS) { await js(`document.querySelector('#link-teilen').click()`); await warte(800); }
+        console.log('LINK PC AUTOSTART', await js(`!!document.querySelector('#link-autostart')`), await js(`window.api.linkAutostart(true)`), await js(`window.api.linkAutostart(false)`));
         console.log('LINK PC ENDE', await js(`String(lk.stand.teilen)`));
         if (process.env.GLOWLINE_TEST_LINK_WARTE) { await warte(+process.env.GLOWLINE_TEST_LINK_WARTE * 1000); await js(`zeigeLink()`); await warte(1000); await bild('l-pc-gekoppelt'); console.log('LINK PC GERAETE', await js(`JSON.stringify(lk.stand.geraete)`)); }
         await js(`schliesseLink()`);
@@ -1656,6 +1724,14 @@ async function testLauf(ordner) {
         console.log('LINK FERN-GPU', JSON.stringify(await link.fernGpu()));
         console.log('LINK GPU', await js(`document.querySelector('#vram').textContent`));
         await bild('l-app-haupt');
+        // Studio vom PC: Status, Auftrag ueber das Tor (PC laeuft mit Attrappe)
+        await js(`zeigeStudio('bild')`); await warte(2500); await bild('l-app-studio');
+        console.log('LINK STUDIO', await js(`JSON.stringify({ fern: sz.st.fern, offline: sz.st.offline, eingerichtet: sz.st.eingerichtet, modelle: Object.values(sz.st.modelle).filter((m) => m.da).length })`));
+        const r = await studio.auftrag({ id: 'lt' + Date.now(), modell: 'z-image', prompt: 'test tree' });
+        console.log('LINK STUDIO AUFTRAG', r.fehler || r.dateien.map((f) => path.relative(studio.P().ausgabe, f)).join(','));
+        await js(`zeigeLink()`); await warte(1500); await bild('l-app-wecken');
+        console.log('LINK WECKEN', await js(`String(lk.stand.wecken) + ' ' + !!document.querySelector('#link-wecken')`));
+        await js(`schliesseLink()`);
       }
     }
     if (was.includes('installieren')) {
@@ -2153,10 +2229,18 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', () => zeigeFenster());
   app.on('before-quit', () => { wirklichBeenden = true; });
+  // fertig geladenes Update beim Beenden still installieren (Einstellung "auto")
+  app.on('will-quit', () => { statistik.jetztSpeichern(); update.beimBeenden(); });
   app.setAppUserModelId('Glowline');
   app.whenReady().then(async () => {
     ladeConfig();
-    link.init({ cfg: () => cfg, speichere: speichereConfig, version: app.getVersion(), gpu: () => gpu(), sende });
+    statistik.init(path.dirname(cfgPfad));
+    update.init({
+      version: app.getVersion(), link: LINK_APP, cfg: () => cfg, sende, ladeDatei: studio.ladeDatei, test: !!process.env.GLOWLINE_TEST,
+      ordner: process.env.GLOWLINE_TEST ? path.join(process.env.GLOWLINE_TEST, 'update') : path.join(app.getPath('userData'), 'update'),
+      beenden: () => { wirklichBeenden = true; app.quit(); },
+    });
+    link.init({ cfg: () => cfg, speichere: speichereConfig, version: app.getVersion(), gpu: () => gpu(), sende, vramFrei });
     if (LINK_APP) link.umleiten();
     else if (cfg.link && cfg.link.teilen) link.teilen(true);
     proxy = new StatsProxy(cfg);
@@ -2167,6 +2251,10 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     }
     studio.init(process.env.GLOWLINE_STUDIO || cfg.studioOrdner || path.join(process.env.LOCALAPPDATA || app.getPath('userData'), 'Glowline', 'studio'),
       (k, x) => { sende(k, x); if (k === 'studio') einrichtung.studioEreignis(x); }, (id) => konten.schluessel(id));
+    // PC: Link-Laptops duerfen das Studio benutzen; Laptop (Glowline Link): Studio-Auftraege gehen an den PC
+    link.setzeStudio(process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_ATTRAPPE ? chatStudioAttrappe() : studio);
+    if (LINK_APP) require('./fernstudio')(studio, link, sende);
+    else nacht.init({ cfg: () => cfg, speichere: speichereConfig, studio: process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_ATTRAPPE ? chatStudioAttrappe() : studio, vramFrei, sende, test: !!process.env.GLOWLINE_TEST });
     erstellen.init({
       cfg: () => cfg, teileModell, konten, vramFrei,
       studio: process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_ATTRAPPE ? chatStudioAttrappe() : studio,

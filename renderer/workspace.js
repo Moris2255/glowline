@@ -242,7 +242,7 @@ async function zeichneAutoRollen(neu) {
     z.appendChild(rechts);
     box.appendChild(z);
   }
-  if (st && !document.body.classList.contains('link-app')) studioStandardZeilen(box, st);
+  if (st) studioStandardZeilen(box, st);
 }
 
 // Studio-Standardmodelle: was Cowork (und das Studio beim Oeffnen) fuer Bilder, Videos, Upscale und Stimme nimmt
@@ -288,7 +288,7 @@ function studioStandardZeilen(box, st) {
     z.appendChild(s);
     const rechts = elem('div', 'rolle-rechts');
     const fehlen = modelle.filter((m) => !m.da && !m.wolke).length;
-    const k = elem('button', 'rolle-empf', !st.eingerichtet ? 'Set up Studio' : fehlen ? `Get models (${fehlen})` : 'Open in Studio');
+    const k = elem('button', 'rolle-empf', !st.eingerichtet ? (st.fern ? 'Set up on your PC' : 'Set up Studio') : fehlen && !st.fern ? `Get models (${fehlen})` : 'Open in Studio');
     k.title = !st.eingerichtet ? 'Opens the Studio – click “Set up” there' : fehlen ? 'Opens Studio, where you can download more models' : 'Opens this part of the Studio';
     k.addEventListener('click', () => { schliesseBib(); zeigeStudio(art); });
     rechts.append(k, elem('small', 'rolle-empf-name', (jetzt || auto || modelle[0]).info || ''));

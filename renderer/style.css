@@ -518,6 +518,66 @@ body[data-ansicht="chat"] #ordner-chip, body[data-ansicht="studio"] #ordner-chip
 .dl-balken { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--bg3); overflow: hidden; }
 .dl-balken i { display: block; height: 100%; background: var(--gruen); transition: width .4s; }
 #dl-chip { color: var(--gruen); }
+#update-pop { position: fixed; right: 18px; bottom: 96px; width: 360px; max-width: calc(100vw - 32px); z-index: 60; background: var(--bg2); border: 1px solid color-mix(in srgb, var(--gruen) 45%, var(--linie)); border-radius: 14px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 10px; animation: up-rein .25s ease-out; }
+@keyframes up-rein { from { transform: translateY(12px); opacity: 0; } }
+.up-kopf { display: flex; align-items: center; gap: 10px; }
+.up-kopf img { width: 22px; height: 22px; }
+.up-kopf b { flex: 1; font-size: 14px; }
+#up-zu { color: var(--sehrleise); }
+#up-text { font-size: 12.5px; color: var(--leise); line-height: 1.55; max-height: 160px; overflow: auto; white-space: pre-line; }
+.up-fuss { display: flex; justify-content: flex-end; gap: 8px; }
+.up-fuss .s-los { width: auto; padding: 7px 16px; margin: 0; }
+.stats-seite { padding: 18px 24px 24px; display: flex; flex-direction: column; gap: 18px; }
+.stats-karten { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.stats-karte { border: 1px solid var(--linie); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.stats-karte small { color: var(--sehrleise); font-size: 11.5px; }
+.stats-karte b { font-size: 22px; font-weight: 600; font-family: var(--mono); color: var(--text); }
+.stats-karte.gruen b { color: var(--gruen); }
+.stats-karte.text b { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stats-karte { min-width: 0; }
+.stats-titel { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--leise); margin-bottom: -8px; }
+.stats-heat-box { border: 1px solid var(--linie); border-radius: 12px; padding: 14px 16px; overflow-x: auto; }
+.stats-monate { display: grid; grid-auto-flow: column; grid-auto-columns: var(--z, 14px); gap: 3px; margin-left: 30px; white-space: nowrap; font-size: 10.5px; color: var(--sehrleise); height: 14px; }
+.stats-heat-zeile { display: flex; gap: 6px; }
+.stats-wtage { display: grid; grid-template-rows: repeat(7, var(--z, 14px)); gap: 3px; font-size: 10px; color: var(--sehrleise); width: 24px; align-items: center; }
+.stats-heat { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, var(--z, 14px)); grid-auto-columns: var(--z, 14px); gap: 3px; }
+.stats-heat i, .stats-legende i { border-radius: 3px; background: var(--bg3); }
+.stats-heat i.leer { background: transparent; }
+.stats-heat-box i.s1 { background: color-mix(in srgb, var(--gruen) 25%, var(--bg3)); }
+.stats-heat-box i.s2 { background: color-mix(in srgb, var(--gruen) 50%, var(--bg3)); }
+.stats-heat-box i.s3 { background: color-mix(in srgb, var(--gruen) 75%, var(--bg3)); }
+.stats-heat-box i.s4 { background: var(--gruen); }
+.stats-heat i.heute { outline: 1px solid var(--text); outline-offset: 1px; }
+.stats-legende { display: flex; align-items: center; gap: 3px; justify-content: flex-end; font-size: 10.5px; color: var(--sehrleise); margin-top: 8px; }
+.stats-legende i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.stats-modelle { display: flex; flex-direction: column; gap: 6px; }
+.stats-modell { display: grid; grid-template-columns: minmax(160px, 280px) 1fr 90px; gap: 12px; align-items: center; font-size: 12.5px; }
+.stats-modell span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.stats-modell div { height: 8px; border-radius: 4px; background: var(--bg3); overflow: hidden; }
+.stats-modell div i { display: block; height: 100%; background: var(--gruen); border-radius: 4px; }
+.stats-modell b { text-align: right; font-family: var(--mono); font-weight: 500; color: var(--leise); }
+.stats-hinweis { font-size: 12px; color: var(--sehrleise); line-height: 1.6; }
+.s-nacht-dazu { width: 100%; margin-top: 8px; padding: 8px; border: 1px dashed var(--linie); border-radius: 10px; color: var(--leise); font-size: 13px; }
+.s-nacht-dazu:hover:not(:disabled) { color: var(--text); border-color: var(--leise); }
+.s-nacht-dazu:disabled { opacity: .4; cursor: default; }
+.s-nacht:empty { display: none; }
+.s-nacht { margin-top: 14px; border: 1px solid var(--linie); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.s-nacht-kopf { display: flex; align-items: baseline; justify-content: space-between; font-size: 13px; }
+.s-nacht-kopf small, .s-nacht-info { color: var(--sehrleise); font-size: 11.5px; line-height: 1.5; }
+.s-nacht-zeit { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--leise); }
+.s-nacht-zeit select { background: var(--bg); color: var(--text); border: 1px solid var(--linie); border-radius: 7px; padding: 3px 4px; font: 12px var(--sans); }
+.s-nacht-z { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-top: 1px solid var(--linie); }
+.s-nacht-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.s-nacht-text b { font-size: 12.5px; font-weight: 500; }
+.s-nacht-text small { color: var(--sehrleise); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.s-nacht-z.laeuft b { color: var(--gruen); }
+.s-nacht-z.fehler b { color: #e88; }
+.s-nacht-z.fertig { opacity: .75; }
+.s-nacht-weg { color: var(--sehrleise); width: 22px; }
+.s-nacht-weg:hover { color: var(--text); }
+.s-nacht-fuss { display: flex; gap: 6px; }
+#update-chip { color: var(--gruen); border-color: color-mix(in srgb, var(--gruen) 45%, var(--linie)); }
+.anp-zeile button.anp-knopf { width: auto; padding: 0 10px; font-size: 12px; }
 #dl-chip .ein-dreh { width: 9px; height: 9px; }
 
 /* Glowline Link */
@@ -536,4 +596,8 @@ button.link-pc { width: 100%; text-align: left; }
 button.link-pc:hover, button.link-pc.an { background: var(--bg3); }
 button.link-pc.an .ein-status { color: var(--gruen); }
 /* in der App "Glowline Link" laeuft nichts auf dieser Grafikkarte */
-body.link-app #bib-express, body.link-app #tools [data-studio], body.link-app #studio-ordner { display: none !important; }
+body.link-app #bib-express { display: none !important; }
+.link-auto { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 12px; padding: 10px 12px; border: 1px solid var(--linie); border-radius: 10px; cursor: pointer; }
+.link-auto input { accent-color: var(--gruen); margin-top: 3px; }
+.link-auto span { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+.link-auto small { color: var(--sehrleise); font-size: 11.5px; line-height: 1.5; }

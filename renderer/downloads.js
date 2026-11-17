@@ -1,6 +1,6 @@
 // Downloads-Tab: alles, was gerade laedt, an einem Ort – Modelle, Express-Einrichtung, Studio, Installer
 const installerLauf = new Map(); // id -> letzter Stand aus main.js
-const INSTALLER_NAME = { ollama: 'Ollama installer', lmstudio: 'LM Studio installer' };
+const INSTALLER_NAME = { ollama: 'Ollama installer', lmstudio: 'LM Studio installer', update: 'Glowline update' };
 window.api.onInstaller((s) => { installerLauf.set(s.id, s); dlAktualisieren(); });
 
 function alleDownloads() {
@@ -43,7 +43,7 @@ function alleDownloads() {
   for (const [id, s] of installerLauf) {
     if (!s.laeuft) continue;
     l.push({
-      key: 'i:' + id, gruppe: 'Programs', titel: INSTALLER_NAME[id] || id, ziel: 'Downloads folder',
+      key: 'i:' + id, gruppe: 'Programs', titel: INSTALLER_NAME[id] || id, ziel: id === 'update' ? 'installs when you quit' : 'Downloads folder',
       prozent: s.gesamt ? (s.geladen / s.gesamt) * 100 : 0,
       text: s.gesamt ? `${Math.floor((s.geladen / s.gesamt) * 100)}% · ${gb(s.geladen)} / ${gb(s.gesamt)}` : 'Starting…',
       abbrechen: () => window.api.installerAbbrechen(id),

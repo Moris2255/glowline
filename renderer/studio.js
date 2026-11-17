@@ -184,6 +184,16 @@ const abbrechenMit = (vorgang) => (b) => { b.disabled = true; b.classList.remove
 // ---------- Einrichten (einmalig) ----------
 function zeichneStudioEinrichtung(box) {
   const k = elem('div', 's-einrichten');
+  if (sz.st.fern) {
+    k.append(elem('b', null, 'Studio on your PC'),
+      elem('p', null, sz.st.offline ? 'Your PC is not reachable right now – turn it on (or wake it up under Link) and open Glowline there.'
+        : 'The Studio is not set up on ' + (sz.st.pc || 'your PC') + ' yet. Open Glowline there → Studio → “Set up Studio”. Images and videos are then made on the PC’s graphics card and land here.'));
+    const nochmal = elem('button', 's-los', 'Check again');
+    nochmal.addEventListener('click', async () => { sz.st = await window.api.studio(); zeichneStudio(); });
+    k.appendChild(nochmal);
+    box.appendChild(k);
+    return;
+  }
   k.append(elem('b', null, 'Glowline Studio'),
     elem('p', null, 'Create images, videos, sharper upscales and voices on your own graphics card – private and free. '
       + 'The one-time setup downloads the engine (about 5 GB) into Glowline. Nothing else to install.'));
@@ -230,6 +240,7 @@ function modellKarte(m, gewaehlt, waehle) {
     d.addEventListener('click', (e) => { e.stopPropagation(); oeffneBib('konten'); });
     k.appendChild(d);
   }
+  else if (sz.st.fern) k.appendChild(elem('span', 's-m-status', 'download on your PC'));
   else if (l && !l.fertig) {
     const s = elem('div', 's-m-laden');
     const b = elem('div', 's-balken klein');
@@ -387,11 +398,20 @@ function zeichneFelder(box) {
   los.id = 'studio-los';
   los.addEventListener('click', starte);
   box.appendChild(los);
+  // Nacht-Warteschlange: nur lokale Modelle auf dieser Grafikkarte
+  if (!m.wolke && !sz.st.fern) {
+    const n = elem('button', 's-nacht-dazu', '🌙 Add to night queue');
+    n.id = 'studio-nacht';
+    n.title = 'Collect jobs and let the Studio make them at night, one after another';
+    n.addEventListener('click', zurNacht);
+    box.appendChild(n);
+  }
   box.appendChild(elem('div', 's-fuss', b === 'stimme'
     ? 'Only clone voices you are allowed to use. Generated audio is for your own projects.'
     : m.wolke ? 'Runs on Higgsfield’s servers and is paid from your Higgsfield balance (per second of video). Cancel is free only while the job is still queued. The start image is uploaded to Higgsfield.'
-      : 'Runs on your GPU. Language models are unloaded while Studio works.'));
+      : sz.st.fern ? 'Runs on the graphics card of ' + (sz.st.pc || 'your PC') + ' – the result is saved on this laptop.' : 'Runs on your GPU. Language models are unloaded while Studio works.'));
   zeichneKnopfStudio();
+  if (!sz.st.fern) nachtBereich(box);
 }
 
 function zeichneKnopfStudio() {
@@ -405,13 +425,15 @@ function zeichneKnopfStudio() {
   else if (b === 'stimme' && f.probe && !f.erlaubt) grund = 'Confirm the voice permission first';
   k.disabled = !!grund;
   k.title = grund;
+  const n = $('#studio-nacht');
+  if (n) { n.disabled = !!grund; n.title = grund || 'Collect jobs and let the Studio make them at night, one after another'; }
 }
 
 // ---------- Starten ----------
-function starte() {
+function baueAuftrag() {
   const b = sz.bereich, f = sz.felder[b], m = aktivesModell(b);
   zeichneKnopfStudio();
-  if ($('#studio-los') && $('#studio-los').disabled) { hinweis($('#studio-los').title); return; }
+  if ($('#studio-los') && $('#studio-los').disabled) { hinweis($('#studio-los').title); return null; }
   const id = String(Date.now()) + (++sz.nr);
   const a = { id, modell: m.id };
   if (b === 'bild') { const [, w, h] = FORMATE.bild[f.format]; Object.assign(a, { prompt: f.prompt.trim(), breite: w, hoehe: h, seed: f.seed }); }
@@ -430,6 +452,12 @@ function starte() {
       if (v !== '' && v != null && Number.isFinite(+v)) a[d.k] = Math.min(d.max, Math.max(d.min, +v));
     }
   }
+  return { a, b, m, id };
+}
+function starte() {
+  const x = baueAuftrag();
+  if (!x) return;
+  const { a, b, m, id } = x;
   sz.auftraege.set('auftrag:ui' + id, { vorgang: 'auftrag:ui' + id, art: b, modell: m.id, prompt: a.prompt || '', text: m.wolke ? 'Sending to Higgsfield…' : 'Waiting…', start: Date.now(), wolke: !!m.wolke });
   sz.auswahl = { vorgang: 'auftrag:ui' + id };
   window.api.studioAuftrag(a);
@@ -608,3 +636,85 @@ function ladeFortschritt(id) {
 }
 // Laufzeit im Fortschritt aktuell halten
 setInterval(() => { const l = ansicht === 'studio' && laufenderAuftrag(); if (l && !l.fertig) aktualisiereLauf(); }, 1000);
+
+// ---------- Nacht-Warteschlange ----------
+let nachtStand = null;
+const NACHT_START = ['20:00', '21:00', '22:00', '23:00', '00:00', '01:00', '02:00'];
+const NACHT_ENDE = ['03:00', '04:00', '05:00', '06:00', '07:00', '08:00'];
+async function zurNacht() {
+  const x = baueAuftrag();
+  if (!x) return;
+  try {
+    nachtStand = await window.api.nachtDazu(x.a);
+    const n = nachtStand.liste.filter((e) => e.status === 'wartet').length;
+    hinweis(`Added to the night queue (${n}) – starts at ${nachtStand.start}`);
+  } catch (e) { hinweis(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); }
+  zeichneNacht();
+}
+function nachtBereich(box) {
+  const n = elem('div', 's-nacht');
+  n.id = 's-nacht';
+  box.appendChild(n);
+  if (nachtStand) zeichneNacht();
+  else window.api.nachtStand().then((s) => { nachtStand = s; zeichneNacht(); }).catch(() => {});
+}
+function zeichneNacht() {
+  const box = $('#s-nacht');
+  if (!box || !nachtStand) return;
+  box.replaceChildren();
+  const s = nachtStand;
+  if (!s.liste.length) return;
+  const wartet = s.liste.filter((e) => e.status === 'wartet').length;
+  const kopf = elem('div', 's-nacht-kopf');
+  kopf.appendChild(elem('b', null, '🌙 Night queue'));
+  kopf.appendChild(elem('small', null, s.laeuft ? 'running…' : wartet ? `${wartet} waiting` : 'all done'));
+  box.appendChild(kopf);
+  const zeit = elem('div', 's-nacht-zeit');
+  const wahl = (werte, jetzt, an) => {
+    const w = elem('select');
+    for (const v of werte.includes(jetzt) ? werte : [jetzt, ...werte]) { const o = elem('option', null, v); o.value = v; w.appendChild(o); }
+    w.value = jetzt;
+    w.addEventListener('change', async () => { nachtStand = await an(w.value); zeichneNacht(); });
+    return w;
+  };
+  zeit.append(elem('span', null, 'From'), wahl(NACHT_START, s.start, (v) => window.api.nachtZeiten(v, s.ende)),
+    elem('span', null, 'until'), wahl(NACHT_ENDE, s.ende, (v) => window.api.nachtZeiten(s.start, v)));
+  box.appendChild(zeit);
+  for (const e of s.liste) {
+    const z = elem('div', 's-nacht-z ' + e.status);
+    const sym = { wartet: '○', laeuft: '◐', fertig: '✓', fehler: '!' }[e.status] || '○';
+    const t = elem('div', 's-nacht-text');
+    t.append(elem('b', null, `${sym} ${e.name}`), elem('small', null, (e.prompt || '').slice(0, 90) + (e.fehler ? ' – ' + fehlerText(e.fehler) : '')));
+    z.appendChild(t);
+    if (e.status === 'fertig' && e.dateien && e.dateien[0]) {
+      const ansehen = elem('button', 'm-knopf', 'Show');
+      ansehen.addEventListener('click', () => window.api.studioZeigen(e.dateien[0]));
+      z.appendChild(ansehen);
+    }
+    const x = elem('button', 's-nacht-weg', '✕');
+    x.title = e.status === 'laeuft' ? 'Cancel and remove' : 'Remove';
+    x.addEventListener('click', async () => { nachtStand = await window.api.nachtWeg(e.nr); zeichneNacht(); });
+    z.appendChild(x);
+    box.appendChild(z);
+  }
+  const fuss = elem('div', 's-nacht-fuss');
+  if (s.laeuft || s.sofort) {
+    const stopp = elem('button', 'm-knopf', 'Stop');
+    stopp.title = 'Stops the queue – the current job goes back in the queue';
+    stopp.addEventListener('click', async () => { nachtStand = await window.api.nachtStopp(); zeichneNacht(); });
+    fuss.appendChild(stopp);
+  } else if (wartet) {
+    const jetzt = elem('button', 'm-knopf', 'Start now');
+    jetzt.title = 'Don’t wait for the night';
+    jetzt.addEventListener('click', async () => { nachtStand = await window.api.nachtJetzt(); zeichneNacht(); });
+    fuss.appendChild(jetzt);
+  }
+  if (s.liste.some((e) => e.status === 'fertig' || e.status === 'fehler')) {
+    const weg = elem('button', 'm-knopf', 'Clear done');
+    weg.addEventListener('click', async () => { nachtStand = await window.api.nachtAufraeumen(); zeichneNacht(); });
+    fuss.appendChild(weg);
+  }
+  box.appendChild(fuss);
+  if (wartet && !s.laeuft) box.appendChild(elem('small', 's-nacht-info', 'Leave Glowline open (or in the tray) and the PC on – the jobs start at ' + s.start + ' and stop at ' + s.ende + '.'));
+}
+window.api.onNacht((s) => { nachtStand = s; zeichneNacht(); });

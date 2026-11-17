@@ -88,6 +88,7 @@
         <label id="l-gespart">Saved costs</label><b id="gespart">0.00 $</b>
       </div>
       <div class="platz"></div>
+      <button class="chip versteckt" id="update-chip" title="A new Glowline version is ready"><span id="update-text">Update</span></button>
       <button class="chip versteckt" id="dl-chip" title="Show all downloads"><i class="ein-dreh"></i><span id="dl-chip-text"></span></button>
       <button class="chip" id="ordner-chip" title="Working folder – click to choose another"><span class="ordner-symbol">⌂</span><span id="ordner-name">–</span></button>
       <button class="chip" id="tool-chip" title="Switch tool">
@@ -152,7 +153,7 @@
     <div class="bib-fenster">
       <div class="bib-kopf">
         <b>Models</b>
-        <div class="bib-tabs"><button data-tab="meine" class="an">My models</button><button data-tab="laden">Download</button><button data-tab="konten">Accounts</button><button data-tab="cowork">Cowork</button><button data-tab="downloads">Downloads</button></div>
+        <div class="bib-tabs"><button data-tab="meine" class="an">My models</button><button data-tab="laden">Download</button><button data-tab="konten">Accounts</button><button data-tab="cowork">Cowork</button><button data-tab="downloads">Downloads</button><button data-tab="stats">Stats</button></div>
         <div class="platz"></div>
         <button id="bib-link" class="m-knopf" title="Use this PC from your laptop (Glowline Link)">Link</button>
         <button id="bib-express" class="m-knopf" title="Let Glowline pick and install models that fit your PC">Express setup</button>
@@ -185,6 +186,9 @@
       <div id="bib-dl" class="bib-seite versteckt">
         <div id="dl-liste" class="bib-scroll"></div>
       </div>
+      <div id="bib-stats" class="bib-seite versteckt">
+        <div id="stats-inhalt" class="bib-scroll stats-seite"></div>
+      </div>
       <div id="bib-downloads"></div>
     </div>
   </div>
@@ -203,6 +207,12 @@
   </div>
 
   <!-- Glowline Link: PC teilen bzw. Laptop koppeln -->
+  <div id="update-pop" class="versteckt">
+    <div class="up-kopf"><img src="logo.png" alt=""><b id="up-titel">New update available</b><button id="up-zu" title="Later">✕</button></div>
+    <div id="up-text"></div>
+    <div class="up-fuss"><button id="up-spaeter" class="m-knopf">Later</button><button id="up-los" class="s-los">Update now</button></div>
+  </div>
+
   <div id="link" class="versteckt">
     <div class="ein-fenster link-fenster">
       <div class="bib-kopf">
@@ -225,5 +235,6 @@
   <script src="einrichtung.js"></script>
   <script src="downloads.js"></script>
   <script src="link.js"></script>
+  <script src="stats.js"></script>
 </body>
 </html>
