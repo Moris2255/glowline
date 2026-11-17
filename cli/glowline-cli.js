@@ -143,9 +143,21 @@ function mdZeile(zeile, st, w) {
   }
   if ((m = /^>\s?(.*)$/.exec(zeile))) return umbrechen(inline(m[1], C.leise), w, E + f(C.dunkel, '│ '), E + f(C.dunkel, '│ '));
   if (/^\s*\|.*\|\s*$/.test(zeile)) {
-    if (/^\s*\|[\s:|-]+\|\s*$/.test(zeile)) return [f(C.dunkel, E + kuerzeHart(zeile.trim(), w - 3))];
-    return [E + kuerzeHart(zeile.trim(), w - 3).replace(/\|/g, f(C.dunkel, '│') + C.text)];
+    // Tabelle: Spalten so breit wie bisher noetig, Kopfzeile fett, Trennlinie aus ─ und ┼
+    const zellen = zeile.trim().slice(1, -1).split('|').map((z) => z.trim());
+    const tb = st.tabelle || (st.tabelle = { breiten: [], zeilen: 0 });
+    if (zellen.every((z) => /^:?-+:?$/.test(z))) {
+      const n = Math.max(zellen.length, tb.breiten.length);
+      const b = Array.from({ length: n }, (_, i) => tb.breiten[i] || 3);
+      return [kuerze(f(C.dunkel, E + b.map((x, i) => '─'.repeat(x + (i === 0 || i === n - 1 ? 1 : 2))).join('┼')), w)];
+    }
+    const kopfZeile = tb.zeilen++ === 0;
+    const teile = zellen.map((z) => inline(z, kopfZeile ? C.hell + C.fett : C.text));
+    teile.forEach((t, i) => { tb.breiten[i] = Math.max(tb.breiten[i] || 0, t.reduce((s, x) => s + breite(x.t), 0)); });
+    const z = teile.map((t, i) => t.map((x) => x.s + x.t + C.aus).join('') + ' '.repeat(Math.max(0, tb.breiten[i] - t.reduce((s, x) => s + breite(x.t), 0)))).join(f(C.dunkel, ' │ '));
+    return [breite(z) + 2 > w ? schneideFarbig(E + z, w) : E + z];
   }
+  st.tabelle = null;
   return umbrechen(inline(zeile, C.text), w, E, E);
 }
 function kuerzeHart(s, w) {
@@ -250,14 +262,40 @@ function befehlTreffer() {
 const ROLLE = { schnell: 'fast', denker: 'thinking', coder: 'coder', sehen: 'vision' };
 const modellName = (id) => { if (!id) return ''; const m = info && info.modelle.find((x) => x.id === id); return (m && m.name) || String(id).split(',').pop(); };
 
-// ---------- Unterer Bereich (Eingabe, Fortschritt, Fusszeile) ----------
-const live = { gezeichnet: false, cursorZeile: 0 };
+// ---------- Bildschirm: Ausgabe waechst von oben, die Eingabe klebt immer ganz unten ----------
+// live.zeile = so viele Bildschirmzeilen sind oben mit Ausgabe belegt; darunter Luecke, dann Fortschritt + Eingabe
+const live = { gezeichnet: false, zeile: 0 };
+const hoehe = () => Math.max(6, process.stdout.rows || 30);
+const geheZu = (z, s = 1) => `\x1b[${z};${s}H`;
 function liveLeeren() {
   if (!live.gezeichnet) return '';
   live.gezeichnet = false;
-  return (live.cursorZeile ? `\x1b[${live.cursorZeile}A` : '') + '\r\x1b[J';
+  return geheZu(Math.min(live.zeile, hoehe() - 1) + 1) + '\x1b[J';
 }
+// n Zeilen hochschieben – die obersten wandern in den Verlauf des Terminals (Mausrad)
+function schiebe(n) {
+  if (n <= 0) return '';
+  live.zeile = Math.max(0, live.zeile - n);
+  if (live.kopf != null && (live.kopf -= n) < 1) live.kopf = null;
+  return geheZu(hoehe()) + '\n'.repeat(n);
+}
+// leerer Bildschirm, alte Ausgabe bleibt im Verlauf
+function neueSeite() { const s = liveLeeren() + schiebe(live.zeile); live.zeile = 0; bisher.length = 0; return s; }
+// die letzten Zeilen merken, um sie nach einer Groessenaenderung neu zu zeigen
+const bisher = [];
 const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
+// leuchtender Punkt (pulsiert) und ein Glanz, der ueber das Status-Wort laeuft
+function glimmen() {
+  const t = (Math.sin(Date.now() / 260) + 1) / 2;
+  const v = Math.round(110 + 145 * t);
+  return f(rgb(v, v, Math.min(255, v + 6)), '●');
+}
+function glanz(text) {
+  if (!FARBE) return text;
+  const z = [...text];
+  const pos = ((Date.now() / 70) % (z.length + 12)) - 6;
+  return z.map((ch, i) => { const n = Math.max(0, 1 - Math.abs(i - pos) / 4); const v = Math.round(150 + 105 * n); return rgb(v, v, v) + ch; }).join('') + C.aus;
+}
 function sekunden(t) { const s = Math.floor((Date.now() - t) / 1000); return s < 60 ? s + 's' : Math.floor(s / 60) + 'm ' + (s % 60) + 's'; }
 function balken(p, n = 14) { const v = Math.round((Math.max(0, Math.min(100, p)) / 100) * n); return f(C.hell, '▰'.repeat(v)) + f(C.dunkel, '▱'.repeat(n - v)); }
 function liveZeilen() {
@@ -269,17 +307,18 @@ function liveZeilen() {
     const a = L.antwort;
     // angefangene Zeile der Antwort
     if (a.teil) for (const r of a.teil) z.push(r);
-    const sp = f(C.hell, SPIN[Math.floor(Date.now() / 90) % SPIN.length]);
+    const sp = glimmen();
     let was;
     if (a.medien && !a.medien.dateien) {
-      const art = { image: 'Image', video: 'Video', voice: 'Voice', upscale: 'Upscale' }[a.medien.art] || 'Studio';
-      was = `${sp} ${f(C.hell, art)}${a.medien.modell ? f(C.leise, ' · ' + a.medien.modell) : ''} ${f(C.leise, '· ' + (a.medien.status || 'Starting…'))}` + (a.medien.prozent != null ? ' ' + balken(a.medien.prozent) + f(C.leise, ' ' + Math.floor(a.medien.prozent) + '%') : '');
-    } else if (a.datei && a.datei.status) was = `${sp} ${f(C.hell, 'File')} ${f(C.leise, '· ' + a.datei.status)}`;
-    else if (!a.text) was = `${sp} ${f(C.leise, a.denken ? 'Thinking…' : 'Working…')}`;
-    else was = `${sp} ${f(C.leise, 'Writing…')}`;
-    z.push(kuerze(was + f(C.dunkel, ` ${sekunden(L.start)} · Esc to stop`), w));
+      const art = { image: 'Creating image', video: 'Creating video', voice: 'Recording voice', upscale: 'Upscaling' }[a.medien.art] || 'Studio';
+      was = `${sp} ${glanz(art + '…')}${a.medien.modell ? f(C.leise, ' · ' + a.medien.modell) : ''} ${f(C.leise, '· ' + (a.medien.status || 'Starting…'))}` + (a.medien.prozent != null ? ' ' + balken(a.medien.prozent) + f(C.leise, ' ' + Math.floor(a.medien.prozent) + '%') : '');
+    } else if (a.datei && a.datei.status) was = `${sp} ${glanz('Writing file…')} ${f(C.leise, '· ' + a.datei.status)}`;
+    else if (!a.text) was = `${sp} ${glanz(a.denken ? 'Thinking…' : 'Working…')}`;
+    else was = `${sp} ${glanz('Writing…')}`;
+    z.push('', kuerze(was + f(C.dunkel, ` ${sekunden(L.start)} · Esc to stop`), w));
   }
   if (S.wartend) z.push(kuerze(f(C.leise, '  ⏵ next: ') + f(C.text, S.wartend.replace(/\n/g, ' ')), w));
+  const oben = z.splice(0);
   // Eingabe im Rahmen
   const innen = w - 4;
   z.push(f(C.dunkel, '╭' + '─'.repeat(w - 2) + '╮'));
@@ -320,7 +359,7 @@ function liveZeilen() {
       z.push(kuerze((an ? f(C.hell, '  › ' + name) : f(C.leise, '    ' + name)) + f(an ? C.text : C.dunkel, b.info), w));
     });
   } else z.push(fusszeile(w));
-  return { z, cur };
+  return { oben, unten: z, cur };
 }
 function fusszeile(w) {
   if (S.hinweis && Date.now() < S.hinweisBis) return kuerze('  ' + f(C.gelb, S.hinweis), w);
@@ -337,13 +376,18 @@ function fusszeile(w) {
   return platz > 1 ? links + ' '.repeat(platz) + rechts : kuerze(links, w);
 }
 function liveZeichnen() {
-  const { z, cur } = liveZeilen();
-  let s = z.join('\n');
+  const H = hoehe();
+  let { oben, unten, cur } = liveZeilen();
+  if (unten.length > H) unten = unten.slice(0, H);
+  // Fortschritt direkt unter der Ausgabe, Eingabe ganz unten – reicht der Platz nicht, rutscht die Ausgabe hoch
+  oben = oben.slice(Math.max(0, oben.length - (H - unten.length)));
+  let s = schiebe(live.zeile + oben.length + unten.length - H);
+  if (oben.length) s += geheZu(live.zeile + 1) + oben.join('\r\n');
+  const u = H - unten.length + 1;
+  s += geheZu(u) + unten.join('\r\n');
   // Cursor zurueck in die Eingabe
-  const hoch = z.length - 1 - cur.zeile;
-  s += (hoch ? `\x1b[${hoch}A` : '') + '\r' + (cur.spalte ? `\x1b[${cur.spalte}C` : '');
+  s += geheZu(u + cur.zeile, cur.spalte + 1);
   live.gezeichnet = true;
-  live.cursorZeile = cur.zeile;
   return s;
 }
 let malenGeplant = false;
@@ -357,24 +401,115 @@ function bald() { if (!malenGeplant && !nurAusgabe) { malenGeplant = true; setIm
 function drucke(zeilen) {
   if (!Array.isArray(zeilen)) zeilen = [zeilen];
   if (nurAusgabe) { out(zeilen.map((z) => (FARBE ? z : z.replace(ANSI, ''))).join('\n') + '\n'); return; }
-  out('\x1b[?2026h\x1b[?25l' + liveLeeren() + zeilen.join('\n') + '\n' + liveZeichnen() + '\x1b[?25h\x1b[?2026l');
+  out('\x1b[?2026h\x1b[?25l' + liveLeeren() + zeilenSchreiben(zeilen) + liveZeichnen() + '\x1b[?25h\x1b[?2026l');
+  bisher.push(...zeilen);
+  if (bisher.length > 400) bisher.splice(0, bisher.length - 400);
+}
+function zeilenSchreiben(zeilen) {
+  const H = hoehe(), W = process.stdout.columns || 100;
+  let s = '';
+  for (const z of zeilen) {
+    const n = Math.min(H, Math.max(1, Math.ceil(breite(z) / W)));
+    s += schiebe(live.zeile + n - H) + geheZu(live.zeile + 1) + '\x1b[2K' + z + C.aus;
+    live.zeile += n;
+  }
+  return s;
+}
+// Fenstergroesse geaendert: Bildschirm neu aufbauen (die letzten Zeilen, passend gekuerzt)
+let groesseUhr = null;
+// auf Breite schneiden, Farben bleiben erhalten
+function schneideFarbig(s, w) {
+  let b = 0, r = '', i = 0;
+  const re = new RegExp(ANSI.source, 'y');
+  while (i < s.length) {
+    re.lastIndex = i;
+    const m = re.exec(s);
+    if (m) { r += m[0]; i += m[0].length; continue; }
+    const ch = String.fromCodePoint(s.codePointAt(i));
+    const z = zb(ch.codePointAt(0));
+    if (b + z > w) break;
+    r += ch; b += z; i += ch.length;
+  }
+  return r + C.aus;
+}
+function neuAufbauen() {
+  const H = hoehe(), w = spalten() - 1;
+  const platz = Math.max(0, H - 6);
+  const zeilen = bisher.slice(-platz).map((z) => (breite(z) > w + 1 ? schneideFarbig(z, w) : z));
+  live.gezeichnet = false;
+  live.zeile = 0;
+  live.kopf = null;
+  out('\x1b[?2026h\x1b[?25l' + geheZu(1) + '\x1b[J' + zeilenSchreiben(zeilen) + liveZeichnen() + '\x1b[?25h\x1b[?2026l');
 }
 function hinweis(t, ms = 3500) { S.hinweis = t; S.hinweisBis = Date.now() + ms; bald(); setTimeout(bald, ms + 50); }
 
 // ---------- Kopf ----------
+// Glim – das Glowline-Maskottchen: ein kleines Licht-Troepfchen auf seiner Leuchtlinie
+const GLIM = [
+  '......T......',
+  '.....WWW.....',
+  '....WWWWW....',
+  '...WWWWWWW...',
+  '..WWEWWWEWW..',
+  '..WWEWWWEWW..',
+  '..WWWWEWWWW..',
+  '..wwwwwwwww..',
+  '...ww...ww...',
+  'LLLLLLLLLLLLL',
+];
+const GLIM_FARBEN = { T: [255, 255, 255], W: [244, 245, 250], w: [200, 203, 211], E: [24, 25, 29] };
+// Pixel -> Halbblock-Zeichen (ein Zeichen = zwei Pixel uebereinander)
+function pixelZeilen(raster) {
+  const farbe = (zeile, x) => {
+    const c = (raster[zeile] || '')[x];
+    if (c === 'L') { const t = x / Math.max(1, raster[zeile].length - 1); const v = Math.round(150 + 105 * t); return [v, v, Math.min(255, v + 4)]; }
+    return GLIM_FARBEN[c] || null;
+  };
+  const r = [];
+  for (let y = 0; y < raster.length; y += 2) {
+    let z = '';
+    for (let x = 0; x < raster[y].length; x++) {
+      const o = farbe(y, x), u = farbe(y + 1, x);
+      if (!o && !u) z += C.aus + ' ';
+      else if (o && u) z += `\x1b[38;2;${o.join(';')}m\x1b[48;2;${u.join(';')}m▀`;
+      else if (o) z += `\x1b[49m\x1b[38;2;${o.join(';')}m▀`;
+      else z += `\x1b[49m\x1b[38;2;${u.join(';')}m▄`;
+    }
+    r.push(z + C.aus);
+  }
+  return r;
+}
+// Kopf drucken und merken, wo Glim steht (zum Blinzeln)
+function zeigeKopf() {
+  drucke(kopf());
+  live.kopf = FARBE ? live.zeile - 5 : null;
+}
+// Glim blinzelt ab und zu, solange er oben zu sehen ist
+const GLIM_ZU = GLIM.map((z, i) => (i === 4 ? z.replace(/E/g, 'W') : z));
+function blinzeln() {
+  setTimeout(() => {
+    if (live.kopf != null && live.gezeichnet) {
+      const zeile = (raster) => '\x1b7' + geheZu(live.kopf + 2, 3) + pixelZeilen(raster)[2] + '\x1b8';
+      out('\x1b[?2026h' + zeile(GLIM_ZU) + '\x1b[?2026l');
+      setTimeout(() => { if (live.kopf != null) out('\x1b[?2026h' + zeile(GLIM) + '\x1b[?2026l'); }, 150);
+    }
+    blinzeln();
+  }, 3500 + Math.random() * 4000).unref();
+}
 function kopf() {
   const v = info && info.version ? info.version : '';
   const ordner = kurzPfad(process.cwd());
-  const glow = [[150, 154, 162], [185, 188, 194], [220, 222, 226], [255, 255, 255], [220, 222, 226]];
-  const linie = glow.map((c) => f(rgb(...c), '━')).join('');
-  const r = [
+  const w = spalten() - 1;
+  const text = [
     '',
-    `  ${f(C.dunkel, '╭─────╮')}   ${f(C.hell + C.fett, 'Glow-')}   ${f(C.leise, 'Glowline ' + v + ' · Cowork')}`,
-    `  ${f(C.dunkel, '│')} ${f(C.hell + C.fett, '›')}${f(C.hell, '_')}  ${f(C.dunkel, '│')}   ${f(C.hell + C.fett, 'line')}    ${f(C.dunkel, kuerze(ordner, spalten() - 24))}`,
-    `  ${f(C.dunkel, '╰')}${linie}${f(C.dunkel, '╯')}`,
+    f(C.hell + C.fett, 'Glow-') + '   ' + f(C.text, 'Glowline ' + v) + f(C.leise, ' · Cowork'),
+    f(C.hell + C.fett, 'line') + '    ' + f(C.leise, kuerze(ordner, Math.max(10, w - 28))),
+    '        ' + f(C.dunkel, kuerze('/ for commands · drag in an image · Esc stops', Math.max(10, w - 28))),
     '',
   ];
-  return r;
+  if (!FARBE) return ['', '  Glow-   Glowline ' + v + ' · Cowork', '  line    ' + ordner, ''];
+  const bild = pixelZeilen(GLIM);
+  return ['', ...bild.map((b, i) => '  ' + b + '   ' + (text[i] || '')), ''];
 }
 
 // ---------- Senden ----------
@@ -557,7 +692,7 @@ function zeilenRaus(L, alles) {
   }
   if (!alles) {
     const letzte = zeilen[zeilen.length - 1];
-    let teil = letzte ? mdZeile(letzte, { ...a.st }, w).slice(a.teilGedruckt) : null;
+    let teil = letzte ? mdZeile(letzte, { ...a.st, tabelle: a.st.tabelle && { breiten: [...a.st.tabelle.breiten], zeilen: a.st.tabelle.zeilen } }, w).slice(a.teilGedruckt) : null;
     // sehr lange Absaetze: was nicht mehr umbricht, schon nach oben schieben
     const max = Math.max(3, zeilenHoch() - 14);
     if (teil && teil.length > max) {
@@ -585,7 +720,7 @@ async function abschliessen(L, fehler) {
   // Ergebnis aus dem Studio
   if (a.medien && a.medien.dateien && a.medien.dateien.length) {
     const art = { image: 'Image', video: 'Video', voice: 'Voice', upscale: 'Upscale' }[a.medien.art] || 'Result';
-    const r = [...antwortKopf(L), `${f(C.gruen, '  ✓ ')}${f(C.hell, art + ' ready')}${f(C.leise, (a.medien.modell ? ' · ' + a.medien.modell : '') + ' · ' + sekunden(L.start))}`];
+    const r = [...antwortKopf(L), `${f(C.hell + C.fett, '  ✓ ')}${f(C.hell, art + ' ready')}${f(C.leise, (a.medien.modell ? ' · ' + a.medien.modell : '') + ' · ' + sekunden(L.start))}`];
     if (a.medien.prompt && a.medien.art !== 'upscale') r.push(...umbrechen([{ t: a.medien.prompt, s: C.dunkel }], Math.min(w, 100), '    ', '    ').slice(0, 3));
     drucke(r);
     for (const d of a.medien.dateien) {
@@ -599,7 +734,7 @@ async function abschliessen(L, fehler) {
   }
   // gespeicherte Dateien
   if (a.datei && a.datei.dateien && a.datei.dateien.length) {
-    const r = [`${f(C.gruen, '  ✓ ')}${f(C.hell, (a.datei.geaendert ? 'Updated ' : 'Saved ') + a.datei.dateien.map((x) => x.name).join(', '))}${f(C.leise, ' in ' + a.datei.ordner)}`];
+    const r = [`${f(C.hell + C.fett, '  ✓ ')}${f(C.hell, (a.datei.geaendert ? 'Updated ' : 'Saved ') + a.datei.dateien.map((x) => x.name).join(', '))}${f(C.leise, ' in ' + a.datei.ordner)}`];
     for (const d of a.datei.dateien) r.push('    ' + f(C.code, link(dateiUrl(d.pfad), kurzPfad(d.pfad))));
     S.letztes = { pfad: (a.datei.dateien.find((x) => /\.html?$/i.test(x.pfad)) || a.datei.dateien[0]).pfad };
     r.push(f(C.dunkel, '    Ctrl+O opens it'));
@@ -659,8 +794,8 @@ async function befehlOderSenden(text) {
     case 'clear':
       if (S.laeuft) S.laeuft.stopp();
       S.verlauf = []; S.ziel = ''; S.immerDenken = false; S.letztes = null;
-      out(liveLeeren() + '\x1b[2J\x1b[3J\x1b[H');
-      drucke(kopf());
+      out(neueSeite());
+      zeigeKopf();
       hinweis('New chat');
       break;
     case 'exit': beenden(); break;
@@ -798,7 +933,7 @@ function taste(k) {
     case '\x0b': S.eingabe = z.slice(0, S.cursor).join(''); break; // Ctrl+K
     case '\x17': { const i = wortGrenze(-1); z.splice(i, S.cursor - i); S.eingabe = z.join(''); S.cursor = i; break; } // Ctrl+W
     case '\x0f': oeffneLetztes(); break; // Ctrl+O
-    case '\x0c': out(liveLeeren() + '\x1b[2J\x1b[3J\x1b[H'); drucke(kopf()); break; // Ctrl+L
+    case '\x0c': out(neueSeite()); zeigeKopf(); break; // Ctrl+L
     case '\x1b':
       if (tr.length) { S.eingabe = ''; S.cursor = 0; }
       else if (S.laeuft) S.laeuft.stopp();
@@ -874,7 +1009,7 @@ let ein = null;
 function beenden(code = 0) {
   if (S.laeuft) try { S.laeuft.req && S.laeuft.req.destroy(); } catch {}
   if (!nurAusgabe) {
-    out(liveLeeren() + '\x1b[?2004l\x1b[?25h');
+    out(liveLeeren() + schiebe(live.zeile + 2 - hoehe()) + geheZu(live.zeile + 1) + '\x1b[?2004l\x1b[?25h');
     try { ein && ein.setRawMode(false); } catch {}
     out(f(C.dunkel, '  Bye – Glowline keeps running in the tray.') + '\n');
   }
@@ -899,8 +1034,10 @@ async function start() {
   log('stdin tty', tty.isatty(0), 'ein', ein === process.stdin ? 'stdin' : 'conin');
   ein.setRawMode(true);
   ein.setEncoding('utf8');
-  out('\x1b[?2004h');
-  drucke(kopf());
+  // alten Inhalt nach oben in den Verlauf schieben: Glowline bekommt einen leeren Bildschirm
+  out('\x1b[?2004h' + '\n'.repeat(hoehe()) + geheZu(1));
+  live.zeile = 0;
+  zeigeKopf();
   // verbinden (startet die App, wenn noetig)
   let warteText = 'Connecting…';
   S.laeuft = null;
@@ -914,10 +1051,12 @@ async function start() {
   }
   clearInterval(uhr);
   S.hinweis = '';
-  out(liveLeeren() + '\x1b[2J\x1b[3J\x1b[H');
-  drucke(kopf());
+  out(liveLeeren() + geheZu(1) + '\x1b[J');
+  live.zeile = 0; bisher.length = 0;
+  zeigeKopf();
   ein.on('data', eingang);
-  process.stdout.on('resize', () => { out('\x1b[?2026h' + liveLeeren() + '\x1b[J'); live.gezeichnet = false; malen(); out('\x1b[?2026l'); });
+  blinzeln();
+  process.stdout.on('resize', () => { clearTimeout(groesseUhr); groesseUhr = setTimeout(neuAufbauen, 80); });
   // GPU-Anzeige alle paar Sekunden
   setInterval(async () => {
     try { const s = await anfrage('GET', '/status'); const neu = JSON.stringify(s.gpu); if (neu !== JSON.stringify(S.gpu)) { S.gpu = s.gpu; bald(); } } catch {}
