@@ -16,6 +16,7 @@ const dateien = require('./dateien');
 const link = require('./link');
 const update = require('./update');
 const nacht = require('./nacht');
+const hoeren = require('./hoeren');
 const statistik = require('./statistik');
 // eigene App "Glowline Link" (gleicher Code, eigener Installer): nutzt die Modelle eines PCs im Heimnetz
 const LINK_APP = !!require('./package.json').glowlineLink || !!(process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_LINKAPP);
@@ -1045,6 +1046,13 @@ ipcMain.handle('installer:stand', (_e, id) => installerStand(id));
 // Stats-Seite (statistik.js)
 ipcMain.handle('statistik:stand', () => statistik.stand());
 ipcMain.on('statistik:zaehle', (_e, x) => statistik.zaehle(x));
+// Spracheingabe (hoeren.js, whisper.cpp auf dem Prozessor) – auch in Glowline Link
+ipcMain.handle('hoeren:stand', () => hoeren.stand());
+ipcMain.handle('hoeren:holen', (_e, id) => hoeren.holen(id));
+ipcMain.handle('hoeren:sprache', (_e, s) => hoeren.sprache(s));
+ipcMain.handle('hoeren:entfernen', () => hoeren.entfernen());
+ipcMain.handle('hoeren:schreiben', (_e, wav) => hoeren.schreiben(wav));
+ipcMain.on('hoeren:abbrechen', () => hoeren.abbrechen());
 ipcMain.handle('nacht:stand', () => (LINK_APP ? null : nacht.stand()));
 ipcMain.handle('nacht:dazu', (_e, a) => { if (LINK_APP) throw new Error('The night queue runs on your PC'); return nacht.dazu(a); });
 ipcMain.handle('nacht:weg', (_e, nr) => nacht.weg(String(nr)));
@@ -1656,6 +1664,30 @@ async function testLauf(ordner) {
       console.log('STATS HEAT', await js(`document.querySelectorAll('.stats-heat i').length + ' Felder, ' + document.querySelectorAll('.stats-heat i.s4').length + ' s4, monate ' + [...document.querySelectorAll('.stats-monate span')].filter((x) => x.textContent).length`));
       await js(`schliesseBib()`);
     }
+    if (was.includes('sprache')) {
+      // Spracheingabe: Einrichten (Fake-Server GLOWLINE_TEST_HOEREN_URL), Aufnahme (Testton statt Mikrofon), Text landet im Ziel
+      await js(`zeigeWorkspace('auto')`); await warte(1200);
+      console.log('SPRACHE STAND', JSON.stringify(await js(`window.api.hoerenStand()`)));
+      await js(`document.querySelector('#chat-mic').click()`); await warte(700); await bild('h-einrichten');
+      console.log('SPRACHE POPUP', await js(`document.querySelector('#hoeren-pop').classList.contains('versteckt') ? 'zu' : document.querySelector('#hoeren-pop').innerText.split(String.fromCharCode(10)).filter(Boolean).join(' | ')`));
+      await js(`document.querySelector('.hp-karte[data-id="beste"]').click()`); await warte(4000); await bild('h-geladen');
+      console.log('SPRACHE NACH LADEN', JSON.stringify(await js(`window.api.hoerenStand()`)), '|', await js(`document.querySelector('#hoeren-pop').classList.contains('versteckt') ? 'pop zu' : 'pop offen'`));
+      await js(`document.querySelector('#chat-text').value = 'Hallo,'; document.querySelector('#chat-mic').click()`); await warte(1600); await bild('h-aufnahme');
+      console.log('SPRACHE AUFNAHME', await js(`document.querySelector('#chat-mic').className + ' | pegel=' + (hz.aufnahme ? hz.aufnahme.pegel.toFixed(3) : '-')`));
+      await js(`document.querySelector('#chat-mic').click()`); await warte(1500);
+      console.log('SPRACHE TEXT', JSON.stringify(await js(`document.querySelector('#chat-text').value`)), '|', await js(`document.querySelector('#chat-mic').className`));
+      // Strg+Shift+Leertaste startet, Esc bricht ab
+      await js(`document.querySelector('#chat-text').focus(); document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', ctrlKey: true, shiftKey: true, bubbles: true })); 1`); await warte(1000);
+      console.log('SPRACHE TASTE', await js(`hz.aufnahme ? 'nimmt auf' : 'aus'`));
+      await js(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); 1`); await warte(500);
+      console.log('SPRACHE ESC', await js(`(hz.aufnahme ? 'nimmt noch' : 'abgebrochen') + ' | ' + JSON.stringify(document.querySelector('#chat-text').value)`));
+      console.log('SPRACHE ANDERSWO', await js(`zeigeTerminal(); 1`) && await warte(800) || await js(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', ctrlKey: true, shiftKey: true, bubbles: true })); hz.aufnahme ? 'nimmt (falsch)' : 'nichts (richtig)'`), await js(`document.querySelectorAll('.mic').length + ' Mikro-Knopf'`));
+      // Menue-Zeile + Sprache
+      await js(`zeigeTerminal(); document.querySelector('#tool-chip').click(); document.querySelector('#tools-anpassen-knopf').click(); 1`); await warte(600); await bild('h-menue');
+      console.log('SPRACHE MENUE', await js(`[...document.querySelectorAll('#tools-anpassen .anp-zeile')].map((z) => z.innerText.split(String.fromCharCode(10)).join(' ')).filter((t) => /Voice|Speech/.test(t)).join(' | ')`));
+      await js(`schliesseMenues()`);
+      console.log('SPRACHE ZU KURZ', JSON.stringify(await js(`window.api.hoerenSchreiben(new Uint8Array(10))`)));
+    }
     if (was.includes('nacht')) {
       await js(`zeigeStudio('bild')`); await warte(1500);
       await js(`sz.felder.bild.prompt = 'a tree at night'; zeichneStudio(); document.querySelector('#studio-nacht').click()`); await warte(800);
@@ -2239,6 +2271,10 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
       version: app.getVersion(), link: LINK_APP, cfg: () => cfg, sende, ladeDatei: studio.ladeDatei, test: !!process.env.GLOWLINE_TEST,
       ordner: process.env.GLOWLINE_TEST ? path.join(process.env.GLOWLINE_TEST, 'update') : path.join(app.getPath('userData'), 'update'),
       beenden: () => { wirklichBeenden = true; app.quit(); },
+    });
+    hoeren.init({
+      cfg: () => cfg, setzeCfg: (p) => { Object.assign(cfg, mische(cfg, p)); speichereConfig(); }, sende, ladeDatei: studio.ladeDatei, test: !!process.env.GLOWLINE_TEST,
+      ordner: process.env.GLOWLINE_TEST ? path.join(process.env.GLOWLINE_TEST, 'hoeren') : path.join(process.env.LOCALAPPDATA || app.getPath('userData'), 'Glowline', 'hoeren'),
     });
     link.init({ cfg: () => cfg, speichere: speichereConfig, version: app.getVersion(), gpu: () => gpu(), sende, vramFrei });
     if (LINK_APP) link.umleiten();

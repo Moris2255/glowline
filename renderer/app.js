@@ -284,6 +284,7 @@ function zeichneAnpassen() {
   });
   upd.append(updText, updK);
   box.appendChild(upd);
+  hoerenMenueZeile(box);
   auswahlZeile('Close (X)', 'beimSchliessen', [['beenden', 'Quit'], ['minimieren', 'Minimize'], ['tray', 'Keep running in tray']], cfg.beimSchliessen || 'beenden',
     (n) => 'Close button: ' + n);
   box.appendChild(elem('div', 'm-gruppe', 'Show, hide and sort the list'));

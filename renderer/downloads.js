@@ -49,6 +49,7 @@ function alleDownloads() {
       abbrechen: () => window.api.installerAbbrechen(id),
     });
   }
+  if (typeof hoerenDownloads === 'function') l.push(...hoerenDownloads());
   return l;
 }
 
