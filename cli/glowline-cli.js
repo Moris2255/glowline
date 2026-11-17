@@ -288,9 +288,10 @@ function schiebe(n) {
   return geheZu(hoehe()) + '\n'.repeat(n);
 }
 // leerer Bildschirm, alte Ausgabe bleibt im Verlauf
-function neueSeite() { const s = liveLeeren() + schiebe(live.zeile); live.zeile = 0; bisher.length = 0; return s; }
+function neueSeite() { const s = liveLeeren() + schiebe(live.zeile); live.zeile = 0; bisher.length = 0; kopfIndex = null; return s; }
 // die letzten Zeilen merken, um sie nach einer Groessenaenderung neu zu zeigen
 const bisher = [];
+let kopfIndex = null; // wo Glims erste Bildzeile in bisher steht (damit er nach dem Neuaufbau weiter lebt)
 const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 // leuchtender Punkt (pulsiert) und ein Glanz, der ueber das Status-Wort laeuft
 function glimmen() {
@@ -411,7 +412,7 @@ function drucke(zeilen) {
   if (nurAusgabe) { out(zeilen.map((z) => (FARBE ? z : z.replace(ANSI, ''))).join('\n') + '\n'); return; }
   out('\x1b[?2026h\x1b[?25l' + liveLeeren() + zeilenSchreiben(zeilen) + liveZeichnen() + '\x1b[?25h\x1b[?2026l');
   bisher.push(...zeilen);
-  if (bisher.length > 400) bisher.splice(0, bisher.length - 400);
+  if (bisher.length > 400) { const weg = bisher.length - 400; bisher.splice(0, weg); if (kopfIndex != null && (kopfIndex -= weg) < 0) kopfIndex = null; }
 }
 function zeilenSchreiben(zeilen) {
   const H = hoehe(), W = breiteFenster();
@@ -444,11 +445,16 @@ function neuAufbauen() {
   const H = hoehe(), w = spalten() - 1;
   log('neuAufbauen', breiteFenster(), hoeheFenster());
   const platz = Math.max(0, H - 6);
-  const zeilen = bisher.slice(-platz).map((z) => (breite(z) > w + 1 ? schneideFarbig(z, w) : z));
+  const ab = Math.max(0, bisher.length - platz);
+  const zeilen = bisher.slice(ab).map((z) => (breite(z) > w + 1 ? schneideFarbig(z, w) : z));
   live.gezeichnet = false;
   live.zeile = 0;
   live.kopf = null;
-  out('\x1b[?2026h\x1b[?25l' + geheZu(1) + '\x1b[J' + zeilenSchreiben(zeilen) + liveZeichnen() + '\x1b[?25h\x1b[?2026l');
+  // Glim mitnehmen, wenn er noch zu sehen ist
+  const k = FARBE && kopfIndex != null && kopfIndex >= ab ? kopfIndex - ab : -1;
+  let s = zeilenSchreiben(k < 0 ? zeilen : zeilen.slice(0, k));
+  if (k >= 0) { live.kopf = live.zeile + 1; s += zeilenSchreiben(zeilen.slice(k)); }
+  out('\x1b[?2026h\x1b[?25l' + geheZu(1) + '\x1b[J' + s + liveZeichnen() + '\x1b[?25h\x1b[?2026l');
 }
 function hinweis(t, ms = 3500) { S.hinweis = t; S.hinweisBis = Date.now() + ms; bald(); setTimeout(bald, ms + 50); }
 
@@ -497,6 +503,7 @@ function pixelZeilen(raster, pal = GLIM_FARBEN) {
 function zeigeKopf() {
   drucke(kopf());
   live.kopf = FARBE ? live.zeile - 5 : null;
+  kopfIndex = bisher.length - 6;
 }
 // Glim lebt, solange er oben zu sehen ist: der Bauch leuchtet auf und ab, ab und zu blinzelt er
 const GLIM_ZU = GLIM.map((z, i) => (i === 3 ? z.replace(/TE/g, 'ww') : z));
@@ -993,7 +1000,7 @@ function groesseErhalten(s, z) {
   const neu = s !== breiteFenster() || z !== hoeheFenster();
   fenster.spalten = s; fenster.zeilen = z;
   if (groesseWarten) { const w = groesseWarten; groesseWarten = null; w(); return; }
-  if (neu) { clearTimeout(groesseUhr); groesseUhr = setTimeout(neuAufbauen, 60); }
+  if (neu) { clearTimeout(groesseUhr); groesseUhr = setTimeout(neuAufbauen, 25); }
 }
 // beim Start kurz auf die erste Antwort warten (hoechstens 400 ms)
 function ersteGroesse() {
@@ -1105,12 +1112,12 @@ async function start() {
   clearInterval(uhr);
   S.hinweis = '';
   out(liveLeeren() + geheZu(1) + '\x1b[J');
-  live.zeile = 0; bisher.length = 0;
+  live.zeile = 0; bisher.length = 0; kopfIndex = null;
   zeigeKopf();
   blinzeln();
   process.stdout.on('resize', () => { frageGroesse(); clearTimeout(groesseUhr); groesseUhr = setTimeout(neuAufbauen, 80); });
-  // Fenster groesser/kleiner gezogen? Das Terminal jede Sekunde fragen (Electron meldet es oft nicht)
-  setInterval(frageGroesse, 1000).unref();
+  // Fenster groesser/kleiner gezogen? Das Terminal alle 150 ms fragen (Electron meldet es oft nicht, die Frage ist nur ein paar Bytes)
+  setInterval(frageGroesse, 150).unref();
   // GPU-Anzeige alle paar Sekunden
   setInterval(async () => {
     try { const s = await anfrage('GET', '/status'); const neu = JSON.stringify(s.gpu); if (neu !== JSON.stringify(S.gpu)) { S.gpu = s.gpu; bald(); } } catch {}
