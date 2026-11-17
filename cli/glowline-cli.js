@@ -263,7 +263,7 @@ const BEFEHLE = [
   { n: 'usage', info: 'tokens and saved costs: this chat, today, all time' },
   { n: 'stats', info: 'your last weeks: activity, favourite model, Studio results' },
   { n: 'autostart', arg: 'on | off', info: 'start Glowline with Windows, so gl is ready at once' },
-  { n: 'update', arg: 'now', info: 'check for a new Glowline version · /update now installs it' },
+  { n: 'update', info: 'install the newest Glowline version (download, install, restart)' },
   { n: 'exit', alias: ['quit'], info: 'leave (or Ctrl+C twice)' },
 ];
 const befehlFinden = (w) => BEFEHLE.find((b) => b.n === w || (b.alias || []).includes(w));
@@ -426,7 +426,9 @@ function fusszeile(w, mitWerten) {
   if (mitWerten && g && g.total) teile.push([7, f(C.leise, 'GPU ') + wert(g.util + '%', '')], [6, wert((g.used / 1024).toFixed(1), `/${Math.round(g.total / 1024)} GB`)]);
   if (mitWerten && S.gespart >= 0.01) teile.push([2, f(C.leise, 'saved ') + wert(S.gespart.toFixed(2) + ' $', ' today')]);
   if (S.ziel) teile.push([1, f(C.leise, 'goal: ' + kuerze(S.ziel, 24))]);
-  const rechts = f(C.dunkel, S.laeuft ? 'Esc stop' : S.letztes ? 'Ctrl+O open · / commands' : '/ commands');
+  // neue Version da (wie bei OpenCode): rechts unten zeigen, /update installiert sie
+  const rechts = S.laeuft ? f(C.dunkel, 'Esc stop') : S.updateNeu ? f(C.gelb, '✦ New update available: ' + S.updateNeu) + f(C.dunkel, ' · ') + f(C.hell, '/update')
+    : f(C.dunkel, S.letztes ? 'Ctrl+O open · / commands' : '/ commands');
   const baue = () => '  ' + teile.map((t) => t[1]).join(f(C.dunkel, ' · '));
   let links = baue();
   while (teile.length > 1 && breite(links) + breite(rechts) + 2 > w) {
@@ -1064,27 +1066,24 @@ async function befehlOderSenden(text) {
       } catch { hinweis('Update the Glowline app to use /autostart'); }
       break;
     }
-    case 'update': await updateBefehl(/^(now|jetzt|install|installieren|yes|ja)$/i.test(rest)); break;
+    case 'update': await updateBefehl(); break;
   }
   bald();
 }
-// /update: neue Version suchen und zeigen · /update now: laden (mit Balken), installieren, Glowline startet neu
-async function updateBefehl(installieren) {
+// /update: neue Version suchen, zeigen was neu ist, laden (mit Balken), installieren – Glowline startet neu
+async function updateBefehl() {
   let st;
   hinweis('Checking for updates…', 15000);
   try { st = await anfrage('GET', '/update'); } catch { hinweis('Update the Glowline app to use /update'); return; }
   S.hinweis = '';
   if (st.fehler && !st.neu) { lokal([f(C.rot, '  ' + st.fehler)]); return; }
+  S.updateNeu = st.neu || null;
   if (!st.neu) { lokal([f(C.hell + C.fett, '  ✓ ') + f(C.hell, 'Glowline ' + st.version + ' is up to date.')]); return; }
-  if (!installieren) {
-    lokal([
-      f(C.hell + C.fett, '  Glowline ' + st.neu + ' is available') + f(C.leise, ' · you have ' + st.version),
-      ...(st.punkte || []).map((z) => f(C.leise, '  • ') + f(C.text, z)),
-      '', f(C.leise, '  Type ') + f(C.hell, '/update now') + f(C.leise, ' to install it. Glowline restarts and gl closes – then just type gl again.'),
-    ]);
-    return;
-  }
   if (S.laeuft) { hinweis('Wait for the answer first'); return; }
+  lokal([
+    f(C.hell + C.fett, '  Updating to Glowline ' + st.neu) + f(C.leise, ' · you have ' + st.version),
+    ...(st.punkte || []).map((z) => f(C.leise, '  • ') + f(C.text, z)),
+  ]);
   try { st = await anfrage('POST', '/update/laden'); } catch { hinweis('Glowline is not reachable'); return; }
   while (!st.bereit && !st.fehler) {
     const p = st.gesamt ? (st.geladen / st.gesamt) * 100 : 0;
@@ -1333,6 +1332,10 @@ async function start() {
     try { const s = await anfrage('GET', '/status'); const neu = JSON.stringify([s.gpu, s.gespart, s.geladen]); if (neu !== JSON.stringify([S.gpu, S.gespart, S.geladen])) { S.gpu = s.gpu; S.gespart = s.gespart; S.geladen = s.geladen; bald(); } } catch {}
   }, 2000).unref();
   S.gpu = info && info.gpu;
+  // neue Glowline-Version? einmal beim Start und dann jede Stunde nachsehen (die App fragt GitHub hoechstens stuendlich)
+  const updateSehen = () => anfrage('GET', '/update/hinweis').then((u) => { const n = (u && u.neu) || null; if (n !== S.updateNeu) { S.updateNeu = n; bald(); } }, () => {});
+  setTimeout(updateSehen, 1500);
+  setInterval(updateSehen, 3600 * 1000).unref();
   malen();
   // App war aus: einmal zeigen, wie gl sofort bereit ist
   if (kaltstart) {

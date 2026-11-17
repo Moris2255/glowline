@@ -1809,13 +1809,12 @@ async function testLauf(ordner) {
         await new Promise((ok) => srv.listen(0, '127.0.0.1', ok));
         const vorher = process.env.GLOWLINE_TEST_UPDATE;
         process.env.GLOWLINE_TEST_UPDATE = `http://127.0.0.1:${srv.address().port}`;
-        await tippe(`${start}\r`, 5000);
         roh = '';
-        await tippe('/update\r', 2000); await bild('t-update');
-        console.log('TERMINAL UPDATE', /Glowline 9\.9\.9 is available/.test(sauber()) && /Neue Sachen/.test(sauber()) && /update now/.test(sauber()) ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-300));
+        await tippe(`${start}\r`, 6000); await bild('t-update-hinweis');
+        console.log('TERMINAL UPDATE HINWEIS', /New update available: 9\.9\.9/.test(sauber()) ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-300));
         roh = '';
-        await tippe('/update now\r', 5000); await bild('t-update-jetzt');
-        console.log('TERMINAL UPDATE JETZT', /Installing Glowline 9\.9\.9/.test(sauber()) && /type gl again/.test(sauber()) && update.stand().bereit ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-300));
+        await tippe('/update\r', 5000); await bild('t-update');
+        console.log('TERMINAL UPDATE', /Updating to Glowline 9\.9\.9/.test(sauber()) && /Neue Sachen/.test(sauber()) && /Installing Glowline 9\.9\.9/.test(sauber()) && /type gl again/.test(sauber()) && update.stand().bereit ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-300));
         await warte(2000);
         if (vorher === undefined) delete process.env.GLOWLINE_TEST_UPDATE; else process.env.GLOWLINE_TEST_UPDATE = vorher;
         srv.close();
