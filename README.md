@@ -106,6 +106,17 @@ Images, video, upscaling and voice – running fully inside Glowline. The first 
 - Only clone voices you are allowed to use.
 - **Night queue** – *Add to night queue* collects jobs instead of starting them. Glowline makes them one after another at night (default 23:00 until 05:00 – at the end time it stops, and an unfinished job continues the next night). **Start now** doesn't wait for the night. Leave Glowline open or in the tray. Cloud models can't go in the queue (they cost money).
 
+### Film maker
+
+**Studio → Film** turns a topic into a short film (30, 60 or 90 s, 16:9 or 9:16). Or just ask Cowork: *“create a 60 second film about a hamster who flies to the moon”*.
+
+1. Your chat model writes the script: a title, the main character, a look, and one scene per 5 seconds – picture, motion and narrator text.
+2. You can change everything: texts, order, add or remove scenes, a narrator voice sample, your own music, subtitles.
+3. The Studio makes every scene on your GPU – a picture (the same character description in every scene), then a 5 s video from that picture, then the narrator.
+4. Glowline cuts everything into one MP4 with crossfades, the narrator, ducked music, subtitles burned in and an `.srt` file next to it (`studio\ausgabe\Filme`).
+
+Needs an image model, Wan 2.2 5B and (for the narrator) the voice. A 60 s film can take an hour or more – **Add to night queue** is ideal. If it stops (Cancel, end of the night, crash), it continues where it stopped; changing a text only remakes that part. Use only music you are allowed to use.
+
 ### Studio tools for coding agents
 
 When the Studio is set up, Claude Code, Codex, OpenCode and Qwen Code started from Glowline get the tools `generate_image`, `generate_video`, `upscale_image`, `text_to_speech` and `studio_status` (MCP on `127.0.0.1:3461`, protected with a random key per start). Ask your agent for "a 16:9 hero image for the landing page" and it renders it locally.

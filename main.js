@@ -17,6 +17,7 @@ const link = require('./link');
 const update = require('./update');
 const nacht = require('./nacht');
 const hoeren = require('./hoeren');
+const film = require('./film');
 const statistik = require('./statistik');
 // eigene App "Glowline Link" (gleicher Code, eigener Installer): nutzt die Modelle eines PCs im Heimnetz
 const LINK_APP = !!require('./package.json').glowlineLink || !!(process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_LINKAPP);
@@ -833,7 +834,7 @@ function dateiProtokoll() {
   protocol.handle('glowline', (req) => {
     const f = path.resolve(new URL(req.url).searchParams.get('f') || '.');
     const typ = MIME[path.extname(f).toLowerCase()];
-    if (!(studio.inAusgabe(f) || freigegeben.has(f)) || !typ || !fs.existsSync(f)) return new Response('not found', { status: 404 });
+    if (!(studio.inAusgabe(f) || freigegeben.has(f) || film.inOrdner(f)) || !typ || !fs.existsSync(f)) return new Response('not found', { status: 404 });
     const groesse = fs.statSync(f).size;
     const r = /bytes=(\d*)-(\d*)/.exec(req.headers.get('range') || '');
     if (r && groesse) {
@@ -1053,6 +1054,22 @@ ipcMain.handle('hoeren:sprache', (_e, s) => hoeren.sprache(s));
 ipcMain.handle('hoeren:entfernen', () => hoeren.entfernen());
 ipcMain.handle('hoeren:schreiben', (_e, wav) => hoeren.schreiben(wav));
 ipcMain.on('hoeren:abbrechen', () => hoeren.abbrechen());
+// Filmemacher (nur auf dem PC: braucht die eigene Grafikkarte)
+const nurPc = () => { if (LINK_APP) throw new Error('The film maker runs on your PC'); };
+ipcMain.handle('film:liste', () => (LINK_APP ? [] : film.liste()));
+ipcMain.handle('film:laden', (_e, id) => (LINK_APP ? null : film.lade(String(id))));
+ipcMain.handle('film:bedarf', (_e, id) => (LINK_APP ? [] : film.bedarf(id ? String(id) : null)));
+ipcMain.handle('film:planen', (_e, o) => { nurPc(); return film.planen(o || {}); });
+ipcMain.handle('film:aendern', (_e, id, neu) => { nurPc(); return film.aendern(String(id), neu); });
+ipcMain.handle('film:loeschen', (_e, id) => { nurPc(); return film.loeschen(String(id)); });
+ipcMain.on('film:machen', (_e, id) => { if (!LINK_APP) film.machen(String(id)); });
+ipcMain.on('film:abbrechen', (_e, id) => { if (!LINK_APP) film.abbrechen(String(id)); });
+ipcMain.handle('film:nacht', (_e, id) => {
+  nurPc();
+  const f = film.lade(String(id));
+  if (!f) throw new Error('Film not found');
+  return nacht.dazu({ film: f.id }, { titel: f.titel });
+});
 ipcMain.handle('nacht:stand', () => (LINK_APP ? null : nacht.stand()));
 ipcMain.handle('nacht:dazu', (_e, a) => { if (LINK_APP) throw new Error('The night queue runs on your PC'); return nacht.dazu(a); });
 ipcMain.handle('nacht:weg', (_e, nr) => nacht.weg(String(nr)));
@@ -1252,7 +1269,7 @@ function chatStudioAttrappe() {
     },
     auftrag: async (a) => {
       const art = studio.KATALOG[a.modell].art;
-      const kopf = { vorgang: 'auftrag:' + a.id, art, modell: a.modell, prompt: a.prompt || '', vonChat: true };
+      const kopf = { vorgang: 'auftrag:' + a.id, art, modell: a.modell, prompt: a.prompt || '', vonChat: true, vonFilm: !!a.vonFilm };
       console.log('ATTRAPPE', JSON.stringify({ ...a, prompt: String(a.prompt || '').slice(0, 140) }));
       for (const p of [0, 40, 80]) {
         sende('studio', { ...kopf, prozent: p, text: 'Generating' });
@@ -1701,6 +1718,79 @@ async function testLauf(ordner) {
       console.log('NACHT STATUS', st.join(','));
       await js(`[...document.querySelectorAll('.s-nacht-fuss button')].find((b) => b.textContent === 'Clear done').click()`); await warte(500);
       console.log('NACHT LEER', await js(`document.querySelector('#s-nacht').children.length`));
+    }
+    if (was.includes('film')) {
+      // Filmemacher mit Attrappe: Drehbuch (GLOWLINE_TEST_FILM_ANTWORT), Szenen bearbeiten, Film machen, Abbruch, Nacht, Loeschen
+      const zeile = (sel) => js(`(document.querySelector(${JSON.stringify(sel)}) || {}).innerText ? document.querySelector(${JSON.stringify(sel)}).innerText.split(String.fromCharCode(10)).filter(Boolean).join(' | ').slice(0, 400) : '-'`);
+      await js(`zeigeStudio('film')`); await warte(1500); await bild('f-leer');
+      console.log('FILM TABS', await js(`[...document.querySelectorAll('#studio-tabs button')].map((b) => b.textContent + (b.classList.contains('an') ? '*' : '')).join(',')`));
+      console.log('FILM LEER', await zeile('#studio-links'));
+      await js(`(() => { const t = document.querySelector('[data-k="f-thema"]'); t.value = 'Ein Hamster baut eine Rakete, weil der Mond wie Käse aussieht'; t.dispatchEvent(new Event('input')); })()`);
+      await js(`[...document.querySelectorAll('#studio-links .s-formate button')].find((b) => b.textContent === '30 s').click()`); await warte(300);
+      await js(`document.querySelector('#film-planen').click()`); await warte(2500); await bild('f-plan');
+      const id = await js(`fz.film && fz.film.id`);
+      console.log('FILM PLAN', id, await js(`fz.film ? fz.film.titel + ' | ' + fz.film.szenen.length + ' Szenen | figur=' + fz.film.figur.slice(0, 40) + ' | bedarf=' + fz.bedarf.join(',') : 'kein Film'`));
+      console.log('FILM LINKS', await zeile('#studio-links'));
+      // Szene 1: Sprechertext aendern (wird nach 0,6 s gespeichert)
+      await js(`(() => { const t = document.querySelector('[data-k^="f-text-"]'); t.focus(); t.value = 'Neuer Text für Szene eins.'; t.dispatchEvent(new Event('input')); })()`); await warte(1200);
+      console.log('FILM GESPEICHERT', JSON.stringify(film.lade(id).szenen[0].text), 'fokus=' + await js(`document.activeElement && document.activeElement.dataset.k`));
+      // Szene 2 nach oben, letzte weg, eine dazu
+      await js(`document.querySelectorAll('.f-szene')[1].querySelector('.f-mini').click()`); await warte(800);
+      console.log('FILM HOCH', film.lade(id).szenen.map((x) => x.text.slice(0, 12)).join(' / '));
+      await js(`[...document.querySelectorAll('.f-szene')].pop().querySelectorAll('.f-mini')[2].click()`); await warte(800);
+      await js(`document.querySelector('.f-plus').click()`); await warte(800);
+      console.log('FILM ANZAHL', film.lade(id).szenen.length, 'leer=' + film.lade(id).szenen.filter((x) => !x.bild).length);
+      // leere neue Szene wieder weg (ohne Bildtext geht kein Bild)
+      await js(`[...document.querySelectorAll('.f-szene')].pop().querySelectorAll('.f-mini')[2].click()`); await warte(800);
+      // Film machen
+      const fertig = async (max) => { for (let i = 0; i < max; i++) { const f = film.lade(id); if (f.status !== 'laeuft') return f; await warte(1000); } return film.lade(id); };
+      await js(`document.querySelector('#film-los').click()`); await warte(2500); await bild('f-lauf');
+      console.log('FILM LAUF', await zeile('.f-lauf'));
+      let f = await fertig(240);
+      await warte(1500); await bild('f-fertig');
+      console.log('FILM FERTIG', f.status, f.fehler || '', f.datei && fs.existsSync(f.datei) ? path.basename(f.datei) + ' ' + Math.round(fs.statSync(f.datei).size / 1024) + ' KB' : 'keine Datei', '| srt=' + (f.datei && fs.existsSync(f.datei.replace(/\.mp4$/, '.srt'))));
+      console.log('FILM SZENEN', f.szenen.map((x) => [x.bildDatei, x.videoDatei, x.sprachDatei].map((y) => (y && fs.existsSync(y) ? 'x' : '-')).join('')).join(' '));
+      console.log('FILM RECHTS', await js(`!!document.querySelector('.f-ergebnis video') + ' knopf=' + (document.querySelector('#film-los') || {}).textContent`));
+      // Text aendern: nur dieser Sprecher wird neu gemacht
+      await js(`(() => { const t = document.querySelectorAll('[data-k^="f-text-"]')[2]; t.value = 'Ein ganz neuer Satz.'; t.dispatchEvent(new Event('input')); })()`); await warte(1200);
+      console.log('FILM UNGUELTIG', film.lade(id).szenen.map((x) => (x.sprachDatei ? 'x' : '-')).join(''), film.lade(id).status);
+      // Abbruch mitten drin
+      await js(`document.querySelector('#film-los').click()`); await warte(800);
+      await js(`(() => { const b = document.querySelector('.f-lauf .m-knopf'); b.click(); b.click(); })()`); await warte(2500);
+      f = film.lade(id);
+      console.log('FILM ABBRUCH', f.status, f.fehler || '-', 'laeuft=' + await js(`filmLaeuft(fz.film)`));
+      // Nacht-Warteschlange
+      await js(`[...document.querySelectorAll('.s-nacht-dazu')].pop().click()`); await warte(800);
+      console.log('FILM NACHT', JSON.stringify(nacht.stand().liste.map((e) => e.art + ':' + e.status + ':' + e.prompt)));
+      await js(`[...document.querySelectorAll('.s-nacht-fuss button')].find((b) => b.textContent === 'Start now').click()`); await warte(1500);
+      for (let i = 0; i < 120 && nacht.stand().laeuft; i++) await warte(1000);
+      f = film.lade(id);
+      console.log('FILM NACHT FERTIG', JSON.stringify(nacht.stand().liste.map((e) => e.art + ':' + e.status)), f.status, f.szenen.map((x) => (x.sprachDatei ? 'x' : '-')).join(''));
+      // Chat-Knopf
+      console.log('FILM CHAT', await js(`chatMedienElem({ medien: { art: 'film', film: ${JSON.stringify(id)} } }).innerText`));
+      // Format wechseln macht alle Bilder ungueltig
+      await js(`[...document.querySelectorAll('#studio-links .s-formate button')].find((b) => b.textContent.startsWith('9:16')).click()`); await warte(1000); await bild('f-hoch');
+      console.log('FILM HOCHFORMAT', film.lade(id).format, film.lade(id).szenen.map((x) => (x.bildDatei ? 'x' : '-') + (x.videoDatei ? 'x' : '-')).join(' '));
+      // Loeschen
+      await js(`(() => { const b = [...document.querySelectorAll('.f-leiste .m-knopf')].find((x) => x.textContent === 'Delete film'); b.click(); b.click(); })()`); await warte(1200);
+      console.log('FILM GELOESCHT', !fs.existsSync(path.join(process.env.GLOWLINE_TEST, 'filme', id)), await js(`fz.film === null`), await js(`fz.liste.length`));
+    }
+    if (was.includes('filmchat')) {
+      // Cowork: "erstelle einen 30 Sekunden Film ueber …" schreibt das Drehbuch (Ollama-Nachbau), Lieblingsfilm-Frage bleibt Chat
+      const letzte = () => js(`(() => { const n = verlauf()[verlauf().length - 1]; return JSON.stringify({ text: String(n.fehler || n.content || '').split(String.fromCharCode(10)).join(' / ').slice(0, 260), medien: n.medien || null }); })()`);
+      const sag = async (t) => {
+        await js(`document.querySelector('#chat-text').value = ${JSON.stringify(t)}; sendeChat()`);
+        for (let i = 0; i < 150; i++) { await warte(100); if (await js('!chat.laeuft')) break; }
+        await warte(300);
+        return letzte();
+      };
+      await js(`zeigeWorkspace('auto')`); await warte(2500);
+      console.log('FILMCHAT FRAGE', await sag('Was ist dein Lieblingsfilm?'));
+      console.log('FILMCHAT FILM', await sag('Erstelle einen 30 Sekunden Film über einen Hamster, der zum Mond fliegt'));
+      await bild('fc-chat');
+      console.log('FILMCHAT KNOPF', await js(`[...document.querySelectorAll('#chat-verlauf .n-medien button')].map((b) => b.textContent).join(',')`));
+      await js(`[...document.querySelectorAll('#chat-verlauf .n-medien button')].pop().click()`); await warte(2000); await bild('fc-studio');
+      console.log('FILMCHAT STUDIO', await js(`ansicht + ' ' + sz.bereich + ' ' + (fz.film ? fz.film.titel + ' ' + fz.film.szenen.length + ' ' + fz.film.sprache + ' ' + fz.film.laenge : '-')`));
     }
     if (was.includes('update')) {
       // Fake-GitHub (GLOWLINE_TEST_UPDATE): pruefen, Chip, laden + Pruefsumme, "installieren"
@@ -2290,11 +2380,23 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     // PC: Link-Laptops duerfen das Studio benutzen; Laptop (Glowline Link): Studio-Auftraege gehen an den PC
     link.setzeStudio(process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_ATTRAPPE ? chatStudioAttrappe() : studio);
     if (LINK_APP) require('./fernstudio')(studio, link, sende);
-    else nacht.init({ cfg: () => cfg, speichere: speichereConfig, studio: process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_ATTRAPPE ? chatStudioAttrappe() : studio, vramFrei, sende, test: !!process.env.GLOWLINE_TEST });
+    else {
+      const attrappe = !!(process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_ATTRAPPE);
+      const studioFuerFilm = attrappe ? chatStudioAttrappe() : studio;
+      film.init({
+        ordner: process.env.GLOWLINE_TEST ? path.join(process.env.GLOWLINE_TEST, 'filme') : path.join(studio.P().basis, 'filme'),
+        ausgabe: () => studio.P().ausgabe, python: () => (process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_PY) || studio.P().py,
+        studio: studioFuerFilm, vramFrei, sende, cfg: () => cfg, test: !!process.env.GLOWLINE_TEST, verschieben: !attrappe,
+        frage: (m, sys, msgs, max, signal) => erstellen.frage(m, sys, msgs, max, signal), rollen: () => autoChat.rollen(),
+        erlaubt: (f) => typeof f === 'string' && (studio.inAusgabe(f) || freigegeben.has(path.resolve(f))) && fs.existsSync(f),
+      });
+      nacht.init({ cfg: () => cfg, speichere: speichereConfig, studio: studioFuerFilm, film, vramFrei, sende, test: !!process.env.GLOWLINE_TEST });
+    }
     erstellen.init({
       cfg: () => cfg, teileModell, konten, vramFrei,
       studio: process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_ATTRAPPE ? chatStudioAttrappe() : studio,
       erlaubt: (f) => typeof f === 'string' && (studio.inAusgabe(f) || freigegeben.has(path.resolve(f))) && fs.existsSync(f),
+      film: LINK_APP ? null : film,
     });
     autoChat.init({ cfg: () => cfg });
     einrichtung.init({
@@ -2314,7 +2416,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     }
   });
   // auch bei app.quit() (dann kommt kein window-all-closed): Studio-Motor nicht weiterlaufen lassen
-  app.on('will-quit', () => { for (const p of ptys.values()) ptyWeg(p); ptys.clear(); studio.stoppen(); });
+  app.on('will-quit', () => { for (const p of ptys.values()) ptyWeg(p); ptys.clear(); film.stoppen(); studio.stoppen(); });
   app.on('window-all-closed', () => {
     for (const p of ptys.values()) ptyWeg(p);
     ptys.clear();

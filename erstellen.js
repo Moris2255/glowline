@@ -29,6 +29,30 @@ Examples:
 "(You just created an image.) danke, sieht super aus" -> chat
 "(You just created an image.) lass es sich bewegen" -> video`;
 
+// Film aus mehreren Szenen ("erstelle einen 60 Sekunden Film über …"): erst Stichwort, dann Ja/Nein-Frage ans Chatmodell
+const FILM_WORT = /\b(film|filmchen|movie|kurzfilm|short ?film|trailer)\b|\b\d{2,3}\s*-?\s*(s|sek\.?|sekunden|seconds?|secs?)\b[^.?!\n]{0,60}\b(video|clip)|\b(video|clip)\b[^.?!\n]{0,60}\b\d{2,3}\s*-?\s*(s|sek\.?|sekunden|seconds?|secs?)\b|\b(\d|eine|one|zwei|two)\s*-?\s*min(ute|uten|utes|\.)?\b[^.?!\n]{0,60}\b(video|clip)/i;
+const FILM_FRAGE = `Does the user want you to CREATE a new short film right now – a little story with several scenes, longer than 10 seconds? Answer with exactly one word: yes or no.
+Examples:
+"erstelle einen 60 Sekunden Film über einen Hamster im Weltall" -> yes
+"mach mir einen kurzen Film über Dinosaurier" -> yes
+"make a 30 second video about the ocean with a narrator" -> yes
+"kannst du einen Trailer für mein Spiel machen? Es geht um Roboter" -> yes
+"was ist dein Lieblingsfilm?" -> no
+"write a review of the movie Inception" -> no
+"wie macht man einen guten Kurzfilm?" -> no
+"make a short clip of waves at night" -> no
+"empfiehl mir einen Film für heute Abend" -> no`;
+// gewuenschte Laenge: 30, 60 oder 90 s (das Naechstliegende)
+function filmLaenge(t) {
+  let s = 0;
+  const sek = /\b(\d{2,3})\s*-?\s*(s|sek\.?|sekunden|seconds?|secs?)\b/i.exec(t);
+  const min = /\b(\d(?:[.,]5)?|eine|one|zwei|two|anderthalb)\s*-?\s*min/i.exec(t);
+  if (sek) s = +sek[1];
+  else if (min) s = { eine: 1, one: 1, zwei: 2, two: 2, anderthalb: 1.5 }[min[1].toLowerCase()] * 60 || parseFloat(min[1].replace(',', '.')) * 60;
+  if (!s) return /\b(kurz|short|klein|mini)/i.test(t) ? 30 : 60;
+  return [30, 60, 90].reduce((a, b) => (Math.abs(b - s) < Math.abs(a - s) ? b : a));
+}
+
 // Folgewunsch ohne Stichwort ("mach den Himmel lila"): Ja/Nein-Frage + feste Regel gegen Fragen, Witze usw.
 const FOLGE = (was) => `The assistant just created ${was} for the user. Does the user's message ask for a new or changed version of it? Answer with exactly one word: yes or no.
 Examples:
@@ -156,6 +180,10 @@ async function versuche(o) {
   const wunsch = String(letzte.content);
   const vorher = o.letztesMedium || null; // { art, prompt } der letzten Studio-Antwort im Chat
   let art = o.erzwinge && STUDIO_ART[o.erzwinge.art] ? o.erzwinge.art : null;
+  if (!art && !o.erzwinge && d.film && FILM_WORT.test(wunsch)) {
+    const a = await frage(modell, FILM_FRAGE, [{ role: 'user', content: wunsch }], 4, ac.signal).catch(() => '');
+    if (/^\W*yes\b/i.test(a)) return filmPlanen(o, wunsch);
+  }
   if (!art && WORTE.test(wunsch)) {
     const frageText = vorher ? `(You just created ${WAS[vorher.art] || 'an image'}.) ${wunsch}` : wunsch;
     const a = await frage(modell, SORTIEREN, [{ role: 'user', content: frageText }], 8, ac.signal).catch(() => '');
@@ -228,4 +256,26 @@ async function versuche(o) {
   return true;
 }
 
-module.exports = { studioModellFuer, init, versuche, frage, deutsch, WORTE };
+// Cowork schreibt nur das Drehbuch – ansehen, aendern und rechnen lassen geht unter Studio → Film
+async function filmPlanen(o, wunsch) {
+  const de = deutsch(wunsch);
+  const laenge = filmLaenge(wunsch);
+  o.melde({ medien: { art: 'film', status: de ? 'Drehbuch wird geschrieben…' : 'Writing the script…' } });
+  try {
+    const f = await d.film.planen({ thema: wunsch, laenge, format: formatAus(wunsch, 'video') === 'hoch' ? 'hoch' : 'quer', sprache: spracheAus(wunsch, wunsch), modell: o.modell, signal: o.ac.signal });
+    const zeilen = f.szenen.map((s, i) => `${i + 1}. ${s.text || '…'}`).join('\n');
+    o.melde({
+      fertig: true,
+      text: de
+        ? `„${f.titel}“ – Drehbuch mit ${f.szenen.length} Szenen (${laenge} s):\n\n${zeilen}\n\nUnter Studio → Film kannst du alles ändern und den Film machen lassen – am besten über Nacht, das dauert eine Weile.`
+        : `“${f.titel}” – a script with ${f.szenen.length} scenes (${laenge} s):\n\n${zeilen}\n\nIn Studio → Film you can change anything and let the Studio make the film – best overnight, it takes a while.`,
+      medien: { art: 'film', film: f.id },
+    });
+  } catch (e) {
+    if (o.ac.signal.aborted) throw new Error('stopped');
+    o.melde({ fertig: true, text: (de ? 'Das Drehbuch hat nicht geklappt: ' : 'Writing the script failed: ') + e.message });
+  }
+  return true;
+}
+
+module.exports = { filmLaenge, FILM_WORT, studioModellFuer, init, versuche, frage, deutsch, WORTE };

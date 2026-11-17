@@ -1,7 +1,7 @@
 {
   "name": "glowline",
   "productName": "Glowline",
-  "version": "5.1.0",
+  "version": "5.2.0",
   "description": "Glowline - local AI workspace: terminal, chat and studio for local models",
   "author": "Moris2255",
   "main": "main.js",
@@ -46,8 +46,10 @@
       "nacht.js",
       "statistik.js",
       "hoeren.js",
+      "film.js",
       "auto.js",
       "stimme.py",
+      "schnitt.py",
       "preload.js",
       "renderer/**",
       "build/icon.ico",
@@ -55,7 +57,8 @@
     ],
     "asarUnpack": [
       "node_modules/@lydell/**",
-      "stimme.py"
+      "stimme.py",
+      "schnitt.py"
     ],
     "npmRebuild": false,
     "win": {

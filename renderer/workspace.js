@@ -405,6 +405,12 @@ function nachrichtElem(n) {
 function chatMedienElem(n) {
   const m = n.medien;
   const box = elem('div', 'n-medien');
+  if (m.art === 'film' && m.film) {
+    const b = elem('button', 'm-knopf', 'Open in Studio → Film');
+    b.addEventListener('click', () => zeigeFilm(m.film));
+    box.appendChild(b);
+    return box;
+  }
   if (m.fehlt) {
     const b = elem('button', 'm-knopf', 'Open Studio');
     b.addEventListener('click', () => zeigeStudio(m.fehlt));

@@ -1,7 +1,7 @@
 // Nacht-Warteschlange: Studio-Auftraege sammeln und nachts nacheinander rechnen.
 // cfg.nacht = { start: '23:00', ende: '05:00', liste: [...] } – um "ende" ist Schluss (laufender Auftrag wird abgebrochen
 // und kommt in der naechsten Nacht wieder dran). "Start now" rechnet sofort, unabhaengig von der Uhrzeit.
-let d = null; // { cfg, speichere, studio, vramFrei, sende, test }
+let d = null; // { cfg, speichere, studio, film, vramFrei, sende, test }
 let aktuell = null, sofort = false, pause = false, timer = null;
 
 const MAX = 50;
@@ -22,6 +22,8 @@ function stand() {
   return { start: x.start, ende: x.ende, liste: x.liste, laeuft: !!aktuell, sofort, pause, imFenster: imFenster() };
 }
 const melde = () => d.sende('nacht', stand());
+// ein Film (film:<id>) bricht anders ab als ein einzelner Studio-Auftrag
+const stopp = (v) => (v.startsWith('film:') ? d.film && d.film.abbrechen(v.slice(5)) : d.studio.abbrechen(v));
 
 function init(hilfen) {
   d = hilfen;
@@ -33,6 +35,13 @@ function init(hilfen) {
 function dazu(a, info) {
   const x = n();
   if (x.liste.filter((e) => e.status === 'wartet').length >= MAX) throw new Error(`The night queue is full (${MAX} jobs)`);
+  if (a && a.film) {
+    if (x.liste.some((e) => e.a.film === a.film && e.status === 'wartet')) return stand();
+    x.liste.push({ nr: Date.now() + '' + Math.floor(Math.random() * 1000), a: { film: String(a.film) }, art: 'film', name: 'Film', prompt: String((info && info.titel) || 'Film').slice(0, 300), zeit: Date.now(), status: 'wartet' });
+    d.speichere();
+    melde();
+    return stand();
+  }
   const km = d.studio.KATALOG[a && a.modell];
   if (!km) throw new Error('Unknown model');
   if (km.wolke) throw new Error('Cloud models cost money per use – they can’t go in the night queue');
@@ -46,7 +55,7 @@ function dazu(a, info) {
 function weg(nr) {
   const x = n();
   const e = x.liste.find((y) => y.nr === nr);
-  if (e && e.status === 'laeuft' && aktuell) { aktuell.weg = true; d.studio.abbrechen(aktuell.vorgang); }
+  if (e && e.status === 'laeuft' && aktuell) { aktuell.weg = true; stopp(aktuell.vorgang); }
   x.liste = x.liste.filter((y) => y.nr !== nr);
   d.speichere();
   melde();
@@ -73,7 +82,7 @@ function jetztStarten() { sofort = true; pause = false; melde(); tick(); return 
 function stoppen() {
   sofort = false;
   pause = imFenster();
-  if (aktuell) { aktuell.zurueck = true; d.studio.abbrechen(aktuell.vorgang); }
+  if (aktuell) { aktuell.zurueck = true; stopp(aktuell.vorgang); }
   melde();
   return stand();
 }
@@ -81,7 +90,7 @@ function stoppen() {
 async function tick(z) {
   const x = n();
   // harte Grenze: um "ende" Schluss (nur wenn die Nacht-Runde laeuft, nicht bei "Start now")
-  if (aktuell && aktuell.nachts && !imFenster(z)) { aktuell.zurueck = true; d.studio.abbrechen(aktuell.vorgang); return; }
+  if (aktuell && aktuell.nachts && !imFenster(z)) { aktuell.zurueck = true; stopp(aktuell.vorgang); return; }
   if (aktuell) return;
   if (pause && !imFenster(z)) pause = false;
   if (pause) return;
@@ -90,12 +99,13 @@ async function tick(z) {
   const nachts = imFenster(z);
   if (!nachts && !sofort) return;
   const id = 'nacht' + Date.now();
-  aktuell = { vorgang: 'auftrag:' + id, nachts: nachts && !sofort };
+  const film = naechster.art === 'film' && naechster.a.film;
+  aktuell = { vorgang: film ? 'film:' + film : 'auftrag:' + id, nachts: nachts && !sofort };
   naechster.status = 'laeuft';
   naechster.fehler = null;
   melde();
   let r;
-  try { r = await d.studio.auftrag({ ...naechster.a, id }, d.vramFrei); } catch (e) { r = { fehler: e.message }; }
+  try { r = film ? await d.film.machen(film) : await d.studio.auftrag({ ...naechster.a, id }, d.vramFrei); } catch (e) { r = { fehler: e.message }; }
   const war = aktuell;
   aktuell = null;
   if (war.zurueck) { naechster.status = 'wartet'; naechster.fehler = 'Stopped – continues next time'; }

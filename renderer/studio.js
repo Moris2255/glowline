@@ -7,6 +7,7 @@ const BEREICHE = {
   video: { name: 'Video', knopf: 'Generate video', leer: 'Describe a short scene – or start from an image.' },
   upscale: { name: 'Upscale', knopf: 'Upscale', leer: 'Drop an image or a video here, or pick one – images get 4× bigger, videos about 2× sharper.' },
   stimme: { name: 'Voice', knopf: 'Speak', leer: 'Type a text. Add a short voice sample to clone a voice.' },
+  film: { name: 'Film', knopf: '', leer: '' }, // eigene Ansicht: renderer/film.js
 };
 const FORMATE = {
   bild: [['1:1', 1024, 1024], ['16:9', 1344, 768], ['9:16', 768, 1344], ['4:3', 1152, 864], ['3:4', 864, 1152]],
@@ -117,7 +118,9 @@ function titel() {
 function zeichneStudio() {
   if (ansicht !== 'studio') return;
   titel();
-  for (const b of tabsBox.children) b.classList.toggle('an', b.dataset.bereich === sz.bereich);
+  // Film nur auf dem PC (braucht die eigene Grafikkarte)
+  if (sz.bereich === 'film' && sz.st && sz.st.fern) sz.bereich = 'bild';
+  for (const b of tabsBox.children) { b.classList.toggle('an', b.dataset.bereich === sz.bereich); b.classList.toggle('versteckt', b.dataset.bereich === 'film' && !!(sz.st && sz.st.fern)); }
   const links = $('#studio-links'), rechts = $('#studio-rechts');
   // Fokus und Cursor im Textfeld behalten, wenn waehrend des Tippens neu gezeichnet wird
   const a = document.activeElement;
@@ -129,8 +132,8 @@ function zeichneStudio() {
   $('#studio-haupt').classList.toggle('einrichtung', !st || !st.eingerichtet);
   if (!st) { links.append(elem('div', 's-leer', 'Loading…')); return; }
   if (!st.eingerichtet) { zeichneStudioEinrichtung(rechts); return; }
-  zeichneFelder(links);
-  zeichneVorschau(rechts);
+  if (sz.bereich === 'film') zeichneFilm(links, rechts);
+  else { zeichneFelder(links); zeichneVorschau(rechts); }
   links.scrollTop = scroll;
   if (merk) {
     const n = links.querySelector(`[data-k="${merk.k}"]`);
@@ -138,6 +141,7 @@ function zeichneStudio() {
   }
 }
 function zeichneRechts() {
+  if (sz.bereich === 'film') return;
   if (ansicht !== 'studio' || !sz.st || !sz.st.eingerichtet) return zeichneStudio();
   const rechts = $('#studio-rechts');
   rechts.innerHTML = '';
@@ -145,6 +149,7 @@ function zeichneRechts() {
 }
 // laufende Auftraege ohne Neuzeichnen aktualisieren (sonst flackern Videos in der Galerie)
 function aktualisiereLauf() {
+  if (sz.bereich === 'film') return;
   const lauf = laufenderAuftrag();
   const k = document.querySelector('#studio-rechts .s-lauf');
   if (lauf && !lauf.fertig) {
@@ -589,6 +594,8 @@ function zeichneVorschau(box) {
 // ---------- Ereignisse aus dem Hauptprozess ----------
 let studioZeichnen = 0;
 window.api.onStudio((p) => {
+  // Szenen eines Films zeigt der Film-Bereich selbst (renderer/film.js)
+  if (p.vonFilm) { filmStudioEreignis(p); return; }
   if (p.vorgang === 'einrichten' || p.vorgang.startsWith('modell:')) {
     sz.laden.set(p.vorgang, { ...(sz.laden.get(p.vorgang) || {}), ...p });
     if (p.fertig) {
