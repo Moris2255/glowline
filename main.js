@@ -397,6 +397,7 @@ async function statusSchleife() {
     if (!lmsOnline && (await lmPortSuchen())) lmsOnline = true;
     statusSchleife.lms = lmsOnline;
   }
+  statusSchleife.geladen = (geladen || []).map((m) => ({ name: m.name, ctx: m.context_length }));
   if (win && !win.isDestroyed()) {
     win.webContents.send('status', {
       gpu: g,
@@ -1749,7 +1750,7 @@ async function testLauf(ordner) {
       await tippe('\r', 7000); await bild('t-antwort');
       console.log('TERMINAL ANTWORT', /●/.test(sauber()) ? 'ok' : 'FEHLT', '| stat=' + /⎿/.test(sauber()));
       // Leiste unten: Werte wie im Fenster
-      console.log('TERMINAL LEISTE', /first \d+\.\ds/.test(sauber()) && /ctx \d/.test(sauber()) ? 'ok' : 'FEHLT: ' + (sauber().match(/⏵[^\n]{0,160}/g) || []).slice(-1).join(''));
+      console.log('TERMINAL LEISTE', ['First token', 'Prefill', 'Prompt', 'Output', 'Turn', 'GPU power', 'VRAM', 'Saved costs', ' on Ollama'].every((x) => sauber().includes(x)) && /\d+\.\ds/.test(sauber()) && /\d+ tok/.test(sauber()) ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-300));
       await tippe('/', 700); await bild('t-befehle');
       console.log('TERMINAL BEFEHLE', /\/help/.test(sauber()) && /\/think/.test(sauber()) ? 'ok' : 'FEHLT');
       await tippe('im', 500); await bild('t-befehle2');
@@ -1777,7 +1778,7 @@ async function testLauf(ordner) {
       await tippe('/effort\r', 800);
       console.log('TERMINAL EFFORT', /› high/.test(sauber()) && /Effort high – every message goes to the reasoning model/.test(sauber()) ? 'ok' : 'FEHLT: high=' + /› high/.test(sauber()) + ' denken=' + /always thinking/.test(sauber()) + ' ' + sauber().replace(/[─\s]+/g, ' ').slice(-400));
       await tippe('/effort medium\r', 600);
-      console.log('TERMINAL GESPART', /saved 0\.42 \$ today/.test(gesamt.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')) ? 'ok' : 'FEHLT');
+      console.log('TERMINAL GESPART', /Saved costs/.test(gesamt.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')) ? 'ok' : 'FEHLT');
       roh = '';
       await tippe('/autostart on\r', 1200); await bild('t-autostart');
       console.log('TERMINAL AUTOSTART', /starts with Windows/.test(sauber()) && cfg.testAutostart === true ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-200));
@@ -2494,6 +2495,12 @@ function terminalStarten() {
     hoerer: sendeHoerer, proxy: () => proxy, gpu: () => gpu(), modelle: () => modellListe(true), cfg: () => cfg,
     erlaubt: terminalErlaubt, freigeben: (f) => freigegeben.add(path.resolve(f)), vorschau: terminalVorschau,
     kopieren: (t) => clipboard.writeText(t), autostart, statistik: () => statistik.stand(),
+    geladen: () => statusSchleife.geladen || [],
+    // "Saved costs" genau wie unten im Fenster; ohne Fenster die Summe der Stats-Seite
+    gespart: async () => {
+      try { if (win && !win.isDestroyed()) return +(await win.webContents.executeJavaScript('gespartJetzt()')) || 0; } catch {}
+      return Object.values(statistik.stand().tage || {}).reduce((a, t) => a + (t.dollar || 0), 0);
+    },
     oeffnen: (f, zeigen) => {
       const p = terminalErlaubt(f) ? path.resolve(f) : eigeneDatei(f);
       if (!p) return false;

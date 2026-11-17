@@ -373,21 +373,57 @@ function liveZeilen() {
       const name = ('/' + b.n + (b.arg ? ' ' + b.arg : '')).padEnd(24);
       z.push(kuerze((an ? f(C.hell, '  › ' + name) : f(C.leise, '    ' + name)) + f(an ? C.text : C.dunkel, b.info), w));
     });
-  } else z.push(fusszeile(w));
+  } else if (hoehe() >= 18) z.push(fusszeile(w, false), ...leiste(w));
+  else z.push(fusszeile(w, true));
   return { oben, unten: z, cur };
 }
-function fusszeile(w) {
+// ---------- Leiste unter der Eingabe: dieselben Werte wie unten im Glowline-Fenster ----------
+const strich = (anteil, n, farbe = C.hell) => { const voll = Math.round(Math.max(0, Math.min(1, anteil || 0)) * n); return f(farbe, '━'.repeat(voll)) + f(C.dunkel, '━'.repeat(n - voll)); };
+const schoeneSkala = (v) => { for (const x of [50, 100, 150, 200, 300, 400, 500, 1000]) if (v <= x) return x; return Math.ceil(v / 500) * 500; };
+const minSek = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+function leiste(w) {
+  const id = (S.laeuft && S.laeuft.antwort.modell) || S.fest || S.zuletztModell || '';
+  const m = id && info ? info.modelle.find((x) => x.id === id) : null;
+  const name = modellName(id), g = S.gpu;
+  const backend = { ollama: 'Ollama', lmstudio: 'LM Studio' }[String(id).split(',')[0]] || '';
+  const da = (S.geladen || []).find((x) => x.name === name);
+  const gpuTxt = g && g.name && (backend || !id) ? ' · ' + gpuKurz(g) : '';
+  const kopf = id
+    ? f(C.hell + C.fett, name + [m && m.params, m && m.quant].filter(Boolean).map((x) => ', ' + x).join('')) + f(C.leise, (backend ? ' on ' + backend : '') + gpuTxt + (backend && !da ? ' · not loaded' : ''))
+    : f(C.hell + C.fett, 'Auto') + f(C.leise, ' · picks the model for every message' + gpuTxt);
+  // Spalten: [Wichtigkeit, Ueberschrift, Wert] – wird es zu eng, fallen die unwichtigsten weg
+  const L = S.laeuft, wartet = L && S.ttft == null;
+  const skala = schoeneSkala(Math.max(50, (S.spitze || 0) * 1.15, S.tps || 0));
+  const ctx = (da && da.ctx) || (m && m.ctx) || 0;
+  const sp = [
+    [10, 'tok/s', f(C.hell + C.fett, wartet ? '…' : S.tps ? S.tps.toFixed(1) : '–') + ' ' + strich((S.tps || 0) / skala, 12) + f(C.dunkel, ' ' + skala)],
+    [5, 'First token', f(C.hell, S.ttft != null ? S.ttft.toFixed(1) + 's' : wartet ? minSek(Date.now() - L.start) : '–')],
+    [2, 'Prefill', f(C.hell, S.prefill ? Math.round(S.prefill) + ' tok/s' : S.kontext && S.prefill === 0 ? 'cached' : '–')],
+    [6, 'Prompt', S.kontext ? f(C.hell, kurzZahl(S.kontext) + (ctx ? ' / ' + kurzZahl(ctx) : '')) + (ctx ? ' ' + strich(S.kontext / ctx, 6, S.kontext / ctx > 0.85 ? C.rot : C.hell) : '') : f(C.hell, '–')],
+    [7, 'Output', f(C.hell, S.ausgabe ? kurzZahl(S.ausgabe) + ' tok' : '–')],
+    [3, 'Turn', f(C.hell, L ? minSek(Date.now() - L.start) : S.turnDauer ? minSek(S.turnDauer) : '–')],
+    [4, 'GPU power', f(C.hell, g && g.power ? Math.round(g.power) + ' W' : '–')],
+    [8, 'VRAM', g && g.total ? f(C.hell, `${(g.used / 1024).toFixed(1)} / ${(g.total / 1024).toFixed(1)} GB`) + ' ' + strich(g.used / g.total, 6) : f(C.hell, '–')],
+    [9, 'Saved costs', f(C.hell, (S.gespart || 0).toFixed(2) + ' $')],
+  ];
+  const breiteVon = (s) => Math.max(breite(s[1]), breite(s[2]));
+  const gesamt = () => 2 + sp.reduce((a, s) => a + breiteVon(s), 0) + 3 * (sp.length - 1);
+  while (sp.length > 1 && gesamt() > w) { let k = 0; for (let i = 1; i < sp.length; i++) if (sp[i][0] < sp[k][0]) k = i; sp.splice(k, 1); }
+  const zeile = (i, farbe) => '  ' + sp.map((s) => { const t = i === 1 ? f(farbe, s[1]) : s[2]; return t + ' '.repeat(breiteVon(s) - breite(t)); }).join('   ');
+  return [f(C.dunkel, '─'.repeat(w)), kuerze('  ' + kopf, w), zeile(1, C.dunkel), zeile(2)];
+}
+function fusszeile(w, mitWerten) {
   if (S.hinweis && Date.now() < S.hinweisBis) return kuerze('  ' + f(C.gelb, S.hinweis), w);
   const modus = S.fest ? modellName(S.fest) + ' (fixed)' : S.immerDenken ? 'Auto · always thinking' : S.immerSchnell ? 'Auto · fast' : 'Auto' + (S.zuletztModell ? ' · ' + modellName(S.zuletztModell) : '');
   // wie die Leiste im Fenster: [Wichtigkeit, Text] – wird es zu eng, fallen die unwichtigsten zuerst weg
   const g = S.gpu, wert = (zahlTxt, rest) => f(C.hell, zahlTxt) + f(C.leise, rest);
   const teile = [[9, f(C.hell, '⏵ ') + f(C.leise, modus)]];
-  if (S.tps) teile.push([8, wert(Math.round(S.tps) + '', ' tok/s')]);
-  if (S.ttft != null) teile.push([4, f(C.leise, 'first ') + wert(S.ttft.toFixed(1) + 's', '')]);
-  if (S.ausgabe) teile.push([3, wert(kurzZahl(S.ausgabe), ' tok')]);
-  if (S.kontext) teile.push([5, f(C.leise, 'ctx ') + wert(kurzZahl(S.kontext), '')]);
-  if (g && g.total) teile.push([7, f(C.leise, 'GPU ') + wert(g.util + '%', '')], [6, wert((g.used / 1024).toFixed(1), `/${Math.round(g.total / 1024)} GB`)]);
-  if (S.gespart >= 0.01) teile.push([2, f(C.leise, 'saved ') + wert(S.gespart.toFixed(2) + ' $', ' today')]);
+  if (mitWerten && S.tps) teile.push([8, wert(Math.round(S.tps) + '', ' tok/s')]);
+  if (mitWerten && S.ttft != null) teile.push([4, f(C.leise, 'first ') + wert(S.ttft.toFixed(1) + 's', '')]);
+  if (mitWerten && S.ausgabe) teile.push([3, wert(kurzZahl(S.ausgabe), ' tok')]);
+  if (mitWerten && S.kontext) teile.push([5, f(C.leise, 'ctx ') + wert(kurzZahl(S.kontext), '')]);
+  if (mitWerten && g && g.total) teile.push([7, f(C.leise, 'GPU ') + wert(g.util + '%', '')], [6, wert((g.used / 1024).toFixed(1), `/${Math.round(g.total / 1024)} GB`)]);
+  if (mitWerten && S.gespart >= 0.01) teile.push([2, f(C.leise, 'saved ') + wert(S.gespart.toFixed(2) + ' $', ' today')]);
   if (S.ziel) teile.push([1, f(C.leise, 'goal: ' + kuerze(S.ziel, 24))]);
   const rechts = f(C.dunkel, S.laeuft ? 'Esc stop' : S.letztes ? 'Ctrl+O open · / commands' : '/ commands');
   const baue = () => '  ' + teile.map((t) => t[1]).join(f(C.dunkel, ' · '));
@@ -659,7 +695,7 @@ function senden(text, vorgabe = {}) {
   v.push(antwort);
   const L = { antwort, start: Date.now(), req: null, gestoppt: false };
   S.laeuft = L;
-  S.tps = null; S.ttft = null; S.ausgabe = 0;
+  S.tps = null; S.ttft = null; S.ausgabe = 0; S.prefill = null;
   const tick = setInterval(bald, 90);
   return new Promise((fertig) => {
     let ende = false;
@@ -668,6 +704,8 @@ function senden(text, vorgabe = {}) {
       ende = true;
       clearInterval(tick);
       if (!fehler) S.sitzung.nachrichten++;
+      S.turnDauer = Date.now() - L.start;
+      if (!fehler && S.tps && (L.tokens || 0) > 20) S.spitze = Math.max(S.spitze || 0, S.tps);
       S.sitzung.tokens += L.tokens || 0;
       abschliessen(L, fehler).then(() => {
         S.laeuft = null;
@@ -696,6 +734,7 @@ function senden(text, vorgabe = {}) {
             if (o.stat.tokens) L.tokens = S.ausgabe = o.stat.tokens;
             if (o.stat.ttft != null) S.ttft = o.stat.ttft;
             if (o.stat.kontext) S.kontext = o.stat.kontext;
+            if (o.stat.prefill != null) S.prefill = o.stat.prefill;
           }
         }
       });
@@ -1256,8 +1295,8 @@ async function start() {
   setInterval(frageGroesse, 150).unref();
   // GPU-Anzeige alle paar Sekunden
   setInterval(async () => {
-    try { const s = await anfrage('GET', '/status'); const neu = JSON.stringify([s.gpu, s.gespart]); if (neu !== JSON.stringify([S.gpu, S.gespart])) { S.gpu = s.gpu; S.gespart = s.gespart; bald(); } } catch {}
-  }, 4000).unref();
+    try { const s = await anfrage('GET', '/status'); const neu = JSON.stringify([s.gpu, s.gespart, s.geladen]); if (neu !== JSON.stringify([S.gpu, S.gespart, S.geladen])) { S.gpu = s.gpu; S.gespart = s.gespart; S.geladen = s.geladen; bald(); } } catch {}
+  }, 2000).unref();
   S.gpu = info && info.gpu;
   malen();
   // App war aus: einmal zeigen, wie gl sofort bereit ist

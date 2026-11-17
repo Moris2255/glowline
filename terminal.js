@@ -31,7 +31,7 @@ function body(req, max = 4e6) {
 // alle Modelle als flache Liste (fuer /model und die Anzeige)
 function flach(l) {
   const aus = [];
-  for (const b of ['ollama', 'lmstudio']) for (const m of (l[b] && l[b].models) || []) aus.push({ id: m.id, name: m.name });
+  for (const b of ['ollama', 'lmstudio']) for (const m of (l[b] && l[b].models) || []) aus.push({ id: m.id, name: m.name, params: m.params, quant: m.quant, ctx: m.ctx });
   for (const w of Object.values(l.wolke || {})) for (const m of (w && w.models) || []) if (m && m.id) aus.push({ id: m.id, name: m.name || m.id });
   return aus;
 }
@@ -46,8 +46,8 @@ async function anfrage(req, res, schluessel, port) {
       const c = d.cfg();
       return json(res, 200, { version: d.version, chatModel: c.chatModel || '', chatSystem: c.chatSystem || '', modelle: flach(l), gpu: await d.gpu() });
     }
-    // Leiste unten: GPU und heute gesparte $
-    if (req.method === 'GET' && url.pathname === '/status') { const st = d.statistik(), h = (st.tage || {})[st.heute] || {}; return json(res, 200, { gpu: await d.gpu(), gespart: h.dollar || 0 }); }
+    // Leiste unten (wie im Fenster): GPU, geladene Modelle, gesparte $
+    if (req.method === 'GET' && url.pathname === '/status') return json(res, 200, { gpu: await d.gpu(), geladen: d.geladen(), gespart: await d.gespart() });
     // fuer /usage und /stats: Tageszahlen der Stats-Seite (Tokens, Anfragen, gesparte $, Modelle, Studio)
     if (req.method === 'GET' && url.pathname === '/stats') return json(res, 200, { ...d.statistik(), gpu: await d.gpu() });
     if (req.method === 'POST' && url.pathname === '/chat') {
@@ -65,7 +65,7 @@ async function anfrage(req, res, schluessel, port) {
         if (!s || s.tab !== 'chat') return;
         if (s.phase === 'erstes') schreib({ stat: { ttft: s.ttft } });
         else if (s.phase === 'lauf') schreib({ stat: { tps: s.tps, tokens: s.tokens } });
-        else if (s.phase === 'ende' && s.status === 'ok') schreib({ stat: { tps: s.tps, tokens: s.ausgabe, ttft: s.ttft, kontext: s.eingabe } });
+        else if (s.phase === 'ende' && s.status === 'ok') schreib({ stat: { tps: s.tps, tokens: s.ausgabe, ttft: s.ttft, kontext: s.eingabe, prefill: s.prefill || 0 } });
       };
       d.hoerer.add(hoer);
       const proxy = d.proxy();
