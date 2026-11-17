@@ -50,7 +50,8 @@ function erlaubterOrt(p) {
 }
 
 // Zielordner: genannter Pfad, bekannter Ordner (Desktop, Dokumente …) oder der Desktop
-function ordnerFuer(text, holePfad) {
+// (im Terminal statt Desktop der Ordner, in dem man gerade ist)
+function ordnerFuer(text, holePfad, standard) {
   const m = /\b[a-z]:\\[^\n"'<>|*?]*/i.exec(text);
   if (m) {
     let p = m[0].replace(/[\s.,;:!)]+$/, '');
@@ -59,6 +60,7 @@ function ordnerFuer(text, holePfad) {
     if (p.length > 3 && erlaubterOrt(p)) return { ordner: path.resolve(p), name: path.basename(p) };
   }
   for (const [re, art, name] of ORDNER) if (re.test(text)) return { ordner: holePfad(art), name };
+  if (standard && erlaubterOrt(standard)) return { ordner: path.resolve(standard), name: path.basename(path.resolve(standard)) };
   return { ordner: holePfad('desktop'), name: 'Desktop' };
 }
 
@@ -74,8 +76,8 @@ const AENDERN = /\b(mach|[äa]nder|f[üu]g|setz|füge|entfern|l[öo]sch|tausch|e
 const jaNein = (a) => /^\W*(yes|ja)\b/i.test(a);
 const frageText = (t) => `Message: "${t}"\nAnswer with yes or no only.`;
 
-async function pruefe({ text, letzteDatei, frage, erzwinge }) {
-  if (erzwinge) return { ...ordnerFuer(text, holePfad), bearbeite: null };
+async function pruefe({ text, letzteDatei, frage, erzwinge, standard }) {
+  if (erzwinge) return { ...ordnerFuer(text, holePfad, standard), bearbeite: null };
   if (WORTE.test(text)) {
     const klar = TUN.test(text) && DATEI.test(text) && !FRAGE.test(text.trim());
     // reine Wissensfragen ("Was ist eine HTML-Datei?") nie als Dateiwunsch – kleine Modelle sagen da gern "ja"
@@ -85,7 +87,7 @@ async function pruefe({ text, letzteDatei, frage, erzwinge }) {
       const neu = /\b(neue|new|another|noch eine|zweite|second)\b/i.test(text);
       const genannt = /\b[a-z]:\\/i.test(text) || ORDNER.some(([re]) => re.test(text));
       if (letzteDatei && !neu && !genannt && /\b(die|diese|the|this|that|meine|my)\s+(datei|file)\b/i.test(text)) return { ordner: path.dirname(letzteDatei), name: path.basename(path.dirname(letzteDatei)), bearbeite: letzteDatei };
-      return { ...ordnerFuer(text, holePfad), bearbeite: null };
+      return { ...ordnerFuer(text, holePfad, standard), bearbeite: null };
     }
     if (!letzteDatei) return null;
   }

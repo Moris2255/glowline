@@ -1,7 +1,7 @@
 {
   "name": "glowline",
   "productName": "Glowline",
-  "version": "5.2.1",
+  "version": "5.3.0",
   "description": "Glowline - local AI workspace: terminal, chat and studio for local models",
   "author": "Moris2255",
   "main": "main.js",
@@ -26,7 +26,7 @@
   "build": {
     "appId": "com.glowline.app",
     "productName": "Glowline",
-    "copyright": "Â© 2026 Moris2255",
+    "copyright": "© 2026 Moris2255",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -46,6 +46,8 @@
       "nacht.js",
       "statistik.js",
       "hoeren.js",
+    "terminal.js",
+    "cli/**",
       "film.js",
       "auto.js",
       "stimme.py",
@@ -57,6 +59,7 @@
     ],
     "asarUnpack": [
       "node_modules/@lydell/**",
+    "cli/**",
       "stimme.py",
       "schnitt.py"
     ],

@@ -1,6 +1,6 @@
 // Glowline: minimales Terminal fuer lokale KI-Modelle (Claude Code, Codex, OpenCode)
 // mit Live-Leiste unten (tok/s, Prefill, erstes Token, Kontext, VRAM).
-const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu, screen, shell, protocol, Tray } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu, screen, shell, protocol, Tray, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -17,6 +17,7 @@ const link = require('./link');
 const update = require('./update');
 const nacht = require('./nacht');
 const hoeren = require('./hoeren');
+const terminal = require('./terminal');
 const film = require('./film');
 const statistik = require('./statistik');
 // eigene App "Glowline Link" (gleicher Code, eigener Installer): nutzt die Modelle eines PCs im Heimnetz
@@ -171,10 +172,11 @@ function chatZiel(modellId) {
   return { b, w, model };
 }
 
-async function chatSenden({ id, model: modellId, system, nachrichten, medien, anhang, erzwinge, letztesMedium, auto: istAuto, bildFrage, vorigeRolle, rolle: vorgabeRolle, letzteDatei, datei: dateiErzwingen }) {
+// aus: wohin die Antwort geht (Fenster oder Terminal); ordner: Standardordner fuer Dateien (Terminal: aktueller Ordner)
+async function chatSenden({ id, model: modellId, system, nachrichten, medien, anhang, erzwinge, letztesMedium, auto: istAuto, bildFrage, vorigeRolle, rolle: vorgabeRolle, letzteDatei, datei: dateiErzwingen, ordner: standardOrdner }, aus = (p) => sende('chat', p)) {
   const ac = new AbortController();
   chats.set(id, ac);
-  const melde = (p) => sende('chat', { id, ...p });
+  const melde = (p) => aus({ id, ...p });
   let autoRolle = null;
   try {
     const msgs = (Array.isArray(nachrichten) ? nachrichten : []).filter((m) => m && /^(user|assistant)$/.test(m.role)).map((m) => ({ role: m.role, content: String(m.content) }));
@@ -197,7 +199,7 @@ async function chatSenden({ id, model: modellId, system, nachrichten, medien, an
     let datei = null;
     if (!bild && !(erzwinge && erzwinge.art) && (dateiErzwingen || dateien.WORTE.test(frageText) || (eigeneDatei(letzteDatei) && !erstellen.WORTE.test(frageText)))) {
       datei = await dateien.pruefe({
-        text: frageText, letzteDatei: eigeneDatei(letzteDatei), erzwinge: !!dateiErzwingen,
+        text: frageText, letzteDatei: eigeneDatei(letzteDatei), erzwinge: !!dateiErzwingen, standard: typeof standardOrdner === 'string' ? standardOrdner : null,
         frage: (sys, m, n) => erstellen.frage(String(modellId), sys, m, n, ac.signal),
       });
     }
@@ -315,7 +317,8 @@ async function chatSenden({ id, model: modellId, system, nachrichten, medien, an
 let lmSuchZeit = 0;
 async function lmPortSuchen() {
   const m = /^http:\/\/(127\.0\.0\.1|localhost):(\d+)$/.exec(cfg.backends.lmstudio);
-  if (!m || Date.now() - lmSuchZeit < 10000) return false;
+  // Test: nie echte Programme auf dem PC anfragen
+  if (process.env.GLOWLINE_TEST || !m || Date.now() - lmSuchZeit < 10000) return false;
   lmSuchZeit = Date.now();
   const basis = +m[2] === 1234 ? 1234 : +m[2];
   const ports = [1234, 1235, 1236, 1237, 1238, 1239, 1240, basis].filter((p, i, a) => p !== +m[2] && a.indexOf(p) === i);
@@ -848,8 +851,10 @@ function dateiProtokoll() {
 }
 protocol.registerSchemesAsPrivileged([{ scheme: 'glowline', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } }]);
 
+const sendeHoerer = new Set(); // z. B. das Terminal (Studio-Fortschritt)
 function sende(kanal, ...a) {
   if (win && !win.isDestroyed()) win.webContents.send(kanal, ...a);
+  for (const h of sendeHoerer) { try { h(kanal, a[0]); } catch {} }
   if (kanal === 'studio') link.studioEreignis(a[0]); // Fortschritt von Link-Auftraegen an den Laptop
 }
 
@@ -891,7 +896,7 @@ ipcMain.handle('tools:check', () => werkzeugeInstalliert());
 ipcMain.handle('konten:status', () => konten.status());
 ipcMain.handle('konten:setzen', (_e, id, wert) => { konten.setzeSchluessel(id, wert); return konten.status(); });
 ipcMain.on('link:oeffnen', (_e, url) => { if (/^https:\/\/[\w.-]+\//.test(String(url))) shell.openExternal(url); });
-ipcMain.on('chat:senden', (_e, a) => chatSenden(a));
+ipcMain.on('chat:senden', (_e, a) => chatSenden({ ...a, ordner: null }));
 ipcMain.handle('auto:rollen', async (_e, neu) => ({ rollen: await autoChat.rollen(!!neu), namen: autoChat.NAME }));
 ipcMain.handle('auto:setzen', (_e, rolle, id) => {
   if (!autoChat.ROLLEN.includes(rolle)) return;
@@ -1681,13 +1686,62 @@ async function testLauf(ordner) {
       console.log('STATS HEAT', await js(`document.querySelectorAll('.stats-heat i').length + ' Felder, ' + document.querySelectorAll('.stats-heat i.s4').length + ' s4, monate ' + [...document.querySelectorAll('.stats-monate span')].filter((x) => x.textContent).length`));
       await js(`schliesseBib()`);
     }
+    if (was.includes('terminal')) {
+      // Terminal-Version (gl): Server + echtes Terminal im eingebauten Fenster, Tasten werden getippt
+      const tj = path.join(app.getPath('userData'), 'terminal.json');
+      const k = fs.existsSync(tj) ? JSON.parse(fs.readFileSync(tj, 'utf8')) : null;
+      console.log('TERMINAL JSON', k ? Object.keys(k).join(',') : 'fehlt');
+      const ohne = await fetch(`http://127.0.0.1:${k.port}/info`).then((r) => r.status).catch((e) => e.message);
+      const mit = await fetch(`http://127.0.0.1:${k.port}/info`, { headers: { 'x-glowline': k.schluessel } }).then((r) => r.json()).catch((e) => ({ fehler: e.message }));
+      console.log('TERMINAL API', 'ohne Schluessel=' + ohne, '| version=' + mit.version, '| modelle=' + (mit.modelle || []).length);
+      console.log('TERMINAL CMD', JSON.stringify(terminal.cmdDatei('C:/Pro gramm/Glowline.exe', 'C:/x/cli.js', 'C:/a%b/terminal.json')));
+      await js(`zeigeTerminal(); starteSitzung({ tool: 'shell', cwd: ${JSON.stringify(ordner)} })`); await warte(3000);
+      const id = await js('sitzung.id');
+      const p = ptys.get(id);
+      let roh = '';
+      p.onData((x) => { roh += x; });
+      const tippe = async (t, ms = 600) => { p.write(t); await warte(ms); };
+      const sauber = () => roh.replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '').replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+      const cli = cliPfad();
+      console.log('TERMINAL CLI DA', fs.existsSync(cli));
+      // wie nach der Installation: gl.cmd im bin-Ordner (GLOWLINE_TEST_CLI_DIREKT=1: ohne cmd dazwischen)
+      fs.writeFileSync(path.join(ordner, 'gl.cmd'), terminal.cmdDatei(process.execPath, cli, tj));
+      const start = process.env.GLOWLINE_TEST_CLI_DIREKT ? `$env:ELECTRON_RUN_AS_NODE=1; & '${process.execPath}' '${cli}' --api '${tj}'` : `& '${path.join(ordner, 'gl.cmd')}'`;
+      await tippe(`$env:GLOWLINE_CLI_LOG='${path.join(ordner, 'cli.log')}'; ${start}\r`, 5000);
+      await bild('t-start');
+      console.log('TERMINAL KOPF', /Glow-/.test(sauber()) && /line/.test(sauber()) ? 'ok' : 'FEHLT', '| eingabe=' + /Ask anything/.test(sauber()));
+      await tippe('Hallo, wer bist du?', 400); await bild('t-tippen');
+      await tippe('\r', 7000); await bild('t-antwort');
+      console.log('TERMINAL ANTWORT', /●/.test(sauber()) ? 'ok' : 'FEHLT', '| stat=' + /⎿/.test(sauber()));
+      await tippe('/', 700); await bild('t-befehle');
+      console.log('TERMINAL BEFEHLE', /\/help/.test(sauber()) && /\/think/.test(sauber()) ? 'ok' : 'FEHLT');
+      await tippe('im', 500); await bild('t-befehle2');
+      console.log('TERMINAL BEFEHLE GEFILTERT', /\/image/.test(sauber()) ? 'ok' : 'FEHLT');
+      await tippe('\x7f\x7f\x7f', 300);
+      await tippe('Zeig mir Markdown\r', 2500); await bild('t-markdown');
+      console.log('TERMINAL MARKDOWN', ['Überschrift', '•', '╭─ python', '│ def hallo', 'Zitat'].map((x) => x + '=' + sauber().includes(x)).join(' '));
+      roh = '';
+      await tippe('/image a lighthouse at sunset\r', 9000); await bild('t-bild');
+      console.log('TERMINAL BILD', /Image ready/.test(sauber()) ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-300), '| vorschau=' + (roh.match(/▀/g) || []).length);
+      roh = '';
+      await tippe('/model\r', 2000); await bild('t-modelle');
+      console.log('TERMINAL MODELLE', /Models/.test(sauber()) ? 'ok' : 'FEHLT');
+      await tippe('/help\r', 1200); await bild('t-hilfe');
+      roh = '';
+      await tippe('Schreib eine sehr lange Geschichte\r', 2500); await bild('t-strom'); await tippe('\x1b', 1500); await bild('t-stopp');
+      console.log('TERMINAL STOP', /Stopped|⎿/.test(sauber()) ? 'ok' : 'FEHLT', /Stopped/.test(sauber()) ? '(gestoppt)' : '(war schon fertig)');
+      roh = '';
+      await tippe('\x03', 300); await tippe('\x03', 1500); await bild('t-ende');
+      console.log('TERMINAL ENDE', /Bye/.test(sauber()) ? 'ok' : 'FEHLT');
+      fs.writeFileSync(path.join(ordner, 'terminal.txt'), roh);
+    }
     if (was.includes('sprache')) {
       // Spracheingabe: Einrichten (Fake-Server GLOWLINE_TEST_HOEREN_URL), Aufnahme (Testton statt Mikrofon), Text landet im Ziel
       await js(`zeigeWorkspace('auto')`); await warte(1200);
       console.log('SPRACHE STAND', JSON.stringify(await js(`window.api.hoerenStand()`)));
       await js(`document.querySelector('#chat-mic').click()`); await warte(700); await bild('h-einrichten');
       console.log('SPRACHE POPUP', await js(`document.querySelector('#hoeren-pop').classList.contains('versteckt') ? 'zu' : document.querySelector('#hoeren-pop').innerText.split(String.fromCharCode(10)).filter(Boolean).join(' | ')`));
-      await js(`document.querySelector('.hp-karte[data-id="beste"]').click()`); await warte(4000); await bild('h-geladen');
+      await js(`document.querySelector('.hp-karte[data-id="parakeet"]').click()`); await warte(4000); await bild('h-geladen');
       console.log('SPRACHE NACH LADEN', JSON.stringify(await js(`window.api.hoerenStand()`)), '|', await js(`document.querySelector('#hoeren-pop').classList.contains('versteckt') ? 'pop zu' : 'pop offen'`));
       await js(`document.querySelector('#chat-text').value = 'Hallo,'; document.querySelector('#chat-mic').click()`); await warte(1600); await bild('h-aufnahme');
       console.log('SPRACHE AUFNAHME', await js(`document.querySelector('#chat-mic').className + ' | pegel=' + (hz.aufnahme ? hz.aufnahme.pegel.toFixed(3) : '-')`));
@@ -2349,6 +2403,56 @@ async function testLauf(ordner) {
   app.quit();
 }
 
+// ---------- Terminal (gl / glowline) ----------
+// kleine Vorschau fuer das Terminal: Bild (oder Video-Vorschaubild von Windows) auf hoechstens b x h Pixel
+async function terminalVorschau(f, b, h) {
+  let bild = null;
+  try {
+    bild = /\.(png|jpe?g|webp)$/i.test(f) ? nativeImage.createFromPath(f)
+      : /\.(mp4|webm)$/i.test(f) ? await nativeImage.createThumbnailFromPath(f, { width: 512, height: 512 }) : null;
+  } catch { bild = null; }
+  if (!bild || bild.isEmpty()) return null;
+  const g = bild.getSize();
+  const s = Math.min(b / g.width, h / g.height, 1);
+  const k = bild.resize({ width: Math.max(1, Math.round(g.width * s)), height: Math.max(1, Math.round(g.height * s)), quality: 'good' });
+  const kg = k.getSize();
+  const bgra = k.toBitmap();
+  const rgb = Buffer.alloc(kg.width * kg.height * 3);
+  for (let i = 0, j = 0; i < bgra.length; i += 4, j += 3) { rgb[j] = bgra[i + 2]; rgb[j + 1] = bgra[i + 1]; rgb[j + 2] = bgra[i]; }
+  return { b: kg.width, h: kg.height, px: rgb.toString('base64') };
+}
+// das Terminal-Programm liegt ausserhalb von app.asar (asarUnpack), damit es jedes Programm lesen kann
+const cliPfad = () => path.join(__dirname.replace(/app\.asar$/, 'app.asar.unpacked'), 'cli', 'glowline-cli.js');
+const terminalErlaubt = (f) => typeof f === 'string' && !!f && (studio.inAusgabe(f) || freigegeben.has(path.resolve(f))) && fs.existsSync(f);
+function terminalStarten() {
+  terminal.init({
+    chatSenden, chatStopp: (id) => { const ac = chats.get(id); if (ac) ac.abort(); },
+    hoerer: sendeHoerer, proxy: () => proxy, gpu: () => gpu(), modelle: () => modellListe(true), cfg: () => cfg,
+    erlaubt: terminalErlaubt, freigeben: (f) => freigegeben.add(path.resolve(f)), vorschau: terminalVorschau,
+    kopieren: (t) => clipboard.writeText(t),
+    oeffnen: (f, zeigen) => {
+      const p = terminalErlaubt(f) ? path.resolve(f) : eigeneDatei(f);
+      if (!p) return false;
+      if (zeigen) shell.showItemInFolder(p);
+      else if (terminalErlaubt(f) || dateien.ANSEHEN.test(p)) shell.openPath(p); // Skripte nie ausfuehren
+      else shell.showItemInFolder(p);
+      return true;
+    },
+    version: app.getVersion(), datei: path.join(app.getPath('userData'), 'terminal.json'), test: !!process.env.GLOWLINE_TEST,
+  });
+  terminal.starte().catch((e) => console.error('terminal', e));
+  // gl / glowline einrichten: nur die installierte App (nicht beim Entwickeln, nie im Test)
+  if (!app.isPackaged || process.env.GLOWLINE_TEST) return;
+  setTimeout(() => {
+    terminal.installiere({
+      bin: path.join(process.env.LOCALAPPDATA || app.getPath('userData'), 'Glowline', 'bin'),
+      exe: process.execPath,
+      cli: cliPfad(),
+      dokumente: app.getPath('documents'),
+    }).catch((e) => console.error('terminal install', e));
+  }, 8000);
+}
+
 // Testmodus: eigener Datenordner, damit er weder die offene Glowline noch die config.json beruehrt
 if (process.env.GLOWLINE_TEST) app.setPath('userData', path.join(process.env.GLOWLINE_TEST, 'daten'));
 
@@ -2358,7 +2462,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
   app.on('second-instance', () => zeigeFenster());
   app.on('before-quit', () => { wirklichBeenden = true; });
   // fertig geladenes Update beim Beenden still installieren (Einstellung "auto")
-  app.on('will-quit', () => { statistik.jetztSpeichern(); update.beimBeenden(); });
+  app.on('will-quit', () => { statistik.jetztSpeichern(); update.beimBeenden(); terminal.stoppe(); });
   app.setAppUserModelId('Glowline');
   app.whenReady().then(async () => {
     ladeConfig();
@@ -2369,7 +2473,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
       beenden: () => { wirklichBeenden = true; app.quit(); },
     });
     hoeren.init({
-      cfg: () => cfg, setzeCfg: (p) => { Object.assign(cfg, mische(cfg, p)); speichereConfig(); }, sende, ladeDatei: studio.ladeDatei, test: !!process.env.GLOWLINE_TEST,
+      cfg: () => cfg, setzeCfg: (p) => { Object.assign(cfg, mische(cfg, p)); speichereConfig(); }, sende, ladeDatei: studio.ladeDatei, test: !!process.env.GLOWLINE_TEST, sprache: () => app.getLocale(),
       ordner: process.env.GLOWLINE_TEST ? path.join(process.env.GLOWLINE_TEST, 'hoeren') : path.join(process.env.LOCALAPPDATA || app.getPath('userData'), 'Glowline', 'hoeren'),
     });
     link.init({ cfg: () => cfg, speichere: speichereConfig, version: app.getVersion(), gpu: () => gpu(), sende, vramFrei });
@@ -2413,6 +2517,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     });
     dateien.init((art) => app.getPath(art));
     dateiProtokoll();
+    terminalStarten();
     if (!LINK_APP) agenten.starten(studio, vramFrei, app.getVersion());
     fenster();
     statusSchleife();

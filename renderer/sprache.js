@@ -111,6 +111,11 @@ async function aufnahmeStopp(verwerfen) {
   if (r.fehler) return hinweis(r.fehler);
   if (!r.text) return hinweis('Didn’t catch anything – try again a bit closer to the microphone');
   einfuegen(a, r.text);
+  // Whisper auf dem Prozessor war langsam: einmal auf Parakeet hinweisen
+  if (r.modell && r.modell !== 'parakeet' && r.dauer > 6 && !hz.tippGezeigt) {
+    hz.tippGezeigt = true;
+    setTimeout(() => hinweis('Tip: the new Parakeet model is much faster – Tools → Voice input → Change'), 2500);
+  }
 }
 function einfuegen(a, text) {
   const f = a.ziel.feld();
@@ -148,13 +153,17 @@ function hoerenPopZeichnen() {
   zu.addEventListener('click', hoerenPopZu);
   kopf.appendChild(zu);
   box.appendChild(kopf);
-  box.appendChild(elem('p', null, 'Talk to Cowork instead of typing. Speech recognition (Whisper) runs on this PC; nothing you say leaves your computer. Download once:'));
+  box.appendChild(elem('p', null, 'Talk to Cowork instead of typing. Speech recognition runs on this PC; nothing you say leaves your computer. Download once:'));
   const karten = elem('div', 'hp-karten');
-  const INFO = { schnell: 'Quick, fine for clear speech', beste: 'Understands German and mumbling much better' };
+  const INFO = {
+    parakeet: 'Fastest and very accurate · finds the language by itself · 25 European languages (German, English, French, …)',
+    beste: 'Every language, but slower on the processor',
+    schnell: 'Quick and small, less accurate',
+  };
   for (const [id, m] of Object.entries(s.modelle)) {
     const k = elem('button', 'hp-karte' + (s.modell === id && s.bereit ? ' an' : ''));
     k.dataset.id = id;
-    k.append(elem('b', null, m.name + (id === 'beste' ? ' · recommended' : '')), elem('span', null, INFO[id] + ' · ' + Math.round(m.groesse / 1e6) + ' MB'));
+    k.append(elem('b', null, m.name + (id === 'parakeet' ? ' · recommended' : '')), elem('span', null, INFO[id] + ' · ' + Math.round(m.groesse / 1e6) + ' MB'));
     if (s.modell === id && s.bereit) k.appendChild(elem('em', null, 'installed'));
     k.disabled = !!s.laedt;
     k.addEventListener('click', () => { if (!(s.modell === id && s.bereit)) window.api.hoerenHolen(id); });
@@ -181,7 +190,9 @@ function hoerenPopZeichnen() {
   sp.addEventListener('change', async () => { hz.st = await window.api.hoerenSprache(sp.value); });
   const l = elem('label');
   l.append(elem('span', null, 'Language'), sp);
-  fuss.appendChild(l);
+  // Parakeet erkennt die Sprache selbst – die Auswahl gilt nur fuer Whisper
+  if (s.modell === 'parakeet' && s.bereit) fuss.appendChild(elem('span', 'hp-leise', 'Language is detected automatically'));
+  else fuss.appendChild(l);
   if (s.bereit && !s.laedt) {
     const weg = elem('button', 'anp-knopf', 'Remove');
     weg.title = 'Delete the speech model from this PC';
@@ -196,7 +207,8 @@ function hoerenMenueZeile(box) {
   const s = hz.st;
   const z = elem('div', 'anp-zeile anp-update');
   const m = s && s.bereit ? s.modelle[s.modell] : null;
-  z.appendChild(elem('span', null, 'Voice input' + (m ? ' · ' + m.name + ' · ' + (SPRACH_WAHL.find((x) => x[0] === s.sprache) || SPRACH_WAHL[0])[1] : ' · not set up')));
+  const sprache = s && s.modell === 'parakeet' ? 'any language' : (SPRACH_WAHL.find((x) => x[0] === (s && s.sprache)) || SPRACH_WAHL[0])[1];
+  z.appendChild(elem('span', null, 'Voice input' + (m ? ' · ' + m.name + ' · ' + sprache : ' · not set up')));
   const k = elem('button', 'anp-knopf', m ? 'Change' : 'Set up');
   k.addEventListener('click', () => { schliesseMenues(); hoerenPopAuf(); });
   z.appendChild(k);

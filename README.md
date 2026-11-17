@@ -67,10 +67,28 @@ Open **Cowork** from the tool menu at the bottom right – no extra windows.
 
 - **One chat for everything** – Cowork picks the right model for each message: a fast one for quick questions, your coder for code and error messages, a thinking model for maths, plans and tricky decisions, a vision model for questions about an attached image – and the Studio for images, videos, voice and upscales. Follow-up questions stay with the same model. Your chats are kept on this PC across restarts.
 - **Your models, your choice** – **Models → Cowork** shows which model does what; set any role to another model (local or cloud) or leave it on Auto. Name a model in your message (*“ask gemma: …”*) to use it just once, or pick one bottom right to use it for every message until you click **Back to Auto**. **Use recommended** picks (and downloads, if needed) the model that fits your PC for each role. Under **Studio** on the same page you set the default model for images, video, upscale and voice – Cowork uses it, and the Studio picks it first. Cloud video models (Higgsfield) are only used when you choose them there, since they cost money.
-- **Voice input** – click the microphone next to **Send** (or press **Ctrl+Shift+Space**) and talk; click again to stop and your words appear in the box. The first time, Glowline downloads the speech recognition once (Whisper via whisper.cpp – *Fast* 190 MB or *Best* 575 MB, better for German). It runs on your PC's processor, also in Glowline Link on a laptop – nothing you say leaves your computer. Language and model: tool menu → Start & list → Voice input.
+- **Voice input** – click the microphone next to **Send** (or press **Ctrl+Shift+Space**) and talk; click again to stop and your words appear in the box. The first time, Glowline downloads the speech recognition once: **Parakeet** (recommended, 670 MB – NVIDIA's Parakeet TDT v3 via whisper.cpp, very fast and accurate, finds the language by itself, 25 European languages incl. German and English) or **Whisper Turbo** / **Whisper Small** for every other language. It runs on your PC's processor, also in Glowline Link on a laptop – nothing you say leaves your computer. Model and language: tool menu → Start & list → Voice input.
 - **Commands** – type `/` for a list: `/clear`, `/stop`, `/retry`, `/copy`, `/export`, `/think …`, `/code …`, `/fast …`, `/thinking on|off`, `/image …`, `/video …`, `/voice …`, `/upscale`, `/file …`, `/goal …` (keeps every answer focused on a goal), `/model …`, `/auto`, `/models` and `/help`.
 - **Create right in the chat** – just ask: *“create an image of a tree”*, *“make a TikTok video of a dancing cat”*, *“read this aloud: …”*. Glowline writes a better prompt and the Studio makes it on your GPU – the result appears in the chat. Follow-ups work too (*“make the sky purple”*), images get **Upscale 4×** and **Animate** buttons, videos an **Upscale** button, and you can attach your own image with 📎 or drag & drop. Needs the Studio set up.
 - **Files on your PC** – *“make an HTML file on my desktop with a little jump game”*: the Code model writes it and Glowline saves it (Desktop, Documents, Downloads … or a folder path you name, only inside your user folder). The file appears in the chat with **Open** and **Show in folder**; follow-ups like *“make the background blue”* change the same file. Existing files are never overwritten, and nothing gets run. Or use `/file …`.
+
+## Terminal – `gl`
+
+Cowork also lives in your terminal. Open any terminal (PowerShell, cmd, Windows Terminal, Git Bash) and type **`gl`** or **`glowline`**:
+
+```
+  ╭─────╮   Glow-   Glowline 5.3.0 · Cowork
+  │ ›_  │   line    ~\Projekte\my-game
+  ╰━━━━━╯
+```
+
+- Same Cowork as in the window: Auto picks the model, images / videos / voice / upscales are made by the Studio, follow-ups work.
+- **Images and videos** show up as a small colour preview right in the terminal, plus a clickable path – **Ctrl+O** opens the last result.
+- **Upscale**: drag an image or video into the terminal (or type its path) and say *upscale*, or use `/upscale <path>`. Drag an image in and ask *“what is in it?”* to use the vision model.
+- **Files** you ask for (*“make an HTML jump game”*, `/file …`) are saved in the folder you started `gl` in.
+- Commands: type `/` – the same as in the window plus `/open` and `/exit`. **Esc** stops an answer, **↑/↓** brings back earlier messages, **Ctrl+J** or `\` + Enter for a new line, **Ctrl+C** twice to leave.
+- `gl "question"` starts with a message, `gl -p "question"` answers once and exits (for scripts).
+- The Glowline app does the work: if it isn't running, `gl` starts it in the tray. Set up automatically after the update – open a **new** terminal window once. In PowerShell, `gl` normally means *Get-Location*; Glowline turns that alias off in your PowerShell profile so `gl` starts Glowline (`Get-Location` / `pwd` still work).
 
 ## Accounts
 
