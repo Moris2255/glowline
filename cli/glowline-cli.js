@@ -453,26 +453,31 @@ function neuAufbauen() {
 function hinweis(t, ms = 3500) { S.hinweis = t; S.hinweisBis = Date.now() + ms; bald(); setTimeout(bald, ms + 50); }
 
 // ---------- Kopf ----------
-// Glim – das Glowline-Maskottchen: ein kleiner Roboter mit Bildschirm-Gesicht und Antennen-Licht auf seiner Leuchtlinie
+// Glim – das Glowline-Maskottchen: ein Gluehwuermchen. Wenn es fliegt, zieht es eine Leuchtlinie hinter sich her (Glow-line).
 const GLIM = [
-  '......TT......',
-  '.......w......',
-  '..WWWWWWWWWW..',
-  '.WEEEEEEEEEEW.',
-  '.WEETEEEETEEW.',
-  '.WEETEEEETEEW.',
-  '.WEEEEEEEEEEW.',
-  '..WWWWWWWWWW..',
-  '...ww....ww...',
-  'LLLLLLLLLLLLLL',
+  '...w........w...',
+  '....w......w....',
+  '...WWWWWWWWWW...',
+  'gg.WWTEWWTEWW.gg',
+  'ggg.WWWWWWWW.ggg',
+  '.gg..wwwwww..gg.',
+  '....hyYYYYyh....',
+  '...hYYYTTYYYh...',
+  '....hyYYYYyh....',
+  'LLLLLLLLLLLLLLLL',
 ];
-const GLIM_FARBEN = { T: [255, 255, 255], W: [236, 238, 243], w: [190, 194, 202], E: [32, 34, 40] };
+const GLIM_FARBEN = { T: [255, 255, 255], W: [236, 238, 243], w: [196, 200, 208], E: [24, 25, 30], g: [128, 132, 142], Y: [255, 236, 160], y: [232, 200, 112], h: [70, 62, 40] };
+// leuchtender Bauch: pulsiert langsam (t = 0..1)
+function glimFarben(t) {
+  const mix = (a, b) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  return { ...GLIM_FARBEN, Y: mix([240, 214, 138], [255, 244, 184]), y: mix([200, 168, 90], [244, 212, 126]), h: mix([44, 39, 26], [92, 80, 48]) };
+}
 // Pixel -> Halbblock-Zeichen (ein Zeichen = zwei Pixel uebereinander)
-function pixelZeilen(raster) {
+function pixelZeilen(raster, pal = GLIM_FARBEN) {
   const farbe = (zeile, x) => {
     const c = (raster[zeile] || '')[x];
     if (c === 'L') { const t = x / Math.max(1, raster[zeile].length - 1); const v = Math.round(150 + 105 * t); return [v, v, Math.min(255, v + 4)]; }
-    return GLIM_FARBEN[c] || null;
+    return pal[c] || null;
   };
   const r = [];
   for (let y = 0; y < raster.length; y += 2) {
@@ -493,17 +498,21 @@ function zeigeKopf() {
   drucke(kopf());
   live.kopf = FARBE ? live.zeile - 5 : null;
 }
-// Glim blinzelt ab und zu, solange er oben zu sehen ist
-const GLIM_ZU = GLIM.map((z, i) => (i === 4 ? z.replace(/T/g, 'E') : z));
+// Glim lebt, solange er oben zu sehen ist: der Bauch leuchtet auf und ab, ab und zu blinzelt er
+const GLIM_ZU = GLIM.map((z, i) => (i === 3 ? z.replace(/TE/g, 'ww') : z));
+const glimTier = { zu: false, naechstesBlinzeln: Date.now() + 3000 };
 function blinzeln() {
-  setTimeout(() => {
-    if (live.kopf != null && live.gezeichnet) {
-      const zeile = (raster) => '\x1b7' + geheZu(live.kopf + 2, 3) + pixelZeilen(raster)[2] + '\x1b8';
-      out('\x1b[?2026h' + zeile(GLIM_ZU) + '\x1b[?2026l');
-      setTimeout(() => { if (live.kopf != null) out('\x1b[?2026h' + zeile(GLIM) + '\x1b[?2026l'); }, 150);
-    }
-    blinzeln();
-  }, 3500 + Math.random() * 4000).unref();
+  setInterval(() => {
+    if (live.kopf == null || !live.gezeichnet) return;
+    const jetzt = Date.now();
+    if (!glimTier.zu && jetzt > glimTier.naechstesBlinzeln) { glimTier.zu = true; glimTier.auf = jetzt + 160; }
+    if (glimTier.zu && jetzt > glimTier.auf) { glimTier.zu = false; glimTier.naechstesBlinzeln = jetzt + 3500 + Math.random() * 4500; }
+    const z = pixelZeilen(glimTier.zu ? GLIM_ZU : GLIM, glimFarben((Math.sin(jetzt / 650) + 1) / 2));
+    // Augen (Zeile 2) und Bauch (Zeilen 4–5) neu malen, Cursor bleibt in der Eingabe
+    let s = '\x1b[?2026h\x1b7';
+    for (const i of [1, 3, 4]) if (live.kopf + i >= 1) s += geheZu(live.kopf + i, 3) + z[i];
+    out(s + '\x1b8\x1b[?2026l');
+  }, 120).unref();
 }
 function kopf() {
   const v = info && info.version ? info.version : '';
