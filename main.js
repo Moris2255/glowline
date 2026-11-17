@@ -28,6 +28,8 @@ const STANDARD = {
   defaultBackend: 'ollama',
   defaultModel: '', // leer = erstes geladenes bzw. verfuegbares Modell
   defaultTool: 'claude',
+  startMit: '', // was beim Start aufgeht: '' = zuletzt benutzt, sonst Werkzeug-ID, 'cowork' oder 'studio'
+  startVollbild: true, // im Vollbild starten (F11 schaltet um)
   lastDir: HOME,
   ohneDenken: [], // Modelle ohne "Denken"-Unterstuetzung
   favoriten: [], // Modell-IDs fuer das kleine Modellmenue
@@ -1111,7 +1113,7 @@ function fenster() {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   // Testmodus: Fenster ausserhalb des Bildschirms, ohne Fokus und ohne Taskleiste
   if (process.env.GLOWLINE_TEST) win.webContents.on('paint', (_e, _d, bild) => { win.letztesBild = bild; });
-  else win.once('ready-to-show', () => win.show());
+  else win.once('ready-to-show', () => { win.show(); if (cfg.startVollbild) win.setFullScreen(true); });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'), test ? { query: { test: '1' } } : undefined);
   win.webContents.on('before-input-event', (e, i) => {
     if (i.type !== 'keyDown') return;
@@ -1555,6 +1557,16 @@ async function testLauf(ordner) {
       await js(`document.querySelector('#ein-inhalt').scrollTop = 9999`); await warte(300); await bild('a-ein-express2');
       await js(`schliesseEinrichtung()`);
       console.log('ANSICHT fertig', await js(`window.innerWidth + 'x' + window.innerHeight`));
+    }
+    if (was.includes('start')) {
+      // Start-App + Vollbild-Schalter
+      for (const st of ['cowork', 'studio', 'codex', '']) {
+        await js(`cfg.startMit = '${st}'; startAnsicht(); 1`); await warte(1500);
+        console.log('START', st || 'zuletzt', '->', await js(`ansicht + ' ' + (sitzung ? sitzung.tool : '-')`));
+      }
+      await js(`zeigeTerminal(); document.querySelector('#tool-chip').click(); document.querySelector('#tools-anpassen-knopf').click(); 1`); await warte(600); await bild('start-anpassen');
+      console.log('START MENUE', await js(`[...document.querySelectorAll('#tools-anpassen .anp-zeile span')].slice(0, 3).map((x) => x.textContent).join(' | ') + ' | vollbild=' + cfg.startVollbild`));
+      await js(`schliesseMenues()`);
     }
     if (was.includes('link')) {
       // Glowline Link: am PC teilen (Code), in der Link-App mit diesem PC koppeln (GLOWLINE_TEST_LINKAPP=1)

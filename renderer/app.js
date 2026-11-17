@@ -238,9 +238,33 @@ function setzeMenue(neu) {
   ordneMenue();
   zeichneAnpassen();
 }
+// Was beim Start aufgeht (cfg.startMit) – '' = das zuletzt benutzte Werkzeug
+const START_WAHL = [['', 'Last used'], ['claude', 'Claude Code'], ['codex', 'Codex'], ['opencode', 'OpenCode'], ['antigravity', 'Antigravity'], ['cowork', 'Cowork'], ['studio', 'Studio']];
+function startAnsicht() {
+  const s = cfg.startMit || '';
+  if (s === 'cowork') return zeigeWorkspace('auto');
+  if (s === 'studio' && !document.body.classList.contains('link-app')) return zeigeStudio();
+  if (ansicht !== 'terminal') zeigeTerminal();
+  return starteSitzung(WERKZEUG_NAME[s] ? { tool: s } : {});
+}
 function zeichneAnpassen() {
   const box = $('#tools-anpassen');
   box.innerHTML = '';
+  box.appendChild(elem('div', 'm-gruppe', 'When Glowline starts'));
+  const start = elem('label', 'anp-zeile anp-start');
+  const wahl = elem('select');
+  for (const [id, name] of START_WAHL) { const o = elem('option', null, name); o.value = id; wahl.appendChild(o); }
+  wahl.value = cfg.startMit || '';
+  wahl.addEventListener('change', () => { cfg.startMit = wahl.value; window.api.setConfig({ startMit: wahl.value }); hinweis('On start: ' + START_WAHL.find((x) => x[0] === wahl.value)[1]); });
+  start.append(elem('span', null, 'Open'), wahl);
+  box.appendChild(start);
+  const voll = elem('label', 'anp-zeile');
+  const vc = elem('input');
+  vc.type = 'checkbox';
+  vc.checked = cfg.startVollbild !== false;
+  vc.addEventListener('change', () => { cfg.startVollbild = vc.checked; window.api.setConfig({ startVollbild: vc.checked }); });
+  voll.append(vc, elem('span', null, 'Start in full screen (F11 switches)'));
+  box.appendChild(voll);
   box.appendChild(elem('div', 'm-gruppe', 'Show, hide and sort the list'));
   const r = menueReihenfolge();
   const aus = new Set((cfg.menue && cfg.menue.aus) || []);
@@ -1118,7 +1142,7 @@ window.api.onStatus((s) => {
   }
   zeichneLeiste();
   window.glowlineBereit = true;
-  if (!TESTMODUS) starteSitzung({});
+  if (!TESTMODUS) startAnsicht();
   // erster Start ohne ein einziges Modell: den Einrichtungs-Assistenten anbieten
   if (!TESTMODUS && !cfg.einrichtung && liste && !liste.ollama.models.length && !liste.lmstudio.models.length && !(await window.api.linkStand().catch(() => ({}))).app) zeigeEinrichtung();
 })();

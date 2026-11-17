@@ -103,6 +103,18 @@ const ABLEHNUNG = /\b(I'?m (not able|unable)|I am (not able|unable)|I can(no|')t
 let d;
 function init(deps) { d = deps; }
 
+// Welches Studio-Modell Cowork nimmt: das eingestellte Standardmodell (Models → Cowork), wenn es bereit ist –
+// auch ein Cloud-Modell, aber nur wenn es ausdruecklich gewaehlt wurde. Sonst automatisch ein lokales.
+function studioModellFuer(st, sart) {
+  const alle = Object.values(st.modelle || {}).filter((m) => m.art === sart);
+  const std = ((d.cfg().studioStandard || {})[sart]) || '';
+  const gewaehlt = alle.find((m) => m.id === std && m.da);
+  if (gewaehlt) return gewaehlt;
+  const bereit = alle.filter((m) => m.da && !m.wolke);
+  // Bild: Z-Image zuerst (das installiert Express), sonst das erste geladene
+  return (sart === 'bild' && bereit.find((m) => m.id === 'z-image')) || bereit[0];
+}
+
 // eine kurze Antwort ohne Streaming; Ollama direkt (ohne "Denken"), sonst ueber den Proxy
 async function frage(modellId, system, msgs, max, signal) {
   const { backend, model } = d.teileModell(String(modellId || ''));
@@ -159,12 +171,9 @@ async function versuche(o) {
   const de = deutsch(wunsch);
   const st = d.studio.status();
   const sart = STUDIO_ART[art];
-  const kandidaten = Object.values(st.modelle || {}).filter((m) => m.art === sart && !m.wolke);
-  const bereit = kandidaten.filter((m) => m.da);
-  // Bild: Z-Image zuerst (das installiert Express), sonst das erste geladene
-  const km = (art === 'image' && bereit.find((m) => m.id === 'z-image')) || bereit[0];
+  const km = studioModellFuer(st, sart);
   const fehlt = (text) => { melde({ fertig: true, text, medien: { art, fehlt: sart } }); return true; };
-  if (!st.eingerichtet) return fehlt(de ? 'Dafür muss das Studio einmal eingerichtet werden (ca. 5 GB). Öffne Studio und klicke auf „Set up“.' : 'The Studio needs a one-time setup for this (about 5 GB). Open Studio and click “Set up”.');
+  if (!st.eingerichtet && !(km && km.wolke)) return fehlt(de ? 'Dafür muss das Studio einmal eingerichtet werden (ca. 5 GB). Öffne Studio und klicke auf „Set up“.' : 'The Studio needs a one-time setup for this (about 5 GB). Open Studio and click “Set up”.');
   if (!km) return fehlt(de ? `Das Modell dafür ist noch nicht geladen – hol es dir unter Studio → ${BEREICH[art]}.` : `The model for this isn't downloaded yet – get it in Studio → ${BEREICH[art]}.`);
 
   // Quellbild: angehaengtes Bild, sonst (wenn gemeint) das zuletzt erzeugte
@@ -219,4 +228,4 @@ async function versuche(o) {
   return true;
 }
 
-module.exports = { init, versuche, frage, deutsch, WORTE };
+module.exports = { studioModellFuer, init, versuche, frage, deutsch, WORTE };

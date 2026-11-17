@@ -210,7 +210,7 @@ function zeichneStudioEinrichtung(box) {
 function modelleFuer(bereich) { return Object.values(sz.st.modelle).filter((m) => m.art === bereich); }
 function aktivesModell(bereich) {
   const liste = modelleFuer(bereich);
-  const gew = liste.find((m) => m.id === sz.felder[bereich].modell);
+  const gew = liste.find((m) => m.id === sz.felder[bereich].modell) || liste.find((m) => m.da && m.id === (cfg.studioStandard || {})[bereich]);
   // ohne Wahl: lieber ein lokales (kostenloses) Modell als ein Cloud-Modell
   return gew || liste.find((m) => m.da && !m.wolke) || liste.find((m) => m.da) || liste[0];
 }

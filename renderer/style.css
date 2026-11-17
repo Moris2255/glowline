@@ -108,6 +108,7 @@ body.vollbild .term { top: 10px; }
 .tools-fuss button:hover { color: var(--text); background: var(--bg3); }
 .tools-fuss button.an { color: var(--weiss); }
 #tools-anpassen { display: none; }
+.anp-start select { margin-left: auto; background: var(--bg); color: var(--text); border: 1px solid var(--linie); border-radius: 7px; padding: 4px 6px; font: 12px var(--sans); outline: none; }
 #tools.bearbeiten > :not(#tools-anpassen) { display: none !important; }
 #tools.bearbeiten #tools-anpassen { display: block; }
 .anp-zeile { display: flex; align-items: center; gap: 8px; padding: 5px 14px; font-size: 13px; cursor: pointer; }
@@ -460,14 +461,14 @@ body[data-ansicht="studio"] #f-vram { display: flex; }
 body[data-ansicht="chat"] #ordner-chip, body[data-ansicht="studio"] #ordner-chip { display: none; }
 
 /* Modellfenster: Cowork-Rollen */
-.cowork-seite { padding: 6px 4px; }
-.cowork-info { font-size: 12px; color: var(--leise); line-height: 1.6; margin: 0 0 14px; max-width: 860px; }
-#auto-rollen { display: grid; gap: 8px; max-width: 860px; }
-#auto-rollen .rolle { justify-content: space-between; padding: 8px 8px 8px 12px; font-size: 12px; }
+.cowork-seite { padding: 18px 24px 24px; }
+.cowork-info { font-size: 13px; color: var(--leise); line-height: 1.6; margin: 0 0 14px; max-width: 980px; }
+#auto-rollen { display: grid; gap: 6px; }
+#auto-rollen .rolle { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(260px, 420px) 230px; gap: 16px; align-items: center; padding: 7px 12px 7px 16px; font-size: 13px; }
 #auto-rollen .rolle-kopf { display: flex; flex-direction: column; gap: 2px; }
-#auto-rollen .rolle-kopf b { color: var(--text); font-weight: 600; }
-#auto-rollen .rolle-kopf small { color: var(--sehrleise); font-size: 11px; }
-#auto-rollen .rolle select { max-width: 300px; font-size: 12px; padding: 4px; }
+#auto-rollen .rolle-kopf b { color: var(--text); font-weight: 600; font-size: 14px; }
+#auto-rollen .rolle-kopf small { color: var(--sehrleise); font-size: 12px; }
+#auto-rollen .rolle select { width: 100%; max-width: none; font-size: 13px; padding: 7px 8px; border: 1px solid var(--linie); border-radius: 8px; }
 
 /* Cowork: Befehls-Vorschlaege ueber dem Eingabefeld */
 #chat-befehle { position: absolute; left: 0; right: 0; bottom: 64px; max-height: 320px; overflow-y: auto; background: var(--bg2); border: 1px solid var(--linie); border-radius: 10px; padding: 4px; z-index: 5; box-shadow: 0 8px 30px rgba(0,0,0,.45); }
@@ -477,15 +478,16 @@ body[data-ansicht="chat"] #ordner-chip, body[data-ansicht="studio"] #ordner-chip
 #chat-befehle button span { margin-left: auto; color: var(--sehrleise); }
 #chat-befehle button.an, #chat-befehle button:hover { background: var(--bg3, rgba(255,255,255,.06)); }
 
-.rollen-pc { font-size: 12px; color: var(--leise); margin-bottom: 4px; }
+.rollen-pc { font-size: 13px; color: var(--leise); margin-bottom: 4px; }
+.rollen-titel { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--leise); margin: 12px 0 2px; }
+.rollen-titel small { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--sehrleise); font-size: 12px; }
 .rollen-pc b { color: var(--text); font-weight: 600; }
-#auto-rollen .rolle-rechts { display: grid; grid-template-columns: 300px auto; align-items: center; gap: 4px 10px; justify-items: start; }
-#auto-rollen .rolle-rechts select { width: 300px; grid-row: span 2; }
-.rolle-empf { font-size: 11px; padding: 4px 10px; border: 1px solid var(--linie); border-radius: 7px; color: var(--leise); white-space: nowrap; }
+#auto-rollen .rolle-rechts { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.rolle-empf { font-size: 12px; padding: 5px 12px; border: 1px solid var(--linie); border-radius: 7px; color: var(--leise); white-space: nowrap; }
 .rolle-empf:hover:not(:disabled) { color: var(--text); border-color: var(--leise); }
 .rolle-empf.an { color: var(--gruen, #5c9); border-color: transparent; }
 .rolle-empf:disabled { cursor: default; }
-.rolle-empf-name { font-size: 10px; color: var(--sehrleise); font-family: var(--mono); padding-left: 2px; }
+.rolle-empf-name { font-size: 11px; color: var(--sehrleise); font-family: var(--mono); padding-left: 2px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .n-datei { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; white-space: normal; }
 .n-datei .n-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--leise); }
 .datei-zeile { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--linie); border-radius: 10px; background: var(--bg2); max-width: 560px; }

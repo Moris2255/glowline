@@ -174,10 +174,11 @@ let rollenNr = 0;
 async function zeichneAutoRollen(neu) {
   const box = $('#auto-rollen');
   const nr = ++rollenNr;
-  const [r, l, emp] = await Promise.all([
+  const [r, l, emp, st] = await Promise.all([
     window.api.autoRollen(neu).catch(() => null),
     liste ? Promise.resolve(liste) : window.api.models().catch(() => null),
     window.api.autoEmpfehlung().catch(() => null),
+    window.api.studio().catch(() => null),
   ]);
   if (nr !== rollenNr || !r) return;
   if (l) liste = l;
@@ -188,6 +189,7 @@ async function zeichneAutoRollen(neu) {
     pc.append('Your PC: ', elem('b', null, emp.pc), emp.stufe ? ' → recommended models: ' : '', emp.stufe ? elem('b', null, emp.stufe) : '');
     box.appendChild(pc);
   }
+  box.appendChild(elem('div', 'rollen-titel', 'Chat'));
   for (const rolle of Object.keys(ROLLE_NAME)) {
     const x = r.rollen[rolle] || { id: '', auto: true };
     const z = elem('div', 'rolle');
@@ -210,7 +212,7 @@ async function zeichneAutoRollen(neu) {
       hinweis(ROLLE_NAME[rolle] + ': ' + (s.value ? modellAnzeige(s.value) : 'picked automatically'));
       zeichneAutoRollen();
     });
-    rechts.appendChild(s);
+    z.appendChild(s);
     // Empfehlung fuer diesen PC: vorhanden -> eintragen, sonst aus der Ollama-Bibliothek laden
     const e = emp && emp.rollen[rolle];
     if (e) {
@@ -237,6 +239,59 @@ async function zeichneAutoRollen(neu) {
       const name = elem('small', 'rolle-empf-name', e.name);
       rechts.append(k, name);
     }
+    z.appendChild(rechts);
+    box.appendChild(z);
+  }
+  if (st && !document.body.classList.contains('link-app')) studioStandardZeilen(box, st);
+}
+
+// Studio-Standardmodelle: was Cowork (und das Studio beim Oeffnen) fuer Bilder, Videos, Upscale und Stimme nimmt
+const STUDIO_ROLLE = { bild: ['Images', '“draw a cat”, logos, photos'], video: ['Video', '“make a video of …”, animate an image'], upscale: ['Upscale', 'make an image or video sharper'], stimme: ['Voice', '“read this out”, voice-overs'] };
+function studioAuto(st, art) {
+  const bereit = Object.values(st.modelle).filter((m) => m.art === art && m.da && !m.wolke);
+  return (art === 'bild' && bereit.find((m) => m.id === 'z-image')) || bereit[0] || null;
+}
+function studioStandardZeilen(box, st) {
+  const titel = elem('div', 'rollen-titel', 'Studio');
+  titel.appendChild(elem('small', null, st.eingerichtet ? ' – used when you ask Cowork for an image, video or voice, and picked first in Studio' : ' – set up the Studio once to make images, videos and voices'));
+  box.appendChild(titel);
+  const std = cfg.studioStandard || {};
+  for (const [art, [name, info]] of Object.entries(STUDIO_ROLLE)) {
+    const modelle = Object.values(st.modelle).filter((m) => m.art === art);
+    if (!modelle.length) continue;
+    const z = elem('div', 'rolle');
+    z.dataset.studio = art;
+    const kopf = elem('span', 'rolle-kopf');
+    kopf.append(elem('b', null, name), elem('small', null, info));
+    z.appendChild(kopf);
+    const s = elem('select');
+    const auto = studioAuto(st, art);
+    const o = elem('option', null, 'Auto · ' + (auto ? auto.name : 'nothing downloaded'));
+    o.value = '';
+    s.appendChild(o);
+    for (const m of modelle) {
+      const e = elem('option', null, m.name + (m.wolke ? (m.da ? ' · cloud, paid' : ' · needs a key') : m.da ? '' : ' · not downloaded'));
+      e.value = m.id;
+      e.disabled = !m.da;
+      s.appendChild(e);
+    }
+    const jetzt = modelle.find((m) => m.id === std[art] && m.da);
+    s.value = jetzt ? jetzt.id : '';
+    s.addEventListener('change', async () => {
+      cfg.studioStandard = { ...(cfg.studioStandard || {}), [art]: s.value };
+      await window.api.setConfig({ studioStandard: cfg.studioStandard });
+      if (sz.felder[art] && 'modell' in sz.felder[art]) sz.felder[art].modell = '';
+      const m = modelle.find((x) => x.id === s.value);
+      hinweis(name + ': ' + (m ? m.name + (m.wolke ? ' (cloud – costs money per use)' : '') : 'picked automatically'));
+      zeichneAutoRollen();
+    });
+    z.appendChild(s);
+    const rechts = elem('div', 'rolle-rechts');
+    const fehlen = modelle.filter((m) => !m.da && !m.wolke).length;
+    const k = elem('button', 'rolle-empf', !st.eingerichtet ? 'Set up Studio' : fehlen ? `Get models (${fehlen})` : 'Open in Studio');
+    k.title = !st.eingerichtet ? 'Opens the Studio – click “Set up” there' : fehlen ? 'Opens Studio, where you can download more models' : 'Opens this part of the Studio';
+    k.addEventListener('click', () => { schliesseBib(); zeigeStudio(art); });
+    rechts.append(k, elem('small', 'rolle-empf-name', (jetzt || auto || modelle[0]).info || ''));
     z.appendChild(rechts);
     box.appendChild(z);
   }
