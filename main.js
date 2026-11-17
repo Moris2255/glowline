@@ -1,6 +1,6 @@
 // Glowline: minimales Terminal fuer lokale KI-Modelle (Claude Code, Codex, OpenCode)
 // mit Live-Leiste unten (tok/s, Prefill, erstes Token, Kontext, VRAM).
-const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu, screen, shell, protocol } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu, screen, shell, protocol, Tray } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -29,7 +29,8 @@ const STANDARD = {
   defaultModel: '', // leer = erstes geladenes bzw. verfuegbares Modell
   defaultTool: 'claude',
   startMit: '', // was beim Start aufgeht: '' = zuletzt benutzt, sonst Werkzeug-ID, 'cowork' oder 'studio'
-  startVollbild: true, // im Vollbild starten (F11 schaltet um)
+  startFenster: '', // wie das Fenster startet: vollbild | gross (maximiert) | normal | minimiert ('' = vollbild, bzw. alt startVollbild)
+  beimSchliessen: 'beenden', // X oben rechts: beenden | minimieren | tray (laeuft im Infobereich weiter)
   lastDir: HOME,
   ohneDenken: [], // Modelle ohne "Denken"-Unterstuetzung
   favoriten: [], // Modell-IDs fuer das kleine Modellmenue
@@ -1086,6 +1087,44 @@ function setzeZoom() {
   try { win.setTitleBarOverlay({ color: '#0c0d0f', symbolColor: '#c9cbcf', height: Math.round(36 * z) }); } catch {}
 }
 
+// ---------- Fenster: Startart, Schliessen, Infobereich ----------
+let wirklichBeenden = false, tray = null;
+function startFenster() {
+  if (['vollbild', 'gross', 'normal', 'minimiert'].includes(cfg.startFenster)) return cfg.startFenster;
+  return cfg.startVollbild === false ? 'gross' : 'vollbild';
+}
+function normalGroesse() {
+  const wa = screen.getPrimaryDisplay().workArea;
+  const b = Math.round(wa.width * 0.72), h = Math.round(wa.height * 0.78);
+  return { x: wa.x + Math.round((wa.width - b) / 2), y: wa.y + Math.round((wa.height - h) / 2), width: b, height: h };
+}
+function zeigeFenster() {
+  if (!win || win.isDestroyed()) return;
+  if (!win.isVisible()) win.show();
+  if (win.isMinimized()) win.restore();
+  win.focus();
+}
+function trayAnlegen() {
+  if (tray) return;
+  tray = new Tray(path.join(__dirname, 'build', 'icon.ico'));
+  tray.setToolTip(LINK_APP ? 'Glowline Link' : 'Glowline');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open ' + (LINK_APP ? 'Glowline Link' : 'Glowline'), click: zeigeFenster },
+    { type: 'separator' },
+    { label: 'Quit', click: () => { wirklichBeenden = true; app.quit(); } },
+  ]));
+  tray.on('click', zeigeFenster);
+}
+function inDenTray() {
+  trayAnlegen();
+  if (win.isFullScreen()) { win.once('leave-full-screen', () => win.hide()); win.setFullScreen(false); } else win.hide();
+  if (!cfg.trayHinweis) {
+    cfg.trayHinweis = true;
+    speichereConfig();
+    try { tray.displayBalloon({ title: 'Glowline keeps running', content: 'Click the icon to open it again. Right-click → Quit to close it for real.' }); } catch {}
+  }
+}
+
 function fenster() {
   // Startet fast bildschirmfuellend: nur ein schmaler Rand rundherum, damit die runden Ecken sichtbar bleiben
   const RAND = 10;
@@ -1113,7 +1152,19 @@ function fenster() {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   // Testmodus: Fenster ausserhalb des Bildschirms, ohne Fokus und ohne Taskleiste
   if (process.env.GLOWLINE_TEST) win.webContents.on('paint', (_e, _d, bild) => { win.letztesBild = bild; });
-  else win.once('ready-to-show', () => { win.show(); if (cfg.startVollbild) win.setFullScreen(true); });
+  else win.once('ready-to-show', () => {
+    const art = startFenster();
+    if (art === 'normal') { win.setBounds(normalGroesse()); win.show(); }
+    else if (art === 'gross') { win.maximize(); win.show(); }
+    else if (art === 'minimiert') win.minimize();
+    else { win.show(); win.setFullScreen(true); }
+  });
+  // X oben rechts: je nach Einstellung beenden, minimieren oder im Infobereich weiterlaufen
+  win.on('close', (e) => {
+    if (wirklichBeenden || (test && !process.env.GLOWLINE_TEST_FENSTER)) return;
+    if (cfg.beimSchliessen === 'minimieren') { e.preventDefault(); win.minimize(); }
+    else if (cfg.beimSchliessen === 'tray') { e.preventDefault(); inDenTray(); }
+  });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'), test ? { query: { test: '1' } } : undefined);
   win.webContents.on('before-input-event', (e, i) => {
     if (i.type !== 'keyDown') return;
@@ -1565,8 +1616,22 @@ async function testLauf(ordner) {
         console.log('START', st || 'zuletzt', '->', await js(`ansicht + ' ' + (sitzung ? sitzung.tool : '-')`));
       }
       await js(`zeigeTerminal(); document.querySelector('#tool-chip').click(); document.querySelector('#tools-anpassen-knopf').click(); 1`); await warte(600); await bild('start-anpassen');
-      console.log('START MENUE', await js(`[...document.querySelectorAll('#tools-anpassen .anp-zeile span')].slice(0, 3).map((x) => x.textContent).join(' | ') + ' | vollbild=' + cfg.startVollbild`));
+      console.log('START MENUE', await js(`[...document.querySelectorAll('#tools-anpassen .anp-zeile span')].slice(0, 4).map((x) => x.textContent).join(' | ') + ' | fenster=' + document.querySelectorAll('#tools-anpassen select')[1].value + ' | schliessen=' + document.querySelectorAll('#tools-anpassen select')[2].value`));
       await js(`schliesseMenues()`);
+    }
+    if (was.includes('fenster')) {
+      // X-Knopf: minimieren bzw. in den Infobereich (ohne Sprechblase)
+      cfg.trayHinweis = true;
+      cfg.beimSchliessen = 'minimieren'; win.close(); await warte(800);
+      console.log('FENSTER minimieren', 'zerstoert=' + win.isDestroyed(), 'minimiert=' + win.isMinimized());
+      zeigeFenster(); await warte(800);
+      cfg.beimSchliessen = 'tray'; win.close(); await warte(800);
+      console.log('FENSTER tray', 'zerstoert=' + win.isDestroyed(), 'sichtbar=' + win.isVisible(), 'tray=' + !!tray);
+      zeigeFenster(); await warte(800);
+      console.log('FENSTER zurueck', 'sichtbar=' + win.isVisible(), 'minimiert=' + win.isMinimized());
+      cfg.beimSchliessen = 'beenden';
+      console.log('FENSTER start', startFenster(), JSON.stringify(normalGroesse()));
+      if (tray) { tray.destroy(); tray = null; }
     }
     if (was.includes('link')) {
       // Glowline Link: am PC teilen (Code), in der Link-App mit diesem PC koppeln (GLOWLINE_TEST_LINKAPP=1)
@@ -2086,7 +2151,8 @@ if (process.env.GLOWLINE_TEST) app.setPath('userData', path.join(process.env.GLO
 if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+  app.on('second-instance', () => zeigeFenster());
+  app.on('before-quit', () => { wirklichBeenden = true; });
   app.setAppUserModelId('Glowline');
   app.whenReady().then(async () => {
     ladeConfig();

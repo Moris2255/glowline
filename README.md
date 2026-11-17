@@ -49,7 +49,7 @@ Glowline starts a small measuring proxy on `127.0.0.1:3460`. The coding tools ta
 
 Tools that are not installed get installed automatically when you pick them: Glowline runs the official installer in the terminal (and downloads Node.js first if needed), then starts the tool by itself.
 
-The **folder button** in the bar shows the working folder – click it to pick another one. **Start & list** (bottom of the tool menu) lets you pick what opens when Glowline starts (last used, a tool, Cowork or Studio), whether it starts in full screen (F11 switches), and reorder or hide the entries – e.g. keep only Codex and Claude Code.
+The **folder button** in the bar shows the working folder – click it to pick another one. **Start & list** (bottom of the tool menu) lets you pick what opens when Glowline starts (last used, a tool, Cowork or Studio), how the window starts (full screen, maximized, window or minimized – F11 switches full screen), what the close button does (quit, minimize, or keep running in the tray – right-click the tray icon → Quit), and reorder or hide the entries – e.g. keep only Codex and Claude Code.
 
 Models can be loaded/unloaded from the model menu. Press **F11** for fullscreen.
 

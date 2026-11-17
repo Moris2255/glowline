@@ -258,13 +258,20 @@ function zeichneAnpassen() {
   wahl.addEventListener('change', () => { cfg.startMit = wahl.value; window.api.setConfig({ startMit: wahl.value }); hinweis('On start: ' + START_WAHL.find((x) => x[0] === wahl.value)[1]); });
   start.append(elem('span', null, 'Open'), wahl);
   box.appendChild(start);
-  const voll = elem('label', 'anp-zeile');
-  const vc = elem('input');
-  vc.type = 'checkbox';
-  vc.checked = cfg.startVollbild !== false;
-  vc.addEventListener('change', () => { cfg.startVollbild = vc.checked; window.api.setConfig({ startVollbild: vc.checked }); });
-  voll.append(vc, elem('span', null, 'Start in full screen (F11 switches)'));
-  box.appendChild(voll);
+  const auswahlZeile = (titel, schluessel, optionen, jetzt, info) => {
+    const z = elem('label', 'anp-zeile anp-start');
+    const w = elem('select');
+    for (const [id, name] of optionen) { const o = elem('option', null, name); o.value = id; w.appendChild(o); }
+    w.value = jetzt;
+    w.addEventListener('change', () => { cfg[schluessel] = w.value; window.api.setConfig({ [schluessel]: w.value }); hinweis(info(optionen.find((x) => x[0] === w.value)[1])); });
+    z.append(elem('span', null, titel), w);
+    box.appendChild(z);
+  };
+  auswahlZeile('Window', 'startFenster', [['vollbild', 'Full screen'], ['gross', 'Maximized'], ['normal', 'Window'], ['minimiert', 'Minimized']],
+    ['vollbild', 'gross', 'normal', 'minimiert'].includes(cfg.startFenster) ? cfg.startFenster : cfg.startVollbild === false ? 'gross' : 'vollbild',
+    (n) => 'Glowline starts: ' + n + ' (F11 switches full screen)');
+  auswahlZeile('Close (X)', 'beimSchliessen', [['beenden', 'Quit'], ['minimieren', 'Minimize'], ['tray', 'Keep running in tray']], cfg.beimSchliessen || 'beenden',
+    (n) => 'Close button: ' + n);
   box.appendChild(elem('div', 'm-gruppe', 'Show, hide and sort the list'));
   const r = menueReihenfolge();
   const aus = new Set((cfg.menue && cfg.menue.aus) || []);

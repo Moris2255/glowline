@@ -108,7 +108,7 @@ body.vollbild .term { top: 10px; }
 .tools-fuss button:hover { color: var(--text); background: var(--bg3); }
 .tools-fuss button.an { color: var(--weiss); }
 #tools-anpassen { display: none; }
-.anp-start select { margin-left: auto; background: var(--bg); color: var(--text); border: 1px solid var(--linie); border-radius: 7px; padding: 4px 6px; font: 12px var(--sans); outline: none; }
+.anp-start select { margin-left: auto; width: 170px; background: var(--bg); color: var(--text); border: 1px solid var(--linie); border-radius: 7px; padding: 4px 6px; font: 12px var(--sans); outline: none; }
 #tools.bearbeiten > :not(#tools-anpassen) { display: none !important; }
 #tools.bearbeiten #tools-anpassen { display: block; }
 .anp-zeile { display: flex; align-items: center; gap: 8px; padding: 5px 14px; font-size: 13px; cursor: pointer; }
