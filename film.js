@@ -15,12 +15,17 @@ const FEHLT = { studio: 'the Studio', bild: 'an image model (Studio → Images)'
 
 let d = null; // { ordner, ausgabe(), studio, frage, rollen, sende, vramFrei, test, verschieben }
 const laeuft = new Map(); // id -> { ac, teil, proz }
+const eigene = new Set(); // selbst gewaehlte Sprachprobe/Musik der Filme (Vorschau auch nach einem Neustart)
+const merkeEigene = (f) => { for (const k of ['probe', 'musik']) if (typeof f[k] === 'string' && f[k]) eigene.add(path.resolve(f[k])); };
 
 function init(x) {
   d = x;
   fs.mkdirSync(d.ordner, { recursive: true });
   // nach einem Absturz: "laeuft" gibt es nicht mehr
-  for (const f of alle()) if (f.status === 'laeuft' || f.status === 'wartet') { f.status = f.datei ? 'fertig' : 'entwurf'; speichere(f); }
+  for (const f of alle()) {
+    merkeEigene(f);
+    if (f.status === 'laeuft' || f.status === 'wartet') { f.status = f.datei ? 'fertig' : 'entwurf'; speichere(f); }
+  }
 }
 
 const gueltig = (id) => typeof id === 'string' && /^f\d{6,20}$/.test(id);
@@ -54,7 +59,12 @@ function sicht(f) {
 const liste = () => alle().map((f) => ({ id: f.id, titel: f.titel, status: f.status, laenge: f.szenen.length * SZENE_S, format: f.format, zeit: f.zeit, datei: da(f.datei) ? f.datei : null, laeuft: laeuft.has(f.id) }));
 const melde = (f, x) => d.sende('film', { id: f.id, status: f.status, ...x });
 // nur Dateien, die zu einem Film gehoeren (fuer glowline://datei)
-const inOrdner = (datei) => { if (typeof datei !== 'string' || !datei || !d) return false; const r = path.relative(d.ordner, path.resolve(datei)); return !!r && !r.startsWith('..') && !path.isAbsolute(r); };
+const inOrdner = (datei) => {
+  if (typeof datei !== 'string' || !datei || !d) return false;
+  if (eigene.has(path.resolve(datei))) return true;
+  const r = path.relative(d.ordner, path.resolve(datei));
+  return !!r && !r.startsWith('..') && !path.isAbsolute(r);
+};
 
 // ---------- Drehbuch ----------
 const DREHBUCH = (n, sprache) => `You are the director of a short AI-generated film. Plan a film about the user's topic.
@@ -163,6 +173,7 @@ function aendern(id, neu) {
   // neu wuerfeln: alle Bilder (und damit Videos) nochmal
   if (neu.neuWuerfeln) { f.seed = Math.floor(Math.random() * 1e9); for (const s of f.szenen) weg(s, ['bildDatei', 'videoDatei']); }
   if (f.status === 'fertig' || f.status === 'fehler') { f.status = 'entwurf'; f.fehler = null; }
+  merkeEigene(f);
   speichere(f);
   return sicht(f);
 }
@@ -207,10 +218,12 @@ function uebernehme(f, quelle, name) {
 const bildPrompt = (f, s) => [s.bild, f.figur && `Main character: ${f.figur}.`, f.stil && `Style: ${f.stil}.`].filter(Boolean).join(' ');
 const videoPrompt = (f, s) => [s.bild, s.bewegung, f.figur && `The main character: ${f.figur}.`, f.stil].filter(Boolean).join(' ');
 
-async function machen(id) {
+// o.wennNoetig (Nacht-Warteschlange): ein schon fertiger, seitdem unveraenderter Film wird nicht nochmal geschnitten
+async function machen(id, o = {}) {
   const f = lade(id);
   if (!f) return { fehler: 'Film not found' };
   if (laeuft.has(id)) return { fehler: 'This film is already being made' };
+  if (o.wennNoetig && f.status === 'fertig' && da(f.datei)) return { dateien: [f.datei] };
   nummern(f);
   const { fehlt, m } = bedarf(f);
   const nein = (fehler) => { melde(f, { fertig: true, fehler }); return { fehler }; };
@@ -350,4 +363,4 @@ function abbrechen(id) {
 }
 function stoppen() { for (const id of laeuft.keys()) abbrechen(id); }
 
-module.exports = { init, planen, aendern, loeschen, machen, abbrechen, stoppen, lade: (id) => sicht(lade(id)), liste, bedarf: (id) => bedarf(lade(id)).fehlt, inOrdner, ausPlan, ausJson, LAENGEN, SZENE_S };
+module.exports = { init, planen, aendern, loeschen, machen, abbrechen, stoppen, laeuftGerade: (id) => laeuft.has(String(id)), lade: (id) => sicht(lade(id)), liste, bedarf: (id) => bedarf(lade(id)).fehlt, inOrdner, ausPlan, ausJson, LAENGEN, SZENE_S };

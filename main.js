@@ -1754,8 +1754,9 @@ async function testLauf(ordner) {
       // Text aendern: nur dieser Sprecher wird neu gemacht
       await js(`(() => { const t = document.querySelectorAll('[data-k^="f-text-"]')[2]; t.value = 'Ein ganz neuer Satz.'; t.dispatchEvent(new Event('input')); })()`); await warte(1200);
       console.log('FILM UNGUELTIG', film.lade(id).szenen.map((x) => (x.sprachDatei ? 'x' : '-')).join(''), film.lade(id).status);
-      // Abbruch mitten drin
-      await js(`document.querySelector('#film-los').click()`); await warte(800);
+      // Abbruch mitten drin – vorher Text tippen und SOFORT starten: der Text darf nicht verloren gehen
+      await js(`(() => { const t = document.querySelectorAll('[data-k^="f-text-"]')[1]; t.value = 'Gleich gestartet.'; t.dispatchEvent(new Event('input')); document.querySelector('#film-los').click(); })()`); await warte(800);
+      console.log('FILM SOFORT', JSON.stringify(film.lade(id).szenen[1].text));
       await js(`(() => { const b = document.querySelector('.f-lauf .m-knopf'); b.click(); b.click(); })()`); await warte(2500);
       f = film.lade(id);
       console.log('FILM ABBRUCH', f.status, f.fehler || '-', 'laeuft=' + await js(`filmLaeuft(fz.film)`));
@@ -1766,6 +1767,11 @@ async function testLauf(ordner) {
       for (let i = 0; i < 120 && nacht.stand().laeuft; i++) await warte(1000);
       f = film.lade(id);
       console.log('FILM NACHT FERTIG', JSON.stringify(nacht.stand().liste.map((e) => e.art + ':' + e.status)), f.status, f.szenen.map((x) => (x.sprachDatei ? 'x' : '-')).join(''));
+      // schon fertiger Film nochmal in die Nacht: kein neuer Schnitt, gleiche Datei
+      const vorher = fs.statSync(f.datei).mtimeMs;
+      nacht.aufraeumen(); nacht.dazu({ film: id }, { titel: f.titel }); nacht.jetztStarten();
+      for (let i = 0; i < 30 && (nacht.stand().laeuft || nacht.stand().liste.some((e) => e.status === 'wartet')); i++) await warte(500);
+      console.log('FILM NACHT DOPPELT', JSON.stringify(nacht.stand().liste.map((e) => e.art + ':' + e.status)), fs.statSync(film.lade(id).datei).mtimeMs === vorher ? 'gleiche Datei' : 'NEU GESCHNITTEN');
       // Chat-Knopf
       console.log('FILM CHAT', await js(`chatMedienElem({ medien: { art: 'film', film: ${JSON.stringify(id)} } }).innerText`));
       // Format wechseln macht alle Bilder ungueltig

@@ -118,6 +118,7 @@ function filmAendern(neu, sofort) {
   f.offen = { ...(f.offen || {}), ...neu };
   clearTimeout(fz.uhr);
   const senden = async () => {
+    fz.senden = null;
     const o = f.offen;
     f.offen = null;
     if (!o) return;
@@ -130,7 +131,15 @@ function filmAendern(neu, sofort) {
     await ladeFilmListe();
     if (neuZeichnen) zeichneStudio();
   };
-  if (sofort) senden(); else fz.uhr = setTimeout(senden, 600);
+  const los = () => { fz.speichert = senden(); return fz.speichert; };
+  fz.senden = los;
+  if (sofort) los(); else fz.uhr = setTimeout(los, 600);
+}
+// noch nicht gespeicherte Aenderungen sofort speichern (vor "Make film" / Nacht-Warteschlange)
+async function filmSpeichernJetzt() {
+  clearTimeout(fz.uhr);
+  if (fz.senden) await fz.senden();
+  else if (fz.speichert) await fz.speichert.catch(() => {});
 }
 async function ladeFilmListe() { fz.liste = await window.api.filmListe().catch(() => fz.liste); }
 
@@ -195,7 +204,7 @@ function filmEinstellungen(box, f) {
     const n = elem('button', 's-nacht-dazu', 'Add to night queue');
     n.disabled = !!grund; n.title = grund || 'The Studio makes the film tonight – it continues where it stopped';
     n.addEventListener('click', async () => {
-      try { nachtStand = await window.api.filmNacht(f.id); hinweis(`Added to the night queue – starts at ${nachtStand.start}`); } catch (e) { hinweis(fehlerText(e)); }
+      try { await filmSpeichernJetzt(); nachtStand = await window.api.filmNacht(f.id); hinweis(`Added to the night queue – starts at ${nachtStand.start}`); } catch (e) { hinweis(fehlerText(e)); }
       zeichneNacht();
     });
     box.appendChild(n);
@@ -234,11 +243,12 @@ function filmDatei(f, schluessel, leer, aus) {
   return z;
 }
 
-function filmMachen(f) {
+async function filmMachen(f) {
+  if (fz.lauf.has(f.id)) return;
   fz.lauf.set(f.id, { text: 'Starting…', prozent: 0 });
-  f.status = 'laeuft';
-  window.api.filmMachen(f.id);
   zeichneStudio();
+  await filmSpeichernJetzt(); // getippter Text darf nicht verloren gehen
+  window.api.filmMachen(f.id);
 }
 
 // ---------- Rechte Seite: Fortschritt, fertiger Film, Szenen ----------

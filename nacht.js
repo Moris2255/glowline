@@ -100,12 +100,14 @@ async function tick(z) {
   if (!nachts && !sofort) return;
   const id = 'nacht' + Date.now();
   const film = naechster.art === 'film' && naechster.a.film;
+  // der Film wird gerade von Hand gemacht: abwarten, danach ist er fertig (oder geht weiter)
+  if (film && d.film && d.film.laeuftGerade && d.film.laeuftGerade(film)) return;
   aktuell = { vorgang: film ? 'film:' + film : 'auftrag:' + id, nachts: nachts && !sofort };
   naechster.status = 'laeuft';
   naechster.fehler = null;
   melde();
   let r;
-  try { r = film ? await d.film.machen(film) : await d.studio.auftrag({ ...naechster.a, id }, d.vramFrei); } catch (e) { r = { fehler: e.message }; }
+  try { r = film ? await d.film.machen(film, { wennNoetig: true }) : await d.studio.auftrag({ ...naechster.a, id }, d.vramFrei); } catch (e) { r = { fehler: e.message }; }
   const war = aktuell;
   aktuell = null;
   if (war.zurueck) { naechster.status = 'wartet'; naechster.fehler = 'Stopped – continues next time'; }
