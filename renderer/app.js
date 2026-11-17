@@ -61,7 +61,24 @@ const el = document.createElement('div');
 el.className = 'term';
 $('#terms').appendChild(el);
 term.open(el);
+requestAnimationFrame(() => { try { fit.fit(); } catch {} }); // nochmal, sobald die Zeilenhoehe gemessen ist
 try { const gl = new WebglAddon.WebglAddon(); gl.onContextLoss(() => gl.dispose()); term.loadAddon(gl); } catch {}
+// Die letzte Zeile sitzt immer gleich weit ueber der Leiste: den Rest (Fensterhoehe passt nie genau auf Zeilen)
+// nach oben schieben statt unten frei zu lassen. Unten bleibt eine halbe Zeile, so weit wie Eingabe-Linie -> Modus-Zeile.
+const fitRoh = fit.fit.bind(fit);
+fit.fit = () => {
+  // Abstaende als Padding am .xterm-Element – das zieht das Fit-Addon selbst ab
+  const x = term.element, zelle = term._core?._renderService?.dimensions?.css?.cell?.height || 0;
+  if (!x) return fitRoh();
+  const unten = zelle ? Math.max(0, Math.round(zelle / 2) - 6) : 0;
+  x.style.paddingTop = '0px';
+  x.style.paddingBottom = unten + 'px';
+  fitRoh();
+  const schirm = x.querySelector('.xterm-screen');
+  if (!schirm || !zelle) return;
+  const rest = el.clientHeight - unten - schirm.getBoundingClientRect().height;
+  x.style.paddingTop = Math.max(0, Math.floor(rest)) + 'px';
+};
 
 term.onData((d) => {
   if (!sitzung) return;

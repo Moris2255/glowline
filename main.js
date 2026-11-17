@@ -1684,6 +1684,13 @@ async function testLauf(ordner) {
         await js(`cfg.startMit = '${st}'; startAnsicht(); 1`); await warte(1500);
         console.log('START', st || 'zuletzt', '->', await js(`ansicht + ' ' + (sitzung ? sitzung.tool : '-')`));
       }
+      // letzte Terminal-Zeile immer gleich weit ueber der Leiste, egal wie hoch das Fenster ist
+      win.unmaximize();
+      for (const h of [700, 733, 761, 790]) {
+        win.setSize(1100, h); await warte(600);
+        console.log('START ABSTAND', h, await js(`(() => { const s = term.element.querySelector('.xterm-screen').getBoundingClientRect(), t = $('#terms').getBoundingClientRect(); return 'unten ' + Math.round(t.bottom - s.bottom) + 'px | Zelle ' + term._core._renderService.dimensions.css.cell.height.toFixed(1) + ' | oben ' + term.element.style.paddingTop + ' | Zeilen ' + term.rows; })()`));
+      }
+      await bild('start-terminal');
       await js(`zeigeTerminal(); document.querySelector('#tool-chip').click(); document.querySelector('#tools-anpassen-knopf').click(); 1`); await warte(600); await bild('start-anpassen');
       console.log('START MENUE', await js(`[...document.querySelectorAll('#tools-anpassen .anp-zeile span')].slice(0, 4).map((x) => x.textContent).join(' | ') + ' | fenster=' + document.querySelectorAll('#tools-anpassen select')[1].value + ' | schliessen=' + document.querySelectorAll('#tools-anpassen select')[3].value`));
       await js(`schliesseMenues()`);
@@ -1717,7 +1724,7 @@ async function testLauf(ordner) {
       const start = process.env.GLOWLINE_TEST_CLI_DIREKT ? `$env:ELECTRON_RUN_AS_NODE=1; & '${process.execPath}' '${cli}' --api '${tj}'` : `& '${path.join(ordner, 'gl.cmd')}'`;
       await tippe(`$env:GLOWLINE_CLI_LOG='${path.join(ordner, 'cli.log')}'; ${start}\r`, 5000);
       await bild('t-start');
-      console.log('TERMINAL KOPF', /Glow-/.test(sauber()) && /line/.test(sauber()) ? 'ok' : 'FEHLT', '| eingabe=' + /Ask anything/.test(sauber()));
+      console.log('TERMINAL KOPF', /╭─/.test(sauber()) && /Glowline \d/.test(sauber()) && !/Glow-/.test(sauber()) && /help for all commands/.test(sauber()) ? 'ok' : 'FEHLT', '| eingabe=' + /Ask anything/.test(sauber()));
       await tippe('Hallo, wer bist du?', 400); await bild('t-tippen');
       await tippe('\r', 7000); await bild('t-antwort');
       console.log('TERMINAL ANTWORT', /●/.test(sauber()) ? 'ok' : 'FEHLT', '| stat=' + /⎿/.test(sauber()));

@@ -77,11 +77,13 @@ Open **Cowork** from the tool menu at the bottom right – no extra windows.
 Cowork also lives in your terminal. Open any terminal (PowerShell, cmd, Windows Terminal, Git Bash) and type **`gl`** or **`glowline`**:
 
 ```
-     ▀▄      ▄▀
-  ▄▄ ███▀███▀██ ▄▄   Glow-   Glowline 5.3.6 · Cowork
-  ▀██ ▀██████▀ ██▀   line    ~\Projekte\my-game
-      ▄██████▄               / for commands · drag in an image · Esc stops
-  ▄▄▄▄▄██████▄▄▄▄▄
+╭───────────────────────────────────────────────────────────────────────────╮
+│    ▀▄      ▄▀      Glowline 5.3.7                                         │
+│ ▄▄ ███▀███▀██ ▄▄   Cowork · RTX 4060 Ti · 2.6 / 8 GB VRAM                 │
+│ ▀██ ▀██████▀ ██▀   ~\Projekte\my-game                                     │
+│     ▄██████▄                                                              │
+│ ▄▄▄▄▄██████▄▄▄▄▄   /help for all commands · drag in an image · Esc stops  │
+╰───────────────────────────────────────────────────────────────────────────╯
 ```
 
 Say hi to **Glim**, Glowline's mascot – a little firefly. When it flies, it leaves a glowing line behind: a *glow line*. In the terminal its belly glows softly and it blinks now and then. The input box always stays at the bottom of the window, answers stream in above it.

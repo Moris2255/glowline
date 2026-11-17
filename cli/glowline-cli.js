@@ -51,6 +51,8 @@ const C = {
   nutzerBg: bgRgb(42, 42, 46),
 };
 const f = (farbe, s) => farbe + s + C.aus;
+// eigene Nachricht: grauer Hintergrund auch hinter farbigen Stuecken (jedes C.aus setzt ihn sonst auf schwarz zurueck)
+const mitHintergrund = (s) => (FARBE ? s.split(C.aus).join(C.aus + C.nutzerBg) : s);
 
 // ---------- Breite von Text im Terminal ----------
 function zb(cp) {
@@ -523,18 +525,30 @@ function blinzeln() {
 }
 function kopf() {
   const v = info && info.version ? info.version : '';
+  const g = (info && info.gpu) || S.gpu;
+  const gpuName = g && g.name ? String(g.name).replace(/^NVIDIA\s+(GeForce\s+)?/i, '') : '';
+  const vram = g && g.total ? `${(g.used / 1024).toFixed(1)} / ${Math.round(g.total / 1024)} GB VRAM` : '';
   const ordner = kurzPfad(process.cwd());
   const w = spalten() - 1;
-  const text = [
+  const textBreite = Math.max(10, w - 26); // Rahmen + Glim + Abstaende
+  const roh = [
+    f(C.hell + C.fett, 'Glowline') + f(C.leise, ' ' + v),
+    f(C.text, 'Cowork') + f(C.leise, [gpuName, vram].filter(Boolean).map((t) => ' · ' + t).join('')),
+    f(C.leise, ordner),
     '',
-    f(C.hell + C.fett, 'Glow-') + '   ' + f(C.text, 'Glowline ' + v) + f(C.leise, ' · Cowork'),
-    f(C.hell + C.fett, 'line') + '    ' + f(C.leise, kuerze(ordner, Math.max(10, w - 28))),
-    '        ' + f(C.dunkel, kuerze('/ for commands · drag in an image · Esc stops', Math.max(10, w - 28))),
-    '',
+    f(C.dunkel, '/help for all commands · drag in an image · Esc stops'),
   ];
-  if (!FARBE) return ['', '  Glow-   Glowline ' + v + ' · Cowork', '  line    ' + ordner, ''];
+  const text = roh.map((t) => (breite(t) > textBreite ? schneideFarbig(t, textBreite - 1) + f(C.dunkel, '…') : t));
+  if (!FARBE) return ['', '  Glowline ' + v + ' · Cowork', '  ' + ordner, '  /help for all commands', ''];
+  // Glim und die Infos in einem schmalen Rahmen (so breit wie der Inhalt)
   const bild = pixelZeilen(GLIM);
-  return ['', ...bild.map((b, i) => '  ' + b + '   ' + (text[i] || '')), ''];
+  const innen = 1 + 16 + 3 + Math.max(...text.map(breite)) + 2;
+  const rand = (t) => f(C.dunkel, t);
+  return [
+    rand('╭' + '─'.repeat(innen) + '╮'),
+    ...bild.map((b, i) => rand('│') + ' ' + b + '   ' + text[i] + ' '.repeat(innen - 20 - breite(text[i])) + rand('│')),
+    rand('╰' + '─'.repeat(innen) + '╯'),
+  ];
 }
 
 // ---------- Senden ----------
@@ -593,9 +607,9 @@ function nutzerZeilen(text, anhang) {
   const r = [];
   const zeilen = text.split('\n');
   zeilen.forEach((z, i) => {
-    for (const teil of umbrechen([{ t: z || ' ', s: C.hell }], w - 2, i === 0 ? f(C.leise, '› ') : '  ', '  ')) r.push(C.nutzerBg + teil + C.nutzerBg + ' '.repeat(Math.max(0, w - breite(teil))) + C.aus);
+    for (const teil of umbrechen([{ t: z || ' ', s: C.hell }], w - 2, i === 0 ? f(C.leise, '› ') : '  ', '  ')) r.push(C.nutzerBg + mitHintergrund(teil) + C.nutzerBg + ' '.repeat(Math.max(0, w - breite(teil))) + C.aus);
   });
-  if (anhang) r.push(C.nutzerBg + kuerze('  ' + f(C.leise, '📎 ' + path.basename(anhang)) + C.nutzerBg, w) + ' '.repeat(Math.max(0, w - 4 - breite(path.basename(anhang)))) + C.aus);
+  if (anhang) r.push(C.nutzerBg + mitHintergrund(kuerze('  ' + f(C.leise, '📎 ' + path.basename(anhang)) + C.nutzerBg, w)) + ' '.repeat(Math.max(0, w - 4 - breite(path.basename(anhang)))) + C.aus);
   return r;
 }
 
