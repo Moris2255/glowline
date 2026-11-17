@@ -193,12 +193,14 @@ function anfrage(methode, pfad, daten, { strom } = {}) {
 }
 const warte = (ms) => new Promise((r) => setTimeout(r, ms));
 let info = null;
+let kaltstart = false; // gl musste die App erst starten
 async function verbinden(melde) {
   const versuch = async () => { const k = liesApi(); if (!k) return false; verb = k; try { info = await anfrage('GET', '/info'); return true; } catch { return false; } };
   if (await versuch()) return;
   if (!appExe || !fs.existsSync(appExe)) throw new Error('Glowline is not running – start the Glowline app first.');
   // App unsichtbar im Infobereich starten (wie beim Windows-Start)
   melde('Starting Glowline…');
+  kaltstart = true;
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
   spawn(appExe, ['--tray'], { detached: true, stdio: 'ignore', env }).unref();
@@ -249,6 +251,7 @@ const BEFEHLE = [
   { n: 'goal', arg: 'text | off', info: 'keep every answer focused on a goal' },
   { n: 'model', arg: 'name', info: 'use one model for everything (no name: list)' },
   { n: 'auto', info: 'let Cowork pick the model again' },
+  { n: 'autostart', arg: 'on | off', info: 'start Glowline with Windows, so gl is ready at once' },
   { n: 'exit', alias: ['quit'], info: 'leave (or Ctrl+C twice)' },
 ];
 const befehlFinden = (w) => BEFEHLE.find((b) => b.n === w || (b.alias || []).includes(w));
@@ -862,6 +865,16 @@ async function befehlOderSenden(text) {
       break;
     }
     case 'auto': S.fest = ''; S.immerDenken = false; hinweis('Cowork picks the model again'); break;
+    case 'autostart': {
+      const an = /^(on|an|ein|yes|ja)$/i.test(rest) ? true : /^(off|aus|no|nein)$/i.test(rest) ? false : undefined;
+      try {
+        const r = await anfrage('POST', '/autostart', { an });
+        lokal([an === undefined
+          ? f(C.leise, '  Start with Windows is ') + f(C.hell, r.an ? 'on' : 'off') + f(C.leise, ' · /autostart ' + (r.an ? 'off' : 'on') + ' to change it')
+          : f(C.hell + C.fett, '  ✓ ') + f(C.hell, r.an ? 'Glowline now starts with Windows (hidden in the tray) – gl is ready right away.' : 'Glowline no longer starts with Windows – gl starts it when you need it.')]);
+      } catch { hinweis('Update the Glowline app to use /autostart'); }
+      break;
+    }
   }
   bald();
 }
@@ -1063,6 +1076,10 @@ async function start() {
   }, 4000).unref();
   S.gpu = info && info.gpu;
   malen();
+  // App war aus: einmal zeigen, wie gl sofort bereit ist
+  if (kaltstart) {
+    anfrage('POST', '/autostart', {}).then((r) => { if (r && !r.an) drucke(f(C.dunkel, '  Tip: /autostart on – Glowline starts with Windows, then gl is ready instantly.')); }).catch(() => {});
+  }
   if (text) befehlOderSenden(text);
 }
 process.on('uncaughtException', (e) => {

@@ -1,7 +1,7 @@
 {
   "name": "glowline",
   "productName": "Glowline",
-  "version": "5.3.1",
+  "version": "5.3.2",
   "description": "Glowline - local AI workspace: terminal, chat and studio for local models",
   "author": "Moris2255",
   "main": "main.js",

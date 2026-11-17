@@ -1039,12 +1039,13 @@ ipcMain.handle('link:koppeln', async (_e, host, code) => {
 });
 ipcMain.handle('link:wecken', () => (LINK_APP ? link.wecken() : false));
 // PC: mit Windows starten (unsichtbar im Infobereich), damit ein Laptop ihn aufwecken und gleich benutzen kann
-ipcMain.handle('link:autostart', (_e, an) => {
+function autostart(an) {
   if (LINK_APP) return false;
   if (typeof an === 'boolean' && !process.env.GLOWLINE_TEST) app.setLoginItemSettings({ openAtLogin: an, path: process.execPath, args: ['--tray'] });
   if (typeof an === 'boolean' && process.env.GLOWLINE_TEST) cfg.testAutostart = an;
   return process.env.GLOWLINE_TEST ? !!cfg.testAutostart : app.getLoginItemSettings({ path: process.execPath, args: ['--tray'] }).openAtLogin;
-});
+}
+ipcMain.handle('link:autostart', (_e, an) => autostart(an));
 ipcMain.handle('link:trennen', () => { if (LINK_APP) { link.trennen(); sende('config', cfg); } return true; });
 ipcMain.handle('installer:stand', (_e, id) => installerStand(id));
 // Auto-Update (update.js)
@@ -1726,6 +1727,11 @@ async function testLauf(ordner) {
       roh = '';
       await tippe('/model\r', 2000); await bild('t-modelle');
       console.log('TERMINAL MODELLE', /Models/.test(sauber()) ? 'ok' : 'FEHLT');
+      roh = '';
+      await tippe('/autostart on\r', 1200); await bild('t-autostart');
+      console.log('TERMINAL AUTOSTART', /starts with Windows/.test(sauber()) && cfg.testAutostart === true ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-200));
+      await tippe('/autostart off\r', 1000);
+      console.log('TERMINAL AUTOSTART AUS', cfg.testAutostart === false ? 'ok' : 'FEHLT');
       await tippe('/help\r', 1200); await bild('t-hilfe');
       roh = '';
       await tippe('Schreib eine sehr lange Geschichte\r', 2500); await bild('t-strom'); await tippe('\x1b', 1500); await bild('t-stopp');
@@ -2429,7 +2435,7 @@ function terminalStarten() {
     chatSenden, chatStopp: (id) => { const ac = chats.get(id); if (ac) ac.abort(); },
     hoerer: sendeHoerer, proxy: () => proxy, gpu: () => gpu(), modelle: () => modellListe(true), cfg: () => cfg,
     erlaubt: terminalErlaubt, freigeben: (f) => freigegeben.add(path.resolve(f)), vorschau: terminalVorschau,
-    kopieren: (t) => clipboard.writeText(t),
+    kopieren: (t) => clipboard.writeText(t), autostart,
     oeffnen: (f, zeigen) => {
       const p = terminalErlaubt(f) ? path.resolve(f) : eigeneDatei(f);
       if (!p) return false;

@@ -7,7 +7,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 
-let d = null; // { chatSenden, chatStopp, hoerer, proxy, gpu, modelle, cfg, erlaubt, freigeben, oeffnen, kopieren, vorschau, version, datei, test }
+let d = null; // { chatSenden, chatStopp, hoerer, proxy, gpu, modelle, cfg, erlaubt, freigeben, oeffnen, kopieren, autostart, vorschau, version, datei, test }
 let server = null;
 const MEDIEN = /\.(png|jpe?g|webp|mp4|webm|wav|mp3|flac|ogg|m4a)$/i;
 
@@ -78,6 +78,11 @@ async function anfrage(req, res, schluessel, port) {
     if (req.method === 'POST' && url.pathname === '/oeffnen') {
       const a = await body(req);
       return json(res, 200, { ok: d.oeffnen(String(a.pfad || ''), !!a.zeigen) });
+    }
+    // mit Windows starten (unsichtbar im Infobereich) – dann ist gl sofort bereit
+    if (req.method === 'POST' && url.pathname === '/autostart') {
+      const a = await body(req);
+      return json(res, 200, { an: !!d.autostart(typeof a.an === 'boolean' ? a.an : undefined) });
     }
     if (req.method === 'POST' && url.pathname === '/kopieren') {
       const a = await body(req);

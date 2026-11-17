@@ -78,7 +78,7 @@ Cowork also lives in your terminal. Open any terminal (PowerShell, cmd, Windows 
 
 ```
        ▄█▄
-     ▄█████▄      Glow-   Glowline 5.3.1 · Cowork
+     ▄█████▄      Glow-   Glowline 5.3.2 · Cowork
     ██ ███ ██     line    ~\Projekte\my-game
     ████▄████             / for commands · drag in an image · Esc stops
   ▄▄▄██▄▄▄██▄▄▄
@@ -93,7 +93,7 @@ Say hi to **Glim**, the little light drop on its glow line – Glowline's mascot
 - **Files** you ask for (*“make an HTML jump game”*, `/file …`) are saved in the folder you started `gl` in.
 - Commands: type `/` – the same as in the window plus `/open` and `/exit`. **Esc** stops an answer, **↑/↓** brings back earlier messages, **Ctrl+J** or `\` + Enter for a new line, **Ctrl+C** twice to leave.
 - `gl "question"` starts with a message, `gl -p "question"` answers once and exits (for scripts).
-- The Glowline app does the work: if it isn't running, `gl` starts it in the tray. Set up automatically after the update – open a **new** terminal window once. In PowerShell, `gl` normally means *Get-Location*; Glowline turns that alias off in your PowerShell profile so `gl` starts Glowline (`Get-Location` / `pwd` still work).
+- The Glowline app does the work: if it isn't running, `gl` starts it in the tray. Type `/autostart on` once and Glowline starts with Windows (hidden in the tray), so `gl` is ready right after you turn on your PC. Set up automatically after the update – open a **new** terminal window once. In PowerShell, `gl` normally means *Get-Location*; Glowline turns that alias off in your PowerShell profile so `gl` starts Glowline (`Get-Location` / `pwd` still work).
 
 ## Accounts
 
