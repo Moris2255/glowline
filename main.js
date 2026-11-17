@@ -574,6 +574,12 @@ async function werkzeugInstallieren(tool, ac, status) {
   }
 }
 
+// Hat der Nutzer in Claude Code selbst eine Statuszeile eingerichtet (~/.claude/settings.json)?
+function nutzerStatuszeile() {
+  const ordner = process.env.CLAUDE_CONFIG_DIR || path.join(HOME, '.claude');
+  try { return !!JSON.parse(fs.readFileSync(path.join(ordner, 'settings.json'), 'utf8')).statusLine; } catch { return false; }
+}
+
 async function baueBefehl(tool, modellId, tab) {
   const { backend, model } = teileModell(modellId || cfg.defaultModel || '');
   const basis = `http://127.0.0.1:${cfg.port}/s/${tab}/${backend || 'auto'}`;
@@ -619,10 +625,14 @@ async function baueBefehl(tool, modellId, tab) {
     // Eigene Einstellungsdatei: optionale Nutzer-Einstellungen, ohne Statuszeile (die Werte zeigt ja Glowline unten an).
     // Keine leere Statuszeile drueber legen: auch eine leere kostet eine ganze Zeile unter der Eingabe. Und die
     // Nutzer-Einstellungen nicht abschalten (--setting-sources): dann fehlen seine CLAUDE.md und Skills.
-    // Hat der Nutzer selbst eine Statuszeile eingerichtet, erscheint sie also – das ist seine Wahl.
+    // Hat der Nutzer selbst eine Statuszeile eingerichtet, blendet nur disableAllHooks sie ganz aus (Zeile weg,
+    // Eingabe rutscht nach unten) – kostet in Glowline seine Hooks, CLAUDE.md und Skills bleiben.
     let einst = {};
     try { einst = JSON.parse(fs.readFileSync(cfg.claude.settings, 'utf8')); } catch {}
-    if (cfg.claude.hideStatusLine) delete einst.statusLine;
+    if (cfg.claude.hideStatusLine) {
+      delete einst.statusLine;
+      if (einst.disableAllHooks === undefined && nutzerStatuszeile()) einst.disableAllHooks = true;
+    }
     if (einst.spinnerTipsEnabled === undefined) einst.spinnerTipsEnabled = false; // weniger Text unter der Eingabe
     const einstPfad = path.join(app.getPath('userData'), 'claude-settings.json');
     fs.writeFileSync(einstPfad, JSON.stringify(einst, null, 2));
@@ -1679,6 +1689,20 @@ async function testLauf(ordner) {
       for (const st of ['cowork', 'studio', 'codex', '']) {
         await js(`cfg.startMit = '${st}'; startAnsicht(); 1`); await warte(1500);
         console.log('START', st || 'zuletzt', '->', await js(`ansicht + ' ' + (sitzung ? sitzung.tool : '-')`));
+      }
+      // Claude Code: eigene Statuszeile des Nutzers ausblenden (disableAllHooks), sonst nichts abschalten
+      {
+        const alt = process.env.CLAUDE_CONFIG_DIR, ordner = path.join(app.getPath('userData'), 'cc-test');
+        fs.mkdirSync(ordner, { recursive: true });
+        process.env.CLAUDE_CONFIG_DIR = ordner;
+        const datei = path.join(app.getPath('userData'), 'claude-settings.json');
+        const liesEinst = async () => { fs.rmSync(datei, { force: true }); const b = await baueBefehl('claude', 'ollama,fake-coder:7b', 'tx'); return b.fehlt || !fs.existsSync(datei) ? null : JSON.parse(fs.readFileSync(datei, 'utf8')); };
+        fs.writeFileSync(path.join(ordner, 'settings.json'), JSON.stringify({ statusLine: { type: 'command', command: 'echo x' } }));
+        const mit = await liesEinst();
+        fs.writeFileSync(path.join(ordner, 'settings.json'), '{}');
+        const ohne = await liesEinst();
+        if (alt === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = alt;
+        console.log('START CLAUDE STATUSZEILE', !mit ? 'kein claude' : mit.disableAllHooks === true && !mit.statusLine && ohne.disableAllHooks === undefined ? 'ok' : 'FEHLT ' + JSON.stringify([mit, ohne]));
       }
       // letzte Terminal-Zeile immer gleich weit ueber der Leiste, egal wie hoch das Fenster ist
       win.unmaximize();
