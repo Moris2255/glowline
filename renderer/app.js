@@ -1201,7 +1201,7 @@ function zeigeUpdate(s) {
   if (!zeigen) return;
   updatePopup(s);
   $('#update-text').textContent = s.laedt ? `Update ${s.neu} · ${s.gesamt ? Math.floor((s.geladen / s.gesamt) * 100) : 0}%` : s.bereit ? `Restart to update (${s.neu})` : `Update ${s.neu}`;
-  chip.title = (s.fehler ? s.fehler + '\n\n' : '') + (s.bereit ? 'Downloaded and checked. Click to install now and restart – or it installs by itself when you quit Glowline.' : 'Click to download and install Glowline ' + s.neu) + (s.notizen ? '\n\nWhat\'s new:\n' + s.notizen.replace(/\*\*/g, '') : '');
+  chip.title = (s.fehler ? s.fehler + '\n\n' : '') + (s.bereit ? 'Downloaded and checked. Click to install now and restart – or it installs by itself when you quit Glowline.' : 'Click to download and install Glowline ' + s.neu) + ((s.punkte || []).length ? '\n\nWhat\'s new:\n' + s.punkte.map((p) => '• ' + p).join('\n') : '');
 }
 // Pop-up "New update available": einmal pro Version (und nochmal, wenn es fertig geladen ist)
 function updatePopup(s) {
@@ -1209,7 +1209,7 @@ function updatePopup(s) {
   const merk = s.neu + (s.bereit ? '-bereit' : '');
   if (s.laedt || cfg.updateGesehen === merk || (cfg.updateGesehen === s.neu && !s.bereit)) return;
   $('#up-titel').textContent = s.bereit ? `Glowline ${s.neu} is ready to install` : `New update available: Glowline ${s.neu}`;
-  const neu = String(s.notizen || '').replace(/\*\*/g, '').split(/\r?\n/).filter((z) => z.trim()).slice(0, 6).join('\n');
+  const neu = (s.punkte || []).map((p) => '•  ' + p).join('\n');
   $('#up-text').textContent = (neu ? 'What’s new:\n' + neu + '\n\n' : '') + (s.bereit ? 'Downloaded and checked. Click “Restart now” – or it installs by itself next time you quit Glowline.' : 'You have ' + s.version + '. Updating takes about a minute; your chats and settings stay.');
   $('#up-los').textContent = s.bereit ? 'Restart now' : 'Update now';
   pop.dataset.merk = merk;

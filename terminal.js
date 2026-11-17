@@ -88,6 +88,16 @@ async function anfrage(req, res, schluessel, port) {
       return json(res, 200, { ok: d.oeffnen(String(a.pfad || ''), !!a.zeigen) });
     }
     // mit Windows starten (unsichtbar im Infobereich) – dann ist gl sofort bereit
+    // /update in gl: pruefen, laden (gl fragt den Stand ab), installieren + Glowline neu starten
+    if (req.method === 'GET' && url.pathname === '/update') return json(res, 200, await d.update.pruefen().catch((e) => ({ ...d.update.stand(), fehler: String(e.message || e) })));
+    if (req.method === 'GET' && url.pathname === '/update/stand') return json(res, 200, d.update.stand());
+    if (req.method === 'POST' && url.pathname === '/update/laden') { d.update.laden().catch(() => {}); return json(res, 200, d.update.stand()); }
+    if (req.method === 'POST' && url.pathname === '/update/installieren') {
+      const ok = d.update.stand().bereit;
+      json(res, 200, { ok });
+      if (ok) setTimeout(() => d.update.jetzt().catch(() => {}), 1500); // gl hat sich bis dahin verabschiedet
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/autostart') {
       const a = await body(req);
       return json(res, 200, { an: !!d.autostart(typeof a.an === 'boolean' ? a.an : undefined) });

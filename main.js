@@ -1798,6 +1798,28 @@ async function testLauf(ordner) {
       roh = '';
       await tippe('\x03', 300); await tippe('\x03', 1500); await bild('t-ende');
       console.log('TERMINAL ENDE', /Bye/.test(sauber()) ? 'ok' : 'FEHLT');
+      // /update und /update now gegen ein nachgebautes GitHub (gl schliesst sich danach)
+      {
+        const inhalt = Buffer.alloc(2e6, 5), sha = require('crypto').createHash('sha256').update(inhalt).digest('hex');
+        const srv = require('http').createServer((q, r) => {
+          if (q.url === '/latest') return r.end(JSON.stringify({ tag_name: 'v9.9.9', body: '# Glowline 9.9.9\n\n## Neue Sachen\n\n- x\n\n## Download', assets: [{ name: 'Glowline-Setup-9.9.9.exe', size: inhalt.length, digest: 'sha256:' + sha, browser_download_url: `http://127.0.0.1:${srv.address().port}/dl` }] }));
+          if (q.url === '/dl') { r.setHeader('content-length', inhalt.length); return r.end(inhalt); }
+          r.statusCode = 404; r.end();
+        });
+        await new Promise((ok) => srv.listen(0, '127.0.0.1', ok));
+        const vorher = process.env.GLOWLINE_TEST_UPDATE;
+        process.env.GLOWLINE_TEST_UPDATE = `http://127.0.0.1:${srv.address().port}`;
+        await tippe(`${start}\r`, 5000);
+        roh = '';
+        await tippe('/update\r', 2000); await bild('t-update');
+        console.log('TERMINAL UPDATE', /Glowline 9\.9\.9 is available/.test(sauber()) && /Neue Sachen/.test(sauber()) && /update now/.test(sauber()) ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-300));
+        roh = '';
+        await tippe('/update now\r', 5000); await bild('t-update-jetzt');
+        console.log('TERMINAL UPDATE JETZT', /Installing Glowline 9\.9\.9/.test(sauber()) && /type gl again/.test(sauber()) && update.stand().bereit ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-300));
+        await warte(2000);
+        if (vorher === undefined) delete process.env.GLOWLINE_TEST_UPDATE; else process.env.GLOWLINE_TEST_UPDATE = vorher;
+        srv.close();
+      }
       fs.writeFileSync(path.join(ordner, 'terminal.txt'), roh);
     }
     if (was.includes('sprache')) {
@@ -2495,7 +2517,7 @@ function terminalStarten() {
     hoerer: sendeHoerer, proxy: () => proxy, gpu: () => gpu(), modelle: () => modellListe(true), cfg: () => cfg,
     erlaubt: terminalErlaubt, freigeben: (f) => freigegeben.add(path.resolve(f)), vorschau: terminalVorschau,
     kopieren: (t) => clipboard.writeText(t), autostart, statistik: () => statistik.stand(),
-    geladen: () => statusSchleife.geladen || [],
+    geladen: () => statusSchleife.geladen || [], update,
     // "Saved costs" genau wie unten im Fenster; ohne Fenster die Summe der Stats-Seite
     gespart: async () => {
       try { if (win && !win.isDestroyed()) return +(await win.webContents.executeJavaScript('gespartJetzt()')) || 0; } catch {}

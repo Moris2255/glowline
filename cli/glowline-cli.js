@@ -263,6 +263,7 @@ const BEFEHLE = [
   { n: 'usage', info: 'tokens and saved costs: this chat, today, all time' },
   { n: 'stats', info: 'your last weeks: activity, favourite model, Studio results' },
   { n: 'autostart', arg: 'on | off', info: 'start Glowline with Windows, so gl is ready at once' },
+  { n: 'update', arg: 'now', info: 'check for a new Glowline version · /update now installs it' },
   { n: 'exit', alias: ['quit'], info: 'leave (or Ctrl+C twice)' },
 ];
 const befehlFinden = (w) => BEFEHLE.find((b) => b.n === w || (b.alias || []).includes(w));
@@ -1063,8 +1064,42 @@ async function befehlOderSenden(text) {
       } catch { hinweis('Update the Glowline app to use /autostart'); }
       break;
     }
+    case 'update': await updateBefehl(/^(now|jetzt|install|installieren|yes|ja)$/i.test(rest)); break;
   }
   bald();
+}
+// /update: neue Version suchen und zeigen · /update now: laden (mit Balken), installieren, Glowline startet neu
+async function updateBefehl(installieren) {
+  let st;
+  hinweis('Checking for updates…', 15000);
+  try { st = await anfrage('GET', '/update'); } catch { hinweis('Update the Glowline app to use /update'); return; }
+  S.hinweis = '';
+  if (st.fehler && !st.neu) { lokal([f(C.rot, '  ' + st.fehler)]); return; }
+  if (!st.neu) { lokal([f(C.hell + C.fett, '  ✓ ') + f(C.hell, 'Glowline ' + st.version + ' is up to date.')]); return; }
+  if (!installieren) {
+    lokal([
+      f(C.hell + C.fett, '  Glowline ' + st.neu + ' is available') + f(C.leise, ' · you have ' + st.version),
+      ...(st.punkte || []).map((z) => f(C.leise, '  • ') + f(C.text, z)),
+      '', f(C.leise, '  Type ') + f(C.hell, '/update now') + f(C.leise, ' to install it. Glowline restarts and gl closes – then just type gl again.'),
+    ]);
+    return;
+  }
+  if (S.laeuft) { hinweis('Wait for the answer first'); return; }
+  try { st = await anfrage('POST', '/update/laden'); } catch { hinweis('Glowline is not reachable'); return; }
+  while (!st.bereit && !st.fehler) {
+    const p = st.gesamt ? (st.geladen / st.gesamt) * 100 : 0;
+    hinweis(`Downloading Glowline ${st.neu}  ${balken(p, 20)}  ${Math.floor(p)} %  ·  ${(st.geladen / 1048576).toFixed(0)} / ${(st.gesamt / 1048576).toFixed(0)} MB`, 2000);
+    await new Promise((r) => setTimeout(r, 400));
+    try { st = await anfrage('GET', '/update/stand'); } catch { hinweis('Glowline is not reachable'); return; }
+    if (!st.laedt && !st.bereit && !st.fehler) st.fehler = 'The download stopped – try /update now again';
+  }
+  S.hinweis = '';
+  if (!st.bereit) { lokal([f(C.rot, '  ' + st.fehler)]); return; }
+  let ok = false;
+  try { ok = (await anfrage('POST', '/update/installieren')).ok; } catch {}
+  if (!ok) { lokal([f(C.rot, '  Could not start the update – try /update now again')]); return; }
+  lokal([f(C.hell + C.fett, '  ✓ ') + f(C.hell, `Installing Glowline ${st.neu} – Glowline restarts in a few seconds.`)]);
+  beenden(0, 'Then type gl again to use Glowline ' + st.neu + '.');
 }
 function oeffneLetztes() {
   if (!S.letztes) { hinweis('Nothing to open yet'); return; }
@@ -1086,7 +1121,7 @@ function absenden() {
   if (tr.length) {
     const b = tr[S.wahl] || tr[0];
     // Befehl mit Argument: erst vervollstaendigen, ohne Argument direkt ausfuehren
-    if (b.arg && !['model', 'upscale', 'goal', 'thinking', 'effort', 'autostart'].includes(b.n)) { S.eingabe = '/' + b.n + ' '; S.cursor = [...S.eingabe].length; bald(); return; }
+    if (b.arg && !['model', 'upscale', 'goal', 'thinking', 'effort', 'autostart', 'update'].includes(b.n)) { S.eingabe = '/' + b.n + ' '; S.cursor = [...S.eingabe].length; bald(); return; }
     S.eingabe = '/' + b.n;
   }
   // "\" am Zeilenende + Enter = neue Zeile
@@ -1237,12 +1272,12 @@ function eingang(d) {
 
 // ---------- Start / Ende ----------
 let ein = null;
-function beenden(code = 0) {
+function beenden(code = 0, abschied = 'Bye – Glowline keeps running in the tray.') {
   if (S.laeuft) try { S.laeuft.req && S.laeuft.req.destroy(); } catch {}
   if (!nurAusgabe) {
     out(liveLeeren() + schiebe(live.zeile + 2 - hoehe()) + geheZu(live.zeile + 1) + '\x1b[?2004l\x1b[?25h');
     try { ein && ein.setRawMode(false); } catch {}
-    out(f(C.dunkel, '  Bye – Glowline keeps running in the tray.') + '\n');
+    out(f(C.dunkel, '  ' + abschied) + '\n');
   }
   process.exit(code);
 }

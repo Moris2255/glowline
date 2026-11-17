@@ -49,10 +49,19 @@ async function pruefen() {
   if (!st.neu || st.neu !== tag.replace(/^v/, '')) { st.bereit = false; st.geladen = 0; }
   st.neu = tag.replace(/^v/, '');
   st.notizen = String(j.body || '').slice(0, 1500);
+  st.punkte = punkte(j.body);
   st.gesamt = +a.size || 0;
   asset = a;
   melde();
   return stand();
+}
+
+// Release Notes kurz: die Abschnitts-Ueberschriften (ohne "Download"), sonst die ersten Stichpunkte – ohne Markdown
+function punkte(text) {
+  const z = String(text || '').split(/\r?\n/).map((x) => x.trim());
+  const ueber = z.filter((x) => /^#{2,3} /.test(x)).map((x) => x.replace(/^#+ */, '')).filter((x) => !/^downloads?$/i.test(x));
+  const liste = ueber.length ? ueber : z.filter((x) => /^[-*] /.test(x)).map((x) => x.replace(/^[-*] */, ''));
+  return liste.map((x) => x.replace(/\*\*|`/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')).filter(Boolean).slice(0, 6);
 }
 
 async function laden() {
@@ -106,7 +115,7 @@ function installieren(neustart) {
 async function jetzt() {
   if (!st.bereit) await laden();
   if (!st.bereit) return stand();
-  if (installieren(true)) d.beenden();
+  if (installieren(true) && !d.test) d.beenden();
   return stand();
 }
 
