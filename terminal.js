@@ -91,10 +91,10 @@ async function anfrage(req, res, schluessel, port) {
     // /update in gl: pruefen, laden (gl fragt den Stand ab), installieren + Glowline neu starten
     if (req.method === 'GET' && url.pathname === '/update') return json(res, 200, await d.update.pruefen().catch((e) => ({ ...d.update.stand(), fehler: String(e.message || e) })));
     if (req.method === 'GET' && url.pathname === '/update/stand') return json(res, 200, d.update.stand());
-    // Hinweis unten in gl: nicht bei Updates "aus", GitHub hoechstens einmal pro Stunde fragen (im Test nur das Test-GitHub)
+    // Hinweis unten in gl: nicht bei Updates "aus", GitHub hoechstens alle 5 Minuten fragen (im Test nur das Test-GitHub)
     if (req.method === 'GET' && url.pathname === '/update/hinweis') {
       const st = d.update.stand();
-      if (st.modus === 'aus' || (d.test && !process.env.GLOWLINE_TEST_UPDATE) || Date.now() - (st.geprueft || 0) < 3600 * 1000) return json(res, 200, st);
+      if (st.modus === 'aus' || (d.test && !process.env.GLOWLINE_TEST_UPDATE) || Date.now() - (st.geprueft || 0) < 5 * 60 * 1000) return json(res, 200, st);
       return json(res, 200, await d.update.pruefen().catch(() => d.update.stand()));
     }
     if (req.method === 'POST' && url.pathname === '/update/laden') { d.update.laden().catch(() => {}); return json(res, 200, d.update.stand()); }

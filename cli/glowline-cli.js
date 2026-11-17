@@ -1339,10 +1339,10 @@ async function start() {
     try { const s = await anfrage('GET', '/status'); const neu = JSON.stringify([s.gpu, s.gespart, s.geladen]); if (neu !== JSON.stringify([S.gpu, S.gespart, S.geladen])) { S.gpu = s.gpu; S.gespart = s.gespart; S.geladen = s.geladen; bald(); } } catch {}
   }, 2000).unref();
   S.gpu = info && info.gpu;
-  // neue Glowline-Version? einmal beim Start und dann jede Stunde nachsehen (die App fragt GitHub hoechstens stuendlich)
+  // neue Glowline-Version? beim Start und dann alle 10 Minuten nachsehen (die App fragt GitHub hoechstens alle 5 Minuten)
   const updateSehen = () => anfrage('GET', '/update/hinweis').then((u) => { const n = (u && u.neu) || null; if (n !== S.updateNeu) { S.updateNeu = n; bald(); } }, () => {});
   setTimeout(updateSehen, 1500);
-  setInterval(updateSehen, 3600 * 1000).unref();
+  setInterval(updateSehen, 10 * 60 * 1000).unref();
   malen();
   // App war aus: einmal zeigen, wie gl sofort bereit ist
   if (kaltstart) {
