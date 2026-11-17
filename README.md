@@ -77,14 +77,14 @@ Open **Cowork** from the tool menu at the bottom right – no extra windows.
 Cowork also lives in your terminal. Open any terminal (PowerShell, cmd, Windows Terminal, Git Bash) and type **`gl`** or **`glowline`**:
 
 ```
-       ▄█▄
-     ▄█████▄      Glow-   Glowline 5.3.3 · Cowork
-    ██ ███ ██     line    ~\Projekte\my-game
-    ████▄████             / for commands · drag in an image · Esc stops
-  ▄▄▄██▄▄▄██▄▄▄
+        ▀█
+   ▄▀▀▀▀▀▀▀▀▀▀▄    Glow-   Glowline 5.3.4 · Cowork
+   █  █    █  █    line    ~\Projekte\my-game
+   ▀▄▄▄▄▄▄▄▄▄▄▀            / for commands · drag in an image · Esc stops
+  ▄▄▄██▄▄▄▄██▄▄▄
 ```
 
-Say hi to **Glim**, the little light drop on its glow line – Glowline's mascot. The input box always stays at the bottom of the window, answers stream in above it.
+Say hi to **Glim**, Glowline's mascot – a little robot with a screen for a face and a light on its antenna, standing on its glow line. The input box always stays at the bottom of the window, answers stream in above it.
 
 
 - Same Cowork as in the window: Auto picks the model, images / videos / voice / upscales are made by the Studio, follow-ups work.

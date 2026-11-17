@@ -453,20 +453,20 @@ function neuAufbauen() {
 function hinweis(t, ms = 3500) { S.hinweis = t; S.hinweisBis = Date.now() + ms; bald(); setTimeout(bald, ms + 50); }
 
 // ---------- Kopf ----------
-// Glim – das Glowline-Maskottchen: ein kleines Licht-Troepfchen auf seiner Leuchtlinie
+// Glim – das Glowline-Maskottchen: ein kleiner Roboter mit Bildschirm-Gesicht und Antennen-Licht auf seiner Leuchtlinie
 const GLIM = [
-  '......T......',
-  '.....WWW.....',
-  '....WWWWW....',
-  '...WWWWWWW...',
-  '..WWEWWWEWW..',
-  '..WWEWWWEWW..',
-  '..WWWWEWWWW..',
-  '..wwwwwwwww..',
-  '...ww...ww...',
-  'LLLLLLLLLLLLL',
+  '......TT......',
+  '.......w......',
+  '..WWWWWWWWWW..',
+  '.WEEEEEEEEEEW.',
+  '.WEETEEEETEEW.',
+  '.WEETEEEETEEW.',
+  '.WEEEEEEEEEEW.',
+  '..WWWWWWWWWW..',
+  '...ww....ww...',
+  'LLLLLLLLLLLLLL',
 ];
-const GLIM_FARBEN = { T: [255, 255, 255], W: [244, 245, 250], w: [200, 203, 211], E: [24, 25, 29] };
+const GLIM_FARBEN = { T: [255, 255, 255], W: [236, 238, 243], w: [190, 194, 202], E: [32, 34, 40] };
 // Pixel -> Halbblock-Zeichen (ein Zeichen = zwei Pixel uebereinander)
 function pixelZeilen(raster) {
   const farbe = (zeile, x) => {
@@ -494,7 +494,7 @@ function zeigeKopf() {
   live.kopf = FARBE ? live.zeile - 5 : null;
 }
 // Glim blinzelt ab und zu, solange er oben zu sehen ist
-const GLIM_ZU = GLIM.map((z, i) => (i === 4 ? z.replace(/E/g, 'W') : z));
+const GLIM_ZU = GLIM.map((z, i) => (i === 4 ? z.replace(/T/g, 'E') : z));
 function blinzeln() {
   setTimeout(() => {
     if (live.kopf != null && live.gezeichnet) {
