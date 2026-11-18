@@ -89,6 +89,8 @@ contextBridge.exposeInMainWorld('api', {
   filmMachen: (id) => ipcRenderer.send('film:machen', id),
   filmAbbrechen: (id) => ipcRenderer.send('film:abbrechen', id),
   filmNacht: (id) => ipcRenderer.invoke('film:nacht', id),
+  handyTeilen: (datei, titel) => ipcRenderer.invoke('handy:teilen', datei, titel),
+  handyStopp: (s) => ipcRenderer.send('handy:stopp', s),
   onFilm: (cb) => ipcRenderer.on('film', (_e, s) => cb(s)),
   updatePruefen: () => ipcRenderer.invoke('update:pruefen'),
   updateJetzt: () => ipcRenderer.invoke('update:jetzt'),

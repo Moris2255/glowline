@@ -17,7 +17,7 @@ const HIGGS = (process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_HIGGS) || 
 // Ausgewaehlte Modelle: die besten, die auf normalen Grafikkarten laufen, mit freien Lizenzen
 const KATALOG = {
   'flux2-klein': {
-    art: 'bild', name: 'FLUX.2 klein 4B', info: 'Fast and sharp, 4 steps', lizenz: 'Apache-2.0', vram: 8,
+    art: 'bild', name: 'FLUX.2 klein 4B', info: 'Fast and sharp, 4 steps', lizenz: 'Apache-2.0', vram: 8, referenz: true,
     dateien: [
       { repo: 'Comfy-Org/Flux-2-Klein-4B', pfad: 'split_files/diffusion_models/flux-2-klein-4b.safetensors', ziel: 'diffusion_models', groesse: 7.75e9 },
       { repo: 'Comfy-Org/Flux-2-Klein-4B', pfad: 'split_files/text_encoders/qwen_3_4b.safetensors', ziel: 'text_encoders', groesse: 8.04e9 },
@@ -352,7 +352,7 @@ function workflow(a) {
   const raster = a.modell === 'wan22-5b' ? 32 : 16; // Wan braucht Vielfache von 32
   const w = Math.round(wert(a.breite, 1024, 256, 2048) / raster) * raster, h = Math.round(wert(a.hoehe, 1024, 256, 2048) / raster) * raster;
   if (a.modell === 'flux2-klein') {
-    return {
+    const wf = {
       1: { class_type: 'UNETLoader', inputs: { unet_name: D('flux2-klein', 0), weight_dtype: 'default' } },
       2: { class_type: 'CLIPLoader', inputs: { clip_name: D('flux2-klein', 1), type: 'flux2', device: 'default' } },
       3: { class_type: 'VAELoader', inputs: { vae_name: D('flux2-klein', 2) } },
@@ -367,6 +367,17 @@ function workflow(a) {
       12: { class_type: 'VAEDecode', inputs: { samples: ['11', 0], vae: ['3', 0] } },
       13: { class_type: 'SaveImage', inputs: { images: ['12', 0], filename_prefix: 'bild/glowline' } },
     };
+    // Referenzbild (z. B. die Hauptfigur eines Films): FLUX.2 klein nimmt es als Vorlage mit
+    if (a.bild) {
+      Object.assign(wf, {
+        20: { class_type: 'LoadImage', inputs: { image: a.bild } },
+        21: { class_type: 'ImageScaleToTotalPixels', inputs: { image: ['20', 0], upscale_method: 'lanczos', megapixels: 1, resolution_steps: 16 } },
+        22: { class_type: 'VAEEncode', inputs: { pixels: ['21', 0], vae: ['3', 0] } },
+        23: { class_type: 'ReferenceLatent', inputs: { conditioning: ['4', 0], latent: ['22', 0] } },
+      });
+      wf[9].inputs.positive = ['23', 0];
+    }
+    return wf;
   }
   if (a.modell === 'z-image') {
     return {

@@ -19,6 +19,7 @@ const nacht = require('./nacht');
 const hoeren = require('./hoeren');
 const terminal = require('./terminal');
 const film = require('./film');
+const handy = require('./handy');
 const statistik = require('./statistik');
 // eigene App "Glowline Link" (gleicher Code, eigener Installer): nutzt die Modelle eines PCs im Heimnetz
 const LINK_APP = !!require('./package.json').glowlineLink || !!(process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_LINKAPP);
@@ -1083,6 +1084,11 @@ ipcMain.handle('film:aendern', (_e, id, neu) => { nurPc(); return film.aendern(S
 ipcMain.handle('film:loeschen', (_e, id) => { nurPc(); return film.loeschen(String(id)); });
 ipcMain.on('film:machen', (_e, id) => { if (!LINK_APP) film.machen(String(id)); });
 ipcMain.on('film:abbrechen', (_e, id) => { if (!LINK_APP) film.abbrechen(String(id)); });
+ipcMain.handle('handy:teilen', (_e, datei, titel) => {
+  if (typeof datei !== 'string' || !studio.inAusgabe(datei)) throw new Error('Only files from the Studio can be shared');
+  return handy.teilen(datei, typeof titel === 'string' ? titel : '');
+});
+ipcMain.on('handy:stopp', (_e, s) => { if (typeof s === 'string') handy.stopp(s); });
 ipcMain.handle('film:nacht', (_e, id) => {
   nurPc();
   const f = film.lade(String(id));
@@ -1952,6 +1958,11 @@ async function testLauf(ordner) {
       const id = await js(`fz.film && fz.film.id`);
       console.log('FILM PLAN', id, await js(`fz.film ? fz.film.titel + ' | ' + fz.film.szenen.length + ' Szenen | figur=' + fz.film.figur.slice(0, 40) + ' | bedarf=' + fz.bedarf.join(',') : 'kein Film'`));
       console.log('FILM LINKS', await zeile('#studio-links'));
+      // Bild der Hauptfigur: braucht FLUX.2 klein, geht als Referenz an jedes Szenenbild
+      const ref = studio.galerie().map((x) => x.datei).find((x) => /\.png$/i.test(x));
+      film.aendern(id, { figurBild: ref });
+      await js(`ladeFilme()`); await warte(800); await bild('f-referenz');
+      console.log('FILM REFERENZ', !!film.lade(id).figurBild, 'bedarf=' + film.bedarf(id).join(','), 'feld=' + await js(`!!document.querySelector('#studio-links .s-datei.voll img')`));
       // Szene 1: Sprechertext aendern (wird nach 0,6 s gespeichert)
       await js(`(() => { const t = document.querySelector('[data-k^="f-text-"]'); t.focus(); t.value = 'Neuer Text für Szene eins.'; t.dispatchEvent(new Event('input')); })()`); await warte(1200);
       console.log('FILM GESPEICHERT', JSON.stringify(film.lade(id).szenen[0].text), 'fokus=' + await js(`document.activeElement && document.activeElement.dataset.k`));
@@ -1972,6 +1983,17 @@ async function testLauf(ordner) {
       console.log('FILM FERTIG', f.status, f.fehler || '', f.datei && fs.existsSync(f.datei) ? path.basename(f.datei) + ' ' + Math.round(fs.statSync(f.datei).size / 1024) + ' KB' : 'keine Datei', '| srt=' + (f.datei && fs.existsSync(f.datei.replace(/\.mp4$/, '.srt'))));
       console.log('FILM SZENEN', f.szenen.map((x) => [x.bildDatei, x.videoDatei, x.sprachDatei].map((y) => (y && fs.existsSync(y) ? 'x' : '-')).join('')).join(' '));
       console.log('FILM RECHTS', await js(`!!document.querySelector('.f-ergebnis video') + ' knopf=' + (document.querySelector('#film-los') || {}).textContent`));
+      // Aufs Handy: QR-Fenster, Seite und Video ueber das Heimnetz-Tor
+      const handyDatei = path.join(studio.P().ausgabe, 'Filme', 'handytest.mp4');
+      fs.mkdirSync(path.dirname(handyDatei), { recursive: true }); fs.copyFileSync(f.datei, handyDatei);
+      await js(`(async () => { handyFenster(await window.api.handyTeilen(${JSON.stringify(handyDatei)}, 'Hamster')); })()`); await warte(500); await bild('f-handy');
+      const hu = await js(`document.querySelector('#handy-fenster code').textContent`);
+      const hol = (u, kopf = {}) => new Promise((ok) => require('http').get(u.replace(/\/\/[^:/]+:/, '//127.0.0.1:'), { headers: kopf }, (r) => { let n = 0; r.on('data', (x) => { n += x.length; }); r.on('end', () => ok(r.statusCode + ':' + n)); }).on('error', (e) => ok(e.code)));
+      console.log('FILM HANDY', /^http:\/\/[\d.]+:3472\/h\/[0-9a-f]{32}$/.test(hu), 'qr=' + await js(`!!document.querySelector('#handy-fenster svg')`), 'knopf=' + await js(`[...document.querySelectorAll('.f-ergebnis button')].some((b) => b.textContent === 'Send to phone')`),
+        'seite=' + await hol(hu), 'video=' + await hol(hu + '/datei', { range: 'bytes=0-99' }));
+      await js(`[...document.querySelectorAll('#handy-fenster button')].find((b) => b.textContent === 'Stop sharing').click()`); await warte(500);
+      console.log('FILM HANDY STOPP', await hol(hu), 'fenster=' + await js(`!!document.querySelector('#handy-fenster')`));
+      fs.rmSync(handyDatei, { force: true });
       // Text aendern: nur dieser Sprecher wird neu gemacht
       await js(`(() => { const t = document.querySelectorAll('[data-k^="f-text-"]')[2]; t.value = 'Ein ganz neuer Satz.'; t.dispatchEvent(new Event('input')); })()`); await warte(1200);
       console.log('FILM UNGUELTIG', film.lade(id).szenen.map((x) => (x.sprachDatei ? 'x' : '-')).join(''), film.lade(id).status);
@@ -2650,7 +2672,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
   app.on('second-instance', () => zeigeFenster());
   app.on('before-quit', () => { wirklichBeenden = true; });
   // fertig geladenes Update beim Beenden still installieren (Einstellung "auto")
-  app.on('will-quit', () => { statistik.jetztSpeichern(); update.beimBeenden(); terminal.stoppe(); });
+  app.on('will-quit', () => { statistik.jetztSpeichern(); update.beimBeenden(); terminal.stoppe(); handy.alleStopp(); });
   app.setAppUserModelId('Glowline');
   app.whenReady().then(async () => {
     ladeConfig();
@@ -2665,6 +2687,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
       ordner: process.env.GLOWLINE_TEST ? path.join(process.env.GLOWLINE_TEST, 'hoeren') : path.join(process.env.LOCALAPPDATA || app.getPath('userData'), 'Glowline', 'hoeren'),
     });
     link.init({ cfg: () => cfg, speichere: speichereConfig, version: app.getVersion(), gpu: () => gpu(), sende, vramFrei });
+    handy.init({ heimnetz: link.heimnetz, adressen: link.adressen });
     if (LINK_APP) link.umleiten();
     else if (cfg.link && cfg.link.teilen) link.teilen(true);
     proxy = new StatsProxy(cfg);

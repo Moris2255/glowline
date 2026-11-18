@@ -681,3 +681,14 @@ body.link-app #bib-express { display: none !important; }
 .hp-fuss select { background: var(--bg3); color: var(--text); border: 1px solid var(--linie); border-radius: 7px; padding: 3px 6px; font: inherit; }
 #hoeren-pop .anp-knopf { padding: 4px 10px; border: 1px solid var(--linie); border-radius: 7px; font-size: 12px; color: var(--text); }
 #hoeren-pop .anp-knopf:hover { border-color: var(--leise); }
+
+/* Aufs Handy: QR-Code */
+.h-hinter { position: fixed; inset: 0; z-index: 900; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.h-box { width: 340px; max-width: 100%; background: var(--bg2); border: 1px solid var(--linie); border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px; align-items: stretch; text-align: center; }
+.h-box > b { font-size: 16px; }
+.h-qr { background: #fff; border-radius: 12px; padding: 10px; }
+.h-qr svg { display: block; width: 100%; height: auto; }
+.h-box code { font-size: 11px; color: var(--leise); word-break: break-all; user-select: text; }
+.h-box small { color: var(--leise); font-size: 12px; line-height: 1.45; }
+.h-box .s-aktionen { justify-content: center; }
+.f-figurbild img { max-height: 120px; width: auto; max-width: 100%; object-fit: contain; border-radius: 8px; }

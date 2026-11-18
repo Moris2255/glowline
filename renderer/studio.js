@@ -67,7 +67,7 @@ const SPRACHEN = [['de', 'German'], ['en', 'English'], ['fr', 'French'], ['es', 
 const studioZustand = {
   bereich: 'bild', st: null, galerie: [], auswahl: null,
   felder: {
-    bild: { modell: '', prompt: '', format: 1, seed: '' }, // 1 = 16:9
+    bild: { modell: '', prompt: '', format: 1, seed: '', bild: null }, // 1 = 16:9
     video: { modell: '', prompt: '', negativ: '', format: 0, sekunden: 5, bild: null, ton: true },
     upscale: { bild: null },
     stimme: { prompt: '', sprache: 'de', probe: null, erlaubt: false, ausdruck: 0.5 },
@@ -325,6 +325,45 @@ function dateiFeld(f, schluessel, art, text) {
   return z;
 }
 
+// Aufs Handy: QR-Code fuer eine fertige Datei (gilt eine Stunde, nur im Heimnetz)
+function handyKnopf(datei, titel) {
+  const k = elem('button', 'm-knopf', 'Send to phone');
+  k.title = 'Show a QR code – scan it with your phone (same Wi-Fi)';
+  k.addEventListener('click', async () => {
+    k.disabled = true;
+    try { handyFenster(await window.api.handyTeilen(datei, titel)); } catch (e) { hinweis(fehlerText(e)); }
+    k.disabled = false;
+  });
+  return k;
+}
+function handyFenster(r) {
+  const alt = $('#handy-fenster');
+  if (alt) alt.remove();
+  const hg = elem('div', 'h-hinter');
+  hg.id = 'handy-fenster';
+  const box = elem('div', 'h-box');
+  const qr = elem('div', 'h-qr');
+  qr.innerHTML = r.svg; // von qrcode-generator im Hauptprozess erzeugt, nur Rechtecke
+  const url = elem('code', null, r.url);
+  const bis = new Date(r.bis).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const zu = () => { hg.remove(); document.removeEventListener('keydown', taste); };
+  const taste = (e) => { if (e.key === 'Escape') zu(); };
+  const leiste = elem('div', 's-aktionen');
+  const kopieren = elem('button', 'm-knopf', 'Copy link');
+  kopieren.addEventListener('click', () => { navigator.clipboard.writeText(r.url).then(() => hinweis('Link copied')).catch(() => {}); });
+  const stopp = elem('button', 'm-knopf', 'Stop sharing');
+  stopp.addEventListener('click', () => { window.api.handyStopp(r.schluessel); hinweis('Sharing stopped'); zu(); });
+  const fertig = elem('button', 's-los', 'Done');
+  fertig.addEventListener('click', zu);
+  leiste.append(kopieren, stopp);
+  box.append(elem('b', null, 'Scan with your phone'), qr, url,
+    elem('small', null, `Your phone must be in the same Wi-Fi as this PC. The link works until ${bis}. If Windows asks about the firewall, allow private networks.`), leiste, fertig);
+  hg.appendChild(box);
+  hg.addEventListener('click', (e) => { if (e.target === hg) zu(); });
+  document.addEventListener('keydown', taste);
+  document.body.appendChild(hg);
+}
+
 function formatWahl(bereich, f) {
   const box = elem('div', 's-formate');
   FORMATE[bereich].forEach(([n, w, h], i) => {
@@ -345,6 +384,7 @@ function zeichneFelder(box) {
 
   if (b === 'bild') {
     box.appendChild(feld('Prompt', promptFeld(f, 'A cozy cabin in a snowy forest at night, warm light in the windows…', 'bild')));
+    if (m.referenz) box.appendChild(feld('Reference image (optional)', dateiFeld(f, 'bild', 'bild', 'Use a character, person or object as a template')));
     box.appendChild(feld('Format', formatWahl('bild', f)));
     const s = elem('input');
     s.value = f.seed; s.placeholder = 'random'; s.inputMode = 'numeric'; s.dataset.k = 'seed';
@@ -441,7 +481,7 @@ function baueAuftrag() {
   if ($('#studio-los') && $('#studio-los').disabled) { hinweis($('#studio-los').title); return null; }
   const id = String(Date.now()) + (++sz.nr);
   const a = { id, modell: m.id };
-  if (b === 'bild') { const [, w, h] = FORMATE.bild[f.format]; Object.assign(a, { prompt: f.prompt.trim(), breite: w, hoehe: h, seed: f.seed }); }
+  if (b === 'bild') { const [, w, h] = FORMATE.bild[f.format]; Object.assign(a, { prompt: f.prompt.trim(), breite: w, hoehe: h, seed: f.seed }); if (m.referenz && f.bild) a.bildDatei = f.bild; }
   if (b === 'video') {
     const [name, w, h] = FORMATE.video[f.format];
     Object.assign(a, { prompt: f.prompt.trim(), negativ: f.negativ.trim(), breite: w, hoehe: h, sekunden: f.sekunden, bildDatei: f.bild });
@@ -547,6 +587,7 @@ function zeichneVorschau(box) {
     const knopf = (t, fn) => { const x = elem('button', 'm-knopf', t); x.addEventListener('click', fn); leiste.appendChild(x); return x; };
     if (lauf && lauf.dauer) leiste.appendChild(elem('small', null, 'Done in ' + dauer(lauf.dauer)));
     knopf('Show in folder', () => window.api.studioZeigen(datei));
+    if (artVon(datei) === 'bild' || artVon(datei) === 'video') leiste.appendChild(handyKnopf(datei));
     if (artVon(datei) === 'bild') {
       knopf('Animate →', () => { sz.felder.video.bild = datei; zeigeStudio('video'); });
       // ein schon vergroessertes Bild nochmal x4 waere riesig (z. B. 21504 × 12288)

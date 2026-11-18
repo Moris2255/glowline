@@ -11,12 +11,12 @@ const MASS = { quer: { bild: [1280, 704], video: [1280, 704] }, hoch: { bild: [7
 const SPRACHE = { de: 'German', en: 'English', fr: 'French', es: 'Spanish', it: 'Italian', nl: 'Dutch', pl: 'Polish', pt: 'Portuguese', tr: 'Turkish', ru: 'Russian', ja: 'Japanese', zh: 'Chinese' };
 const NEGATIV = 'blurry, low quality, distorted face, extra limbs, text, watermark, static, flicker';
 
-const FEHLT = { studio: 'the Studio', bild: 'an image model (Studio → Images)', video: 'the video model (Studio → Video)', stimme: 'the voice (Studio → Voice)' };
+const FEHLT = { studio: 'the Studio', bild: 'an image model (Studio → Images)', video: 'the video model (Studio → Video)', stimme: 'the voice (Studio → Voice)', referenz: 'FLUX.2 klein for the character picture (Studio → Images)' };
 
 let d = null; // { ordner, ausgabe(), studio, frage, rollen, sende, vramFrei, test, verschieben }
 const laeuft = new Map(); // id -> { ac, teil, proz }
 const eigene = new Set(); // selbst gewaehlte Sprachprobe/Musik der Filme (Vorschau auch nach einem Neustart)
-const merkeEigene = (f) => { for (const k of ['probe', 'musik']) if (typeof f[k] === 'string' && f[k]) eigene.add(path.resolve(f[k])); };
+const merkeEigene = (f) => { for (const k of ['probe', 'musik', 'figurBild']) if (typeof f[k] === 'string' && f[k]) eigene.add(path.resolve(f[k])); };
 
 function init(x) {
   d = x;
@@ -54,6 +54,7 @@ function sicht(f) {
     laeuft: laeuft.has(f.id),
     szenen: f.szenen.map((s) => ({ ...s, bildDatei: da(s.bildDatei) ? s.bildDatei : null, videoDatei: da(s.videoDatei) ? s.videoDatei : null, sprachDatei: da(s.sprachDatei) ? s.sprachDatei : null })),
     datei: da(f.datei) ? f.datei : null,
+    figurBild: da(f.figurBild) ? f.figurBild : null,
   };
 }
 const liste = () => alle().map((f) => ({ id: f.id, titel: f.titel, status: f.status, laenge: f.szenen.length * SZENE_S, format: f.format, zeit: f.zeit, datei: da(f.datei) ? f.datei : null, laeuft: laeuft.has(f.id) }));
@@ -127,7 +128,7 @@ async function planen(o) {
   const f = {
     id: 'f' + Date.now(), zeit: Date.now(), thema, laenge, sprache, format: o.format === 'hoch' ? 'hoch' : 'quer',
     ...plan, seed: Math.floor(Math.random() * 1e9),
-    stimme: true, probe: null, erlaubt: false, musik: null, musikLaut: 0.35, untertitel: true,
+    stimme: true, probe: null, erlaubt: false, figurBild: null, musik: null, musikLaut: 0.35, untertitel: true,
     status: 'entwurf', fehler: null, datei: null,
   };
   f.szenen = f.szenen.map((s, i) => ({ nr: f.zeit + i + 1, ...s, bildDatei: null, videoDatei: null, sprachDatei: null }));
@@ -153,6 +154,11 @@ function aendern(id, neu) {
     if (neu.probe === null || (d.erlaubt && d.erlaubt(neu.probe))) { f.probe = neu.probe; f.erlaubt = false; for (const s of f.szenen) weg(s, ['sprachDatei']); }
   }
   if (neu.musik !== undefined && (neu.musik === null || (d.erlaubt && d.erlaubt(neu.musik)))) f.musik = neu.musik;
+  // Bild der Hauptfigur: alle Bilder (und Videos) passen danach nicht mehr
+  if (neu.figurBild !== undefined && (neu.figurBild || null) !== (f.figurBild || null) && (neu.figurBild === null || (d.erlaubt && d.erlaubt(neu.figurBild) && /\.(png|jpe?g|webp)$/i.test(neu.figurBild)))) {
+    f.figurBild = neu.figurBild;
+    for (const s of f.szenen) weg(s, ['bildDatei', 'videoDatei']);
+  }
   if (Number.isFinite(+neu.musikLaut) && neu.musikLaut !== null) f.musikLaut = Math.min(1, Math.max(0, +neu.musikLaut));
   if (Array.isArray(neu.szenen)) {
     const alt = f.szenen;
@@ -198,7 +204,11 @@ function bedarf(f) {
   const fehlt = [];
   if (!st.eingerichtet) fehlt.push('studio');
   const m = { bild: modellFuer(st, 'bild', std.bild), video: modellFuer(st, 'video', std.video), stimme: modellFuer(st, 'stimme', std.stimme) };
-  if (!m.bild) fehlt.push('bild');
+  // mit Bild der Hauptfigur: nur ein Bildmodell, das Referenzbilder versteht (FLUX.2 klein)
+  if (f && da(f.figurBild)) {
+    m.bild = Object.values(st.modelle || {}).find((x) => x.art === 'bild' && x.da && !x.wolke && x.referenz) || null;
+    if (!m.bild) fehlt.push('referenz');
+  } else if (!m.bild) fehlt.push('bild');
   if (!m.video) fehlt.push('video');
   if ((!f || f.stimme) && !m.stimme) fehlt.push('stimme');
   return { fehlt, m };
@@ -215,7 +225,7 @@ function uebernehme(f, quelle, name) {
   return ziel;
 }
 
-const bildPrompt = (f, s) => [s.bild, f.figur && `Main character: ${f.figur}.`, f.stil && `Style: ${f.stil}.`].filter(Boolean).join(' ');
+const bildPrompt = (f, s) => [s.bild, da(f.figurBild) ? `The main character is exactly the character from the reference image – same face, body, clothing and colors${f.figur ? ` (${f.figur})` : ''}.` : f.figur && `Main character: ${f.figur}.`, f.stil && `Style: ${f.stil}.`].filter(Boolean).join(' ');
 const videoPrompt = (f, s) => [s.bild, s.bewegung, f.figur && `The main character: ${f.figur}.`, f.stil].filter(Boolean).join(' ');
 
 // o.wennNoetig (Nacht-Warteschlange): ein schon fertiger, seitdem unveraenderter Film wird nicht nochmal geschnitten
@@ -257,7 +267,7 @@ async function machen(id, o = {}) {
     for (const [i, s] of f.szenen.entries()) {
       if (!da(s.bildDatei)) {
         schritt(`Scene ${i + 1} of ${n}: image`, i);
-        const datei = await auftrag({ modell: m.bild.id, prompt: bildPrompt(f, s), breite: mass.bild[0], hoehe: mass.bild[1], seed: String(f.seed) }, 'b' + i);
+        const datei = await auftrag({ modell: m.bild.id, prompt: bildPrompt(f, s), breite: mass.bild[0], hoehe: mass.bild[1], seed: String(f.seed), bildDatei: da(f.figurBild) ? f.figurBild : undefined }, 'b' + i);
         s.bildDatei = uebernehme(f, datei, `szene${i + 1}_bild`);
         s.videoDatei = null;
         speichere(f);

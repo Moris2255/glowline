@@ -116,7 +116,7 @@ Images, video, upscaling and voice – running fully inside Glowline. The first 
 
 | | Model | License | Download |
 |---|---|---|---|
-| Images | FLUX.2 klein 4B – fast, 4 steps | Apache-2.0 | 16 GB |
+| Images | FLUX.2 klein 4B – fast, 4 steps, takes a **reference image** (a character, person or object as a template) | Apache-2.0 | 16 GB |
 | Images | Z-Image Turbo – photorealistic, good with text | Apache-2.0 | 21 GB |
 | Video | Wan 2.2 5B – text or image to video, up to 5 s | Apache-2.0 | 18 GB |
 | Upscale | Real-ESRGAN x4 – images 4× bigger, videos sharper (~2560×1408, sound kept) | BSD-3 | 70 MB |
@@ -137,9 +137,11 @@ Images, video, upscaling and voice – running fully inside Glowline. The first 
 **Studio → Film** turns a topic into a short film (30, 60 or 90 s, 16:9 or 9:16). Or just ask Cowork: *“create a 60 second film about a hamster who flies to the moon”*.
 
 1. Your chat model writes the script: a title, the main character, a look, and one scene per 5 seconds – picture, motion and narrator text.
-2. You can change everything: texts, order, add or remove scenes, a narrator voice sample, your own music, subtitles.
+2. You can change everything: texts, order, add or remove scenes, a narrator voice sample, your own music, subtitles – and a **character picture**: pick an image of your main character and it is used as a reference in every scene, so the character really looks the same throughout (needs FLUX.2 klein).
 3. The Studio makes every scene on your GPU – a picture (the same character description in every scene), then a 5 s video from that picture, then the narrator.
 4. Glowline cuts everything into one MP4 with crossfades, the narrator, ducked music, subtitles burned in and an `.srt` file next to it (`studio\ausgabe\Filme`).
+
+**Send to phone** shows a QR code: scan it with your phone (same Wi-Fi) to watch or save the film. Works for Studio images and videos too. The link only works in your home network, has a random key and stops after one hour (or when you click **Stop sharing**).
 
 Needs an image model, Wan 2.2 5B and (for the narrator) the voice. A 60 s film can take an hour or more – **Add to night queue** is ideal. If it stops (Cancel, end of the night, crash), it continues where it stopped; changing a text only remakes that part. Use only music you are allowed to use.
 

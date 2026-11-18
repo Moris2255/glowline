@@ -9,8 +9,8 @@ const filmZustand = {
   uhr: null,
 };
 const fz = filmZustand;
-const FILM_FEHLT = { studio: 'Set up the Studio', bild: 'Image model', video: 'Video model', stimme: 'Voice' };
-const FILM_TAB = { bild: 'bild', video: 'video', stimme: 'stimme' };
+const FILM_FEHLT = { studio: 'Set up the Studio', bild: 'Image model', video: 'Video model', stimme: 'Voice', referenz: 'FLUX.2 klein (for the character picture)' };
+const FILM_TAB = { bild: 'bild', video: 'video', stimme: 'stimme', referenz: 'bild' };
 
 async function ladeFilme() {
   const [liste, bedarf] = await Promise.all([window.api.filmListe().catch(() => []), window.api.filmBedarf(fz.film && fz.film.id).catch(() => [])]);
@@ -125,7 +125,7 @@ function filmAendern(neu, sofort) {
     const r = await window.api.filmAendern(f.id, o).catch((e) => { hinweis(fehlerText(e)); return null; });
     if (!r || !fz.film || fz.film.id !== r.id) return;
     // nur neu zeichnen, wenn sich an fertigen Dateien etwas geaendert hat (sonst springt der Cursor)
-    const marke = (x) => x.szenen.map((s) => [s.bildDatei, s.videoDatei, s.sprachDatei].map(Boolean).join()).join('|') + x.status + x.probe + x.musik;
+    const marke = (x) => x.szenen.map((s) => [s.bildDatei, s.videoDatei, s.sprachDatei].map(Boolean).join()).join('|') + x.status + x.probe + x.musik + x.figurBild;
     const neuZeichnen = marke(r) !== marke(fz.film) || sofort;
     fz.film = { ...r, offen: fz.film.offen };
     await ladeFilmListe();
@@ -155,6 +155,7 @@ function filmEinstellungen(box, f) {
   figur.placeholder = 'No main character';
   figur.addEventListener('input', () => filmAendern({ figur: figur.value }));
   box.appendChild(feld('Main character (same in every scene)', figur));
+  box.appendChild(feld('Character picture (optional)', filmBild(f, aus)));
   const stil = elem('textarea');
   stil.rows = 2; stil.value = f.stil; stil.dataset.k = 'f-stil'; stil.disabled = aus; stil.spellcheck = false;
   stil.addEventListener('input', () => filmAendern({ stil: stil.value }));
@@ -225,6 +226,36 @@ function filmEinstellungen(box, f) {
   nachtBereich(box);
 }
 
+// Bild der Hauptfigur: FLUX.2 klein nimmt es in jeder Szene als Vorlage
+function filmBild(f, aus) {
+  const z = elem('div', 's-datei f-figurbild' + (f.figurBild ? ' voll' : ''));
+  if (f.figurBild) {
+    const i = elem('img'); i.src = dateiUrl(f.figurBild);
+    const weg = elem('button', 'm-knopf', 'Remove');
+    weg.disabled = aus;
+    weg.addEventListener('click', (e) => { e.stopPropagation(); filmAendern({ figurBild: null }, true); });
+    z.append(i, elem('small', null, f.figurBild.split(/[\\/]/).pop()), weg);
+  } else z.append(elem('span', null, 'Pick a picture – the character looks like it in every scene'), elem('small', null, 'png, jpg, webp · needs FLUX.2 klein'));
+  const nehmen = (p) => { if (p && p !== f.figurBild) filmAendern({ figurBild: p }, true); };
+  z.addEventListener('click', async (e) => {
+    if (aus || e.target.closest('button')) return;
+    nehmen(await window.api.studioWaehle('bild'));
+  });
+  z.addEventListener('dragover', (e) => { e.preventDefault(); z.classList.add('ziehen'); });
+  z.addEventListener('dragleave', () => z.classList.remove('ziehen'));
+  z.addEventListener('drop', (e) => {
+    e.preventDefault();
+    z.classList.remove('ziehen');
+    const d = e.dataTransfer.files[0];
+    const p = !aus && d && window.api.pfadVon(d);
+    if (!p) return;
+    if (!/\.(png|jpe?g|webp)$/i.test(p)) { hinweis('Please drop an image'); return; }
+    window.api.studioFreigeben(p);
+    nehmen(p);
+  });
+  return z;
+}
+
 // Sprachprobe / Musik waehlen
 function filmDatei(f, schluessel, leer, aus) {
   const z = elem('div', 's-datei' + (f[schluessel] ? ' voll' : ''));
@@ -282,7 +313,7 @@ function filmRechts(box) {
     const a = elem('div', 's-aktionen');
     const ordner = elem('button', 'm-knopf', 'Show in folder');
     ordner.addEventListener('click', () => window.api.studioZeigen(f.datei));
-    a.appendChild(ordner);
+    a.append(handyKnopf(f.datei, f.titel), ordner);
     k.appendChild(a);
     box.appendChild(k);
   } else if (f.fehler) {

@@ -1,7 +1,7 @@
 {
   "name": "glowline",
   "productName": "Glowline",
-  "version": "6.0.10",
+  "version": "6.0.11",
   "description": "Glowline - local AI workspace: terminal, chat and studio for local models",
   "author": "Moris2255",
   "main": "main.js",
@@ -17,7 +17,8 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/addon-webgl": "^0.19.0",
-    "@xterm/xterm": "^6.0.0"
+    "@xterm/xterm": "^6.0.0",
+    "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
     "electron": "^45.3.2",
@@ -46,9 +47,10 @@
       "nacht.js",
       "statistik.js",
       "hoeren.js",
-    "terminal.js",
-    "cli/**",
+      "terminal.js",
+      "cli/**",
       "film.js",
+      "handy.js",
       "auto.js",
       "stimme.py",
       "schnitt.py",
@@ -59,7 +61,7 @@
     ],
     "asarUnpack": [
       "node_modules/@lydell/**",
-    "cli/**",
+      "cli/**",
       "stimme.py",
       "schnitt.py"
     ],

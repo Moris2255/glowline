@@ -332,4 +332,4 @@ function wecken() {
 // Laptop: Adresse des Tors (fuers Studio ueber Link)
 const torBasis = () => basis();
 
-module.exports = { init, setzeStudio, teilen, neuKoppeln, stand, suchen, koppeln, trennen, umleiten, fernGpu, laptopStand, heimnetz, wecken, studioEreignis, torBasis, weckListe, PORT };
+module.exports = { init, setzeStudio, teilen, neuKoppeln, stand, suchen, koppeln, trennen, umleiten, fernGpu, laptopStand, heimnetz, adressen, wecken, studioEreignis, torBasis, weckListe, PORT };
