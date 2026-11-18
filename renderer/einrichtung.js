@@ -1,6 +1,6 @@
 // Einrichtungs-Assistent: Express (Glowline waehlt passend zum PC und installiert alles) oder selbst einrichten
 const ein = { seite: 'start', sys: null, wahl: { stufe: null, frei: false, teile: {}, werkzeuge: {} }, plan: null, alle: null, stand: null, sicherBis: 0, nr: 0 };
-const TEIL_REIHE = ['coder', 'denker', 'helfer', 'bild', 'video', 'stimme', 'upscale'];
+const TEIL_REIHE = ['coder', 'denker', 'helfer', 'hoeren', 'bild', 'video', 'stimme', 'upscale'];
 const gbText = (x) => (x >= 10 ? Math.round(x) : Math.round(x * 10) / 10) + ' GB';
 
 async function zeigeEinrichtung() {
@@ -56,6 +56,7 @@ function planText(p) {
   if (tools.length) teile.push(tools.join(', '));
   const modelle = neu.filter((x) => x.art === 'sprache').length;
   if (modelle) teile.push(modelle + ' AI model' + (modelle > 1 ? 's' : '') + ' for chat and code');
+  if (neu.some((x) => x.art === 'hoeren')) teile.push('voice input');
   if (neu.some((x) => x.art === 'studio' || x.art === 'motor')) teile.push('Studio for images, video and voice');
   return teile.join(' · ') + ' — about ' + gbText(p.gesamt) + ' to download';
 }
@@ -142,7 +143,7 @@ function seiteExpress(box) {
     // feste Bausteine (ohne Haken) vor ihrer Gruppe: Ollama vor den Sprachmodellen, der Motor vor dem Studio
     const fest = ein.plan.schritte.find((x) => (t === 'coder' && x.art === 'ollama') || (t === 'bild' && x.art === 'motor'));
     if (fest) liste.appendChild(zeile(fest, null));
-    const sch = alleSchritte.find((x) => x.rolle === t || x.teil === t) || { titel: (s.rollen[t] || s.studioTeile[t]).name, info: 'Needs an NVIDIA graphics card', gb: 0, gesperrt: true };
+    const sch = alleSchritte.find((x) => x.rolle === t || x.teil === t) || { titel: (s.rollen[t] || s.studioTeile[t] || s.hoeren || { name: t }).name, info: 'Needs an NVIDIA graphics card', gb: 0, gesperrt: true };
     liste.appendChild(zeile(imPlan((x) => x.rolle === t || x.teil === t) || sch, t, !!imPlan((x) => x.rolle === t || x.teil === t)));
   }
   box.appendChild(liste);

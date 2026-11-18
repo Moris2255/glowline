@@ -1067,10 +1067,9 @@ ipcMain.handle('installer:stand', (_e, id) => installerStand(id));
 // Stats-Seite (statistik.js)
 ipcMain.handle('statistik:stand', () => statistik.stand());
 ipcMain.on('statistik:zaehle', (_e, x) => statistik.zaehle(x));
-// Spracheingabe (hoeren.js, whisper.cpp auf dem Prozessor) – auch in Glowline Link
+// Spracheingabe (hoeren.js, Parakeet auf dem Prozessor) – auch in Glowline Link
 ipcMain.handle('hoeren:stand', () => hoeren.stand());
 ipcMain.handle('hoeren:holen', (_e, id) => hoeren.holen(id));
-ipcMain.handle('hoeren:sprache', (_e, s) => hoeren.sprache(s));
 ipcMain.handle('hoeren:entfernen', () => hoeren.entfernen());
 ipcMain.handle('hoeren:schreiben', (_e, wav) => hoeren.schreiben(wav));
 ipcMain.on('hoeren:abbrechen', () => hoeren.abbrechen());
@@ -1916,6 +1915,16 @@ async function testLauf(ordner) {
       console.log('SPRACHE MENUE', await js(`[...document.querySelectorAll('#tools-anpassen .anp-zeile')].map((z) => z.innerText.split(String.fromCharCode(10)).join(' ')).filter((t) => /Voice|Speech/.test(t)).join(' | ')`));
       await js(`schliesseMenues()`);
       console.log('SPRACHE ZU KURZ', JSON.stringify(await js(`window.api.hoerenSchreiben(new Uint8Array(10))`)));
+      // Ersteinrichtung laedt die Spracheingabe mit (hier nur sie, vom Test-Server)
+      {
+        hoeren.entfernen();
+        const aus = { teile: { coder: false, denker: false, helfer: false, bild: false, video: false, stimme: false, upscale: false }, werkzeuge: { claude: false, codex: false, opencode: false } };
+        const plan1 = await einrichtung.plan(aus);
+        await einrichtung.starten(aus);
+        for (let i = 0; i < 60 && !einrichtung.stand().fertig; i++) await warte(500);
+        const st = einrichtung.stand();
+        console.log('SPRACHE EINRICHTUNG', plan1.schritte.map((s) => s.titel + ':' + s.gb).join(',') === 'Voice input:0.68' && st.schritte.every((s) => s.status === 'fertig') && hoeren.stand().bereit ? 'ok' : 'FEHLT ' + JSON.stringify([plan1.schritte.map((s) => s.titel), st.schritte.map((s) => s.titel + ':' + s.status + (s.fehler || ''))]));
+      }
     }
     if (was.includes('nacht')) {
       await js(`zeigeStudio('bild')`); await warte(1500);
@@ -2652,7 +2661,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
       beenden: () => { wirklichBeenden = true; app.quit(); }, vorNeustart: merkeFensterFuerUpdate,
     });
     hoeren.init({
-      cfg: () => cfg, setzeCfg: (p) => { Object.assign(cfg, mische(cfg, p)); speichereConfig(); }, sende, ladeDatei: studio.ladeDatei, test: !!process.env.GLOWLINE_TEST, sprache: () => app.getLocale(),
+      cfg: () => cfg, sende, ladeDatei: studio.ladeDatei, test: !!process.env.GLOWLINE_TEST,
       ordner: process.env.GLOWLINE_TEST ? path.join(process.env.GLOWLINE_TEST, 'hoeren') : path.join(process.env.LOCALAPPDATA || app.getPath('userData'), 'Glowline', 'hoeren'),
     });
     link.init({ cfg: () => cfg, speichere: speichereConfig, version: app.getVersion(), gpu: () => gpu(), sende, vramFrei });
@@ -2691,7 +2700,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     einrichtung.init({
       cfg: () => cfg, sende, studio, ollamaHolen, ollamaInstalliert,
       werkzeugeInstalliert, werkzeugInstallieren, werkzeugName: (t) => (INSTALL[t] || {}).name,
-      ollamaStillInstallieren,
+      ollamaStillInstallieren, hoeren,
       setzeConfig: (neu) => { Object.assign(cfg, neu); speichereConfig(); sende('config', cfg); },
     });
     dateien.init((art) => app.getPath(art));

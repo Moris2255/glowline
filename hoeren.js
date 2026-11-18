@@ -1,7 +1,6 @@
-// Spracheingabe: whisper.cpp (MIT) laeuft komplett auf diesem PC, auf dem Prozessor – keine Grafikkarte, kein Python, kein Internet.
-// Einmal laden: das kleine Programm (8 MB) + ein Sprachmodell. Beides wird per SHA-256 geprueft.
-// Parakeet (NVIDIA, laeuft ueber parakeet-cli aus demselben Paket) ist viel schneller als Whisper und erkennt die Sprache selbst –
-// kann aber nur 25 europaeische Sprachen. Whisper bleibt fuer alles andere.
+// Spracheingabe: Parakeet TDT v3 (NVIDIA) ueber parakeet-cli aus dem whisper.cpp-Paket (MIT) – laeuft komplett auf diesem PC,
+// auf dem Prozessor: keine Grafikkarte, kein Python, kein Internet. Schnell, sehr genau, erkennt die Sprache selbst (25 europaeische Sprachen).
+// Einmal laden: das kleine Programm (8 MB) + das Modell. Beides wird per SHA-256 geprueft.
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -12,19 +11,21 @@ const PROGRAMM = {
   url: 'https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-x64.zip',
   sha: '6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb', groesse: 8.5e6,
 };
-const HF = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/';
 const MODELLE = {
   parakeet: { name: 'Parakeet', datei: 'ggml-parakeet-tdt-0.6b-v3-q8_0.bin', groesse: 668757119, sha: '4d64e9e96c2792186d072fde0034df0ad670cf680a2f53069052ead827fd600e', url: 'https://huggingface.co/ggml-org/parakeet-GGUF/resolve/main/', cli: 'parakeet-cli.exe' },
-  beste: { name: 'Whisper Turbo', datei: 'ggml-large-v3-turbo-q5_0.bin', groesse: 574041195, sha: '394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2' },
-  schnell: { name: 'Whisper Small', datei: 'ggml-small-q5_1.bin', groesse: 190085487, sha: 'ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb' },
 };
-const SPRACHEN = ['auto', 'de', 'en', 'fr', 'es', 'it', 'nl', 'pl', 'tr'];
+// fruehere Whisper-Modelle (bis 6.0.9 waehlbar): liegen sie noch da, werden sie beim Start geloescht
+const ALTE_MODELLE = ['ggml-large-v3-turbo-q5_0.bin', 'ggml-small-q5_1.bin'];
 
 let d = null; // { ordner, ladeDatei, sende, cfg, test }
 let lauf = null; // laufender Download { modell, geladen, gesamt, ac }
 let fehler = null;
 
-function init(x) { d = x; fs.mkdirSync(d.ordner, { recursive: true }); }
+function init(x) {
+  d = x;
+  fs.mkdirSync(d.ordner, { recursive: true });
+  for (const f of ALTE_MODELLE) fs.rmSync(path.join(d.ordner, f), { force: true });
+}
 const testUrl = () => d.test && process.env.GLOWLINE_TEST_HOEREN_URL;
 
 function exe(cli = 'whisper-cli.exe') {
@@ -39,21 +40,14 @@ function exe(cli = 'whisper-cli.exe') {
   return such(path.join(d.ordner, 'programm'), 2);
 }
 const modellPfad = (id) => path.join(d.ordner, MODELLE[id].datei);
-function gewaehlt() { const h = d.cfg().hoeren || {}; return MODELLE[h.modell] ? h.modell : null; }
-const cliFuer = (id) => exe((MODELLE[id] && MODELLE[id].cli) || 'whisper-cli.exe');
-// ohne Auswahl: Sprache von Windows (kurze Saetze werden mit "auto" oft falsch erkannt, und das Erkennen kostet extra Zeit)
-function standardSprache() {
-  const l = String((d.sprache && d.sprache()) || '').slice(0, 2).toLowerCase();
-  return SPRACHEN.includes(l) ? l : 'auto';
-}
+const cliFuer = (id) => exe(MODELLE[id].cli);
 
 function stand() {
   const da = {};
   for (const id of Object.keys(MODELLE)) da[id] = fs.existsSync(modellPfad(id));
-  const m = gewaehlt();
+  const m = Object.keys(MODELLE).find((id) => da[id]) || null;
   return {
-    bereit: !!(m && da[m] && cliFuer(m)), modell: m, da, programm: !!exe(),
-    sprache: (d.cfg().hoeren || {}).sprache || standardSprache(),
+    bereit: !!(m && cliFuer(m)), modell: m, da, programm: !!exe(),
     modelle: Object.fromEntries(Object.entries(MODELLE).map(([id, x]) => [id, { name: x.name, groesse: x.groesse }])),
     laedt: lauf ? { modell: lauf.modell, geladen: lauf.geladen, gesamt: lauf.gesamt } : null,
     fehler,
@@ -89,7 +83,6 @@ async function holen(id) {
   const m = MODELLE[id];
   lauf = { modell: id, geladen: 0, gesamt: m.groesse + (cliFuer(id) ? 0 : PROGRAMM.groesse), ac };
   fehler = null;
-  d.setzeCfg({ hoeren: { ...(d.cfg().hoeren || {}), modell: id } });
   melde();
   let zuletzt = 0, basis = 0;
   const fort = (g) => { lauf.geladen = basis + g; if (Date.now() - zuletzt > 400) { zuletzt = Date.now(); melde(); } };
@@ -100,12 +93,10 @@ async function holen(id) {
       fs.rmSync(path.join(d.ordner, 'programm'), { recursive: true, force: true });
       await entpacke(zip, path.join(d.ordner, 'programm'));
       fs.rmSync(zip, { force: true });
-      if (!cliFuer(id)) throw new Error((m.cli || 'whisper-cli.exe') + ' is missing in the download');
+      if (!cliFuer(id)) throw new Error(m.cli + ' is missing in the download');
       basis = PROGRAMM.groesse;
     }
-    if (!fs.existsSync(modellPfad(id))) await holeGeprueft(testUrl() ? testUrl() + '/' + m.datei : (m.url || HF) + m.datei, modellPfad(id), m.sha, ac, fort);
-    // das andere Modell wegwerfen, damit kein halbes GB doppelt rumliegt
-    for (const anderes of Object.keys(MODELLE)) if (anderes !== id) fs.rmSync(modellPfad(anderes), { force: true });
+    if (!fs.existsSync(modellPfad(id))) await holeGeprueft(testUrl() ? testUrl() + '/' + m.datei : m.url + m.datei, modellPfad(id), m.sha, ac, fort);
   } catch (e) {
     fehler = ac.signal.aborted ? null : String((e && e.message) || e).slice(0, 200);
   }
@@ -114,17 +105,11 @@ async function holen(id) {
   return stand();
 }
 function abbrechen() { if (lauf) lauf.ac.abort(); }
-function sprache(s) {
-  if (!SPRACHEN.includes(s)) return stand();
-  d.setzeCfg({ hoeren: { ...(d.cfg().hoeren || {}), sprache: s } });
-  return stand();
-}
 // alles wieder loeschen (Programm + Modelle)
 function entfernen() {
   if (lauf) return stand();
   fs.rmSync(path.join(d.ordner, 'programm'), { recursive: true, force: true });
   for (const id of Object.keys(MODELLE)) fs.rmSync(modellPfad(id), { force: true });
-  d.setzeCfg({ hoeren: { ...(d.cfg().hoeren || {}), modell: null } });
   melde();
   return stand();
 }
@@ -139,15 +124,13 @@ async function schreiben(wav) {
   const datei = path.join(d.ordner, `diktat_${Date.now()}.wav`);
   fs.writeFileSync(datei, roh);
   try {
-    // Test: Text vorgeben statt whisper-cli laufen zu lassen
+    // Test: Text vorgeben statt parakeet-cli laufen zu lassen
     if (d.test && process.env.GLOWLINE_TEST_HOEREN_TEXT) return { text: process.env.GLOWLINE_TEST_HOEREN_TEXT, sekunden: (roh.length - 44) / 32000 };
     const kerne = Math.max(2, Math.min(8, os.cpus().length - 2));
-    const pk = s.modell === 'parakeet';
     const t0 = Date.now();
     const text = await new Promise((ok, f) => {
-      // Parakeet erkennt die Sprache selbst und kennt kein -l / -nt
-      const args = pk ? ['-m', modellPfad(s.modell), '-f', datei, '-np', '-t', String(kerne)]
-        : ['-m', modellPfad(s.modell), '-f', datei, '-l', s.sprache, '-nt', '-np', '-t', String(kerne)];
+      // Parakeet erkennt die Sprache selbst (kein -l)
+      const args = ['-m', modellPfad(s.modell), '-f', datei, '-np', '-t', String(kerne)];
       const p = spawn(cliFuer(s.modell), args, { windowsHide: true });
       const teile = [];
       let err = '';
@@ -156,9 +139,9 @@ async function schreiben(wav) {
       p.stderr.on('data', (x) => { err = (err + x).slice(-600); });
       const uhr = setTimeout(() => { p.kill(); f(new Error('Speech recognition took too long')); }, 180000);
       p.on('error', (e) => { clearTimeout(uhr); f(e); });
-      p.on('exit', (c) => { clearTimeout(uhr); c === 0 ? ok(aus()) : f(new Error(`whisper-cli failed (${c}) ${err.split(/\r?\n/).filter(Boolean).pop() || ''}`)); });
+      p.on('exit', (c) => { clearTimeout(uhr); c === 0 ? ok(aus()) : f(new Error(`Speech recognition failed (${c}) ${err.split(/\r?\n/).filter(Boolean).pop() || ''}`)); });
     });
-    // whisper schreibt fuer Stille gern "[BLANK_AUDIO]" oder "(Musik)" – weg damit
+    // Markierungen fuer Stille wie "[BLANK_AUDIO]" oder "(Musik)" weg
     const sauber = text.split(/\r?\n/).map((z) => z.replace(/\[[^\]]*\]|\([^)]*\)/g, '').trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
     return { text: sauber, sekunden: (roh.length - 44) / 32000, dauer: (Date.now() - t0) / 1000, modell: s.modell };
   } catch (e) {
@@ -168,4 +151,6 @@ async function schreiben(wav) {
   }
 }
 
-module.exports = { init, stand, holen, abbrechen, sprache, entfernen, schreiben, MODELLE };
+const ordner = () => d.ordner;
+
+module.exports = { init, stand, holen, abbrechen, entfernen, schreiben, ordner, MODELLE };

@@ -38,13 +38,15 @@ const STUDIO = {
   upscale: { id: 'esrgan-x4', name: 'Upscaling', info: 'Real-ESRGAN – makes images 4× sharper' },
 };
 const MOTOR_GB = 10;
+// Spracheingabe (hoeren.js): laeuft auf dem Prozessor, braucht also keine Grafikkarte
+const HOEREN = { name: 'Voice input', info: 'Parakeet – talk instead of typing (window and gl), runs on the processor', gb: 0.68 };
 // Coding-Werkzeuge, die die Einrichtung gleich mitinstalliert (Node.js holt Glowline bei Bedarf selbst)
 const WERKZEUGE = {
   claude: { info: 'Anthropic’s coding agent – runs with your local models' },
   codex: { info: 'OpenAI’s coding agent – runs with your local models' },
   opencode: { info: 'Open-source coding agent – local and cloud models' },
 };
-const TEILE = ['coder', 'denker', 'helfer', 'bild', 'video', 'stimme', 'upscale'];
+const TEILE = ['coder', 'denker', 'helfer', 'hoeren', 'bild', 'video', 'stimme', 'upscale'];
 
 let d = null; // Hilfen aus main.js
 let lauf = null; // laufende (oder letzte) Installation
@@ -109,6 +111,7 @@ async function system(frisch) {
     studioMoeglich: !!gpu, // ComfyUI und die Stimme brauchen eine NVIDIA-Karte
     stufen: Object.fromEntries(Object.entries(STUFEN).map(([k, s]) => [k, { name: s.name, info: s.info }])),
     rollen: ROLLEN, studioTeile: Object.fromEntries(Object.entries(STUDIO).map(([k, s]) => [k, { name: s.name, info: s.info }])),
+    hoeren: { name: HOEREN.name, info: HOEREN.info },
     studioOrdner: st.ordner,
     werkzeuge: Object.fromEntries(Object.entries(WERKZEUGE).map(([k, w]) => [k, { name: d.werkzeugName(k), info: w.info, da: !!werkzeuge[k] }])),
   };
@@ -136,6 +139,10 @@ async function plan(wahl, sys) {
     const variante = varianteVon(m);
     const vorh = da(variante) ? 'ganz' : da(m[0]) ? 'basis' : null;
     schritte.push({ art: 'sprache', rolle: t, titel: ROLLEN[t].name, info: `${m[0]} · ${m[2]}k context`, name: m[0], variante, kontext: m[2], gb: vorh ? 0 : m[1], da: vorh === 'ganz', basis: vorh === 'basis', ordner: ollamaOrdner() });
+  }
+  if (an('hoeren') && d.hoeren) {
+    const h = d.hoeren.stand();
+    schritte.push({ art: 'hoeren', teil: 'hoeren', titel: HOEREN.name, info: HOEREN.info, gb: h.bereit ? 0 : HOEREN.gb, da: h.bereit, ordner: d.hoeren.ordner() });
   }
   const st = d.studio.status();
   const studioTeile = TEILE.filter((t) => STUDIO[t] && an(t));
@@ -273,6 +280,23 @@ function studioEreignis(x) {
   melde();
 }
 
+// Spracheingabe laden (Programm + Parakeet), Fortschritt aus hoeren.stand()
+async function schrittHoeren(s, ac) {
+  const uhr = setInterval(() => {
+    const l = d.hoeren.stand().laedt;
+    if (l && l.gesamt) { s.prozent = Math.floor((l.geladen / l.gesamt) * 100); s.text = `${(l.geladen / 1e9).toFixed(2)} of ${(l.gesamt / 1e9).toFixed(2)} GB`; melde(); }
+  }, 500);
+  const weg = () => d.hoeren.abbrechen();
+  ac.signal.addEventListener('abort', weg);
+  try {
+    const st = await d.hoeren.holen('parakeet');
+    if (!st.bereit) throw new Error(st.fehler || 'The download did not finish');
+  } finally {
+    clearInterval(uhr);
+    ac.signal.removeEventListener('abort', weg);
+  }
+}
+
 let startet = false;
 async function starten(wahl) {
   if (startet || (lauf && !lauf.fertig)) return stand();
@@ -295,6 +319,7 @@ async function starten(wahl) {
         if (s.art === 'werkzeug') await d.werkzeugInstallieren(s.tool, ac, (t) => { s.text = t; melde(); });
         else if (s.art === 'ollama') await schrittOllama(s, ac);
         else if (s.art === 'sprache') await schrittSprache(s, ac);
+        else if (s.art === 'hoeren') await schrittHoeren(s, ac);
         else if (s.art === 'motor') await schrittStudio(s, ac, 'einrichten', () => d.studio.einrichten(), () => d.studio.status().eingerichtet);
         else if (s.art === 'studio') await schrittStudio(s, ac, 'modell:' + s.id, () => d.studio.modellHolen(s.id), () => (d.studio.status().modelle[s.id] || {}).da);
         s.status = 'fertig'; s.prozent = 100; s.text = 'Done';

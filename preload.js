@@ -68,7 +68,6 @@ contextBridge.exposeInMainWorld('api', {
   statistikZaehle: (x) => ipcRenderer.send('statistik:zaehle', x),
   hoerenStand: () => ipcRenderer.invoke('hoeren:stand'),
   hoerenHolen: (id) => ipcRenderer.invoke('hoeren:holen', id),
-  hoerenSprache: (s) => ipcRenderer.invoke('hoeren:sprache', s),
   hoerenEntfernen: () => ipcRenderer.invoke('hoeren:entfernen'),
   hoerenSchreiben: (wav) => ipcRenderer.invoke('hoeren:schreiben', wav),
   hoerenAbbrechen: () => ipcRenderer.send('hoeren:abbrechen'),
