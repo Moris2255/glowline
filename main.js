@@ -30,7 +30,8 @@ const HOME = os.homedir();
 
 // Standardwerte. Aenderbar in %APPDATA%\Glowline\config.json
 const STANDARD = {
-  port: LINK_APP ? 3462 : 3460, // Glowline Link hat einen eigenen Port, falls beide auf einem Rechner laufen
+  // Glowline Link hat einen eigenen Port, falls beide auf einem Rechner laufen; der Selbsttest auch (die echte App laeuft oft nebenher)
+  port: process.env.GLOWLINE_TEST ? 3466 : LINK_APP ? 3462 : 3460,
   backends: { ollama: 'http://127.0.0.1:11434', lmstudio: 'http://127.0.0.1:1234' },
   defaultBackend: 'ollama',
   defaultModel: '', // leer = erstes geladenes bzw. verfuegbares Modell
@@ -1420,6 +1421,12 @@ async function testLauf(ordner) {
       await warte(1200);
       console.log('FORMAT', await js(`(() => { sz.felder.bild.format = 1; zeichneStudio(); const box = document.querySelector('.s-formate'); const r = box.getBoundingClientRect(); const ziel = document.elementFromPoint(r.right + 30, r.top + r.height / 2); ziel.click(); box.parentElement.click(); const z = [...document.querySelectorAll('.s-feld')].map((x) => x.tagName.toLowerCase() + ':' + x.firstChild.textContent).join(' '); return 'format=' + sz.felder.bild.format + ' | ' + z; })()`));
     }
+    if (was.includes('mitte')) {
+      // viele Bilder in der Galerie: die rechte Seite darf nicht breiter als das Fenster werden, das Bild bleibt mittig
+      await js(`zeigeStudio('bild')`); await warte(1200);
+      await js(`sz.auswahl = { datei: sz.galerie.find((g) => /\.png$/.test(g.datei)).datei }; zeichneStudio()`); await warte(1000); await bild('s-mitte');
+      console.log('STUDIO MITTE', await js(`(() => { const r = document.querySelector('#studio-rechts').getBoundingClientRect(), b = document.querySelector('.s-buehne').getBoundingClientRect(), i = document.querySelector('.s-buehne > img').getBoundingClientRect(), g = document.querySelector('.s-galerie'); return (r.right <= innerWidth && Math.abs((i.left + i.right) / 2 - (b.left + b.right) / 2) < 3 ? 'ok' : 'FEHLT') + ' rechts=' + Math.round(r.right) + '/' + innerWidth + ' galerie=' + g.children.length + ' scrollt=' + (g.scrollWidth > g.clientWidth); })()`));
+    }
     if (was.includes('loeschen')) {
       // "Sure?" bleibt stehen, waehrend nebenbei ein Modell laedt (Video-Bereich, Karte nicht sichtbar)
       await js(`zeigeStudio('bild')`);
@@ -1826,7 +1833,8 @@ async function testLauf(ordner) {
       await tippe('Hallo, wer bist du?', 400); await bild('t-tippen');
       await tippe('\r', 7000); await bild('t-antwort');
       console.log('TERMINAL ANTWORT', /●/.test(sauber()) ? 'ok' : 'FEHLT', '| stat=' + /⎿/.test(sauber()));
-      // Leiste unten: Werte wie im Fenster
+      // Leiste unten: Werte wie im Fenster (Antwort kommt vom echten Ollama: abwarten, bis der Turn fertig ist)
+      for (let i = 0; i < 60 && !/\d+ tok/.test(sauber()); i++) await warte(500);
       console.log('TERMINAL LEISTE', ['First token', 'Prefill', 'Prompt', 'Output', 'Turn', 'GPU power', 'VRAM', 'Saved costs', ' on Ollama'].every((x) => sauber().includes(x)) && /\d+\.\ds/.test(sauber()) && /\d+ tok/.test(sauber()) ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-300));
       await tippe('/', 700); await bild('t-befehle');
       console.log('TERMINAL BEFEHLE', /\/help/.test(sauber()) && /\/think/.test(sauber()) ? 'ok' : 'FEHLT');
@@ -2694,7 +2702,8 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     proxy.wolke = konten.ziel;
     proxy.on('stat', (s) => sende('stat', s));
     try { await proxy.listen(cfg.port); } catch (e) {
-      dialog.showErrorBox('Glowline', `Port ${cfg.port} is already in use (${e.code}). Set a different "port" in config.json.`);
+      if (process.env.GLOWLINE_TEST) console.log('TEST PORT BELEGT', cfg.port, e.code);
+      else dialog.showErrorBox('Glowline', `Port ${cfg.port} is already in use (${e.code}). Set a different "port" in config.json.`);
     }
     studio.init(process.env.GLOWLINE_STUDIO || cfg.studioOrdner || path.join(process.env.LOCALAPPDATA || app.getPath('userData'), 'Glowline', 'studio'),
       (k, x) => { sende(k, x); if (k === 'studio') einrichtung.studioEreignis(x); }, (id) => konten.schluessel(id));
