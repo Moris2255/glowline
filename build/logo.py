@@ -1,68 +1,83 @@
-# Erzeugt das Glowline-Logo (icon.png 1024 px, icon.ico mehrere Groessen)
+# Erzeugt das Glowline-Logo: Glims Gesicht (icon.png 1024 px, icon.ico mehrere Groessen)
+# Kleine Groessen (16/32/48/64) werden Pixel fuer Pixel gesetzt, damit Glim in Taskleiste und Infobereich scharf bleibt
 from PIL import Image, ImageDraw, ImageFilter
 import os
 
 S = 1024
 HIER = os.path.dirname(os.path.abspath(__file__))
 
+# Glim, 14 x 9 Felder: Fuehler, Kopf mit Augen, Fluegel an der Seite, leuchtender Bauch
+GLIM = [
+    '...w......w...',
+    'g.WWWWWWWWWW.g',
+    'gWWTEWWWWTEWWg',
+    '.WWTEWWWWTEWW.',
+    '..WWWWWWWWWW..',
+    '...wwwwwwww...',
+    '...hYYYYYYh...',
+    '..hYYYTTYYYh..',
+    '...hYYYYYYh...',
+]
+FARBE = {'T': (255, 255, 255), 'W': (236, 238, 243), 'w': (196, 200, 208), 'E': (24, 25, 30),
+         'g': (128, 132, 142), 'Y': (255, 236, 160), 'h': (150, 120, 60)}
+WARM = (255, 214, 110)
 
-def verlauf(w, h, a, b):
-    im = Image.new('RGBA', (w, h))
-    px = im.load()
-    for x in range(w):
-        t = x / max(1, w - 1)
-        c = tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3)) + (255,)
-        for y in range(h):
-            px[x, y] = c
-    return im
+
+def grund(n, rand, radius):
+    """dunkles abgerundetes Quadrat mit leichtem Verlauf und feinem Rand"""
+    im = Image.new('RGBA', (n, n), (0, 0, 0, 0))
+    a, b = (30, 30, 33), (12, 12, 13)
+    g = Image.new('RGBA', (n, n))
+    gp = g.load()
+    for x in range(n):
+        for y in range(n):
+            t = min(1, (0.45 * x + 0.55 * y) / max(1, n - 1))
+            gp[x, y] = tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3)) + (255,)
+    maske = Image.new('L', (n, n), 0)
+    ImageDraw.Draw(maske).rounded_rectangle((rand, rand, n - 1 - rand, n - 1 - rand), radius=radius, fill=255)
+    im.paste(g, (0, 0), maske)
+    return im, maske
+
+
+def glim(im, x0, y0, z, glanz):
+    """Glim mit Feldgroesse z an (x0, y0); glanz = Unschaerfe des warmen Leuchtens um den Bauch (0 = keins)"""
+    if glanz:
+        ebene = Image.new('RGBA', im.size, (0, 0, 0, 0))
+        ImageDraw.Draw(ebene).ellipse((x0 + 2 * z, y0 + 5.5 * z, x0 + 12 * z, y0 + 9 * z), fill=WARM + (150,))
+        im.alpha_composite(ebene.filter(ImageFilter.GaussianBlur(glanz)))
+    d = ImageDraw.Draw(im)
+    for j, zeile in enumerate(GLIM):
+        for i, c in enumerate(zeile):
+            if c in FARBE:
+                d.rectangle((x0 + i * z, y0 + j * z, x0 + (i + 1) * z - 1, y0 + (j + 1) * z - 1), fill=FARBE[c] + (255,))
 
 
 def logo():
-    im = Image.new('RGBA', (S, S), (0, 0, 0, 0))
-    # Grundflaeche: dunkles abgerundetes Quadrat mit feinem Rand
-    maske = Image.new('L', (S, S), 0)
-    ImageDraw.Draw(maske).rounded_rectangle((40, 40, S - 40, S - 40), radius=220, fill=255)
-    grund = Image.new('RGBA', (S, S))
-    a, b = (30, 31, 35), (10, 11, 13)
-    gp = grund.load()
-    for x in range(S):
-        for y in range(S):
-            t = (x + y) / (2 * S - 2)
-            gp[x, y] = tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3)) + (255,)
-    im.paste(grund, (0, 0), maske)
-    d = ImageDraw.Draw(im)
-    d.rounded_rectangle((40, 40, S - 40, S - 40), radius=220, outline=(255, 255, 255, 28), width=6)
+    im, maske = grund(S, 46, 210)
+    z = 52
+    glim(im, (S - 14 * z) // 2, (S - 9 * z) // 2 + 10, z, 90)
+    leer = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    leer.paste(im, (0, 0), maske)
+    ImageDraw.Draw(leer).rounded_rectangle((46, 46, S - 47, S - 47), radius=210, outline=(255, 255, 255, 22), width=5)
+    return leer
 
-    pink, lila = (255, 255, 255), (150, 154, 162)  # weiss statt pink/lila
 
-    # Leuchtlinie unten (mit Glow)
-    linie = Image.new('L', (S, S), 0)
-    ImageDraw.Draw(linie).rounded_rectangle((210, 700, 814, 772), radius=36, fill=255)
-    glow = linie.filter(ImageFilter.GaussianBlur(46))
-    farbe = verlauf(S, S, lila, pink)
-    im.paste(farbe, (0, 0), glow.point(lambda v: int(v * 0.9)))
-    im.paste(farbe, (0, 0), linie)
-    # heller Kern in der Linie
-    kern = Image.new('L', (S, S), 0)
-    ImageDraw.Draw(kern).rounded_rectangle((250, 726, 774, 746), radius=10, fill=150)
-    im.paste((255, 255, 255, 255), (0, 0), kern.filter(ImageFilter.GaussianBlur(4)))
-
-    # Prompt-Pfeil ">" und Cursor-Strich
-    pfeil = Image.new('L', (S, S), 0)
-    pd = ImageDraw.Draw(pfeil)
-    pd.line([(250, 270), (430, 420), (250, 570)], fill=255, width=88, joint='curve')
-    for x, y in [(250, 270), (250, 570)]:
-        pd.ellipse((x - 44, y - 44, x + 44, y + 44), fill=255)
-    pd.ellipse((430 - 44, 420 - 44, 430 + 44, 420 + 44), fill=255)
-    pd.rounded_rectangle((500, 530, 760, 600), radius=35, fill=255)
-    im.paste((255, 255, 255, 60), (0, 0), pfeil.filter(ImageFilter.GaussianBlur(22)))
-    im.paste((240, 242, 248, 255), (0, 0), pfeil)
-    return im
+def klein(n):
+    """Taskleisten-Groesse: jedes Glim-Feld ist genau z Pixel gross"""
+    z = n // 16
+    im, maske = grund(n, 0, max(2, n // 5))
+    glim(im, (n - 14 * z) // 2, (n - 9 * z) // 2, z, z * 1.2 if n >= 32 else 0)
+    leer = Image.new('RGBA', (n, n), (0, 0, 0, 0))
+    leer.paste(im, (0, 0), maske)
+    return leer
 
 
 if __name__ == '__main__':
     bild = logo()
     bild.save(os.path.join(HIER, 'icon.png'))
-    bild.resize((256, 256), Image.LANCZOS).save(
-        os.path.join(HIER, 'icon.ico'), sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    gross = {g: bild.resize((g, g), Image.LANCZOS) for g in (24, 128, 256)}
+    alle = {**gross, **{g: klein(g) for g in (16, 32, 48, 64)}}
+    groessen = sorted(alle)
+    alle[256].save(os.path.join(HIER, 'icon.ico'), sizes=[(g, g) for g in groessen],
+                   append_images=[alle[g] for g in groessen if g != 256])
     print('ok')

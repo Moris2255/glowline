@@ -78,7 +78,7 @@ Cowork also lives in your terminal. Open any terminal (PowerShell, cmd, Windows 
 
 ```
 ╭───────────────────────────────────────────────────────────────────────────╮
-│    ▀▄      ▄▀      Glowline 6.0.7                                         │
+│    ▀▄      ▄▀      Glowline 6.0.8                                         │
 │ ▄▄ ███▀███▀██ ▄▄   Cowork · RTX 4060 Ti · 2.6 / 8 GB VRAM                 │
 │ ▀██ ▀██████▀ ██▀   ~\Projekte\my-game                                     │
 │     ▄██████▄                                                              │
