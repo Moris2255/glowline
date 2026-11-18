@@ -1232,3 +1232,33 @@ $('#update-chip').addEventListener('click', async () => {
   const s = await window.api.updateJetzt();
   if (s && s.fehler) hinweis(s.fehler);
 });
+
+// ---------- Leiste unten einpassen ----------
+// Reicht der Platz nicht (z. B. wenn der Download- oder Update-Knopf dazukommt), fallen erst die unwichtigsten Werte weg –
+// die Knoepfe rechts (Ordner, Werkzeug, Modell) bleiben immer ganz zu sehen
+const LEISTE_WEG = ['#f-strom', '.feld:has(#runde)', '#f-gespart', '.feld:has(#prefill)', '.feld:has(#ausgabe)', '#f-vram', '.feld:has(#erstes)', '.feld:has(#kontext)', '.tacho', '.feld.gross'];
+function leisteEinpassen() {
+  const w = $('#leiste .werte');
+  w.classList.remove('eng');
+  for (const e of w.querySelectorAll('.eng-weg')) e.classList.remove('eng-weg');
+  const zuBreit = () => w.scrollWidth > w.clientWidth + 1;
+  for (const s of LEISTE_WEG) {
+    if (!zuBreit()) return;
+    const e = w.querySelector(s);
+    if (e) e.classList.add('eng-weg');
+  }
+  // immer noch zu eng (sehr schmales Fenster): die Knopf-Texte werden gekuerzt
+  if (zuBreit()) w.classList.add('eng');
+}
+{
+  let geplant = false;
+  const bald = () => { if (!geplant) { geplant = true; requestAnimationFrame(() => { geplant = false; leisteEinpassen(); }); } };
+  const w = $('#leiste .werte');
+  const mo = new MutationObserver(bald);
+  // Zahlen und Knopf-Texte aendern sich; die Knoepfe kommen und gehen (Klasse "versteckt")
+  mo.observe(w, { subtree: true, childList: true, characterData: true });
+  for (const c of w.querySelectorAll('.chip')) mo.observe(c, { attributes: true, attributeFilter: ['class'] });
+  mo.observe(document.body, { attributes: true, attributeFilter: ['data-ansicht'] });
+  window.addEventListener('resize', bald);
+  bald();
+}

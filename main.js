@@ -1694,6 +1694,23 @@ async function testLauf(ordner) {
       await js(`downloads.clear(); sz.laden.clear(); ein.stand = null; schliesseBib(); dlAktualisieren(); 1`);
       await warte(1000);
       console.log('DL NACHHER', await js(`document.querySelector('#dl-chip').className`));
+      // Leiste: kommen Download- und Update-Knopf dazu, bleibt der Modell-Knopf ganz zu sehen (dafuer fallen Werte weg)
+      {
+        win.unmaximize();
+        const [b0, h0] = win.getSize();
+        const erg = [];
+        for (const b of [1900, 1300, 1000, 700]) {
+          win.setSize(b, h0); await warte(500);
+          await js(`$('#update-chip').classList.remove('versteckt'); $('#update-text').textContent = 'Restart to update (9.9.9)'; $('#dl-chip').classList.remove('versteckt'); $('#dl-chip-text').textContent = '2 downloads · 45%'; 1`);
+          await warte(400);
+          erg.push(b + ':' + await js(`(() => { const w = $('#leiste .werte').getBoundingClientRect(), m = $('#modell-chip').getBoundingClientRect(); return (m.right <= w.right + 1 && m.width > 60 ? 'ok' : 'ab' + Math.round(m.right - w.right)) + '/' + document.querySelectorAll('#leiste .eng-weg').length; })()`));
+          if (b === 1300) await bild('a-leiste-eng');
+        }
+        await js(`$('#update-chip').classList.add('versteckt'); $('#dl-chip').classList.add('versteckt'); 1`);
+        win.setSize(b0, h0); await warte(600);
+        const zurueck = await js(`document.querySelectorAll('#leiste .eng-weg').length`);
+        console.log('ANSICHT LEISTE', erg.every((x) => x.includes(':ok')) && zurueck === 0 ? 'ok' : 'FEHLT', erg.join(' '), 'danach weg=' + zurueck);
+      }
       await js(`zeigeEinrichtung()`); await warte(5000); await bild('a-ein-start');
       await js(`ein.seite = 'express'; zeichneEinrichtung()`); await warte(800); await bild('a-ein-express');
       await js(`document.querySelector('#ein-inhalt').scrollTop = 9999`); await warte(300); await bild('a-ein-express2');
@@ -1771,6 +1788,35 @@ async function testLauf(ordner) {
         roh = '';
         p.resize(c0, r0); await warte(2500);
         console.log('TERMINAL SCHMAL', /Glowline \d/.test(schmal) && !/[▀▄]/.test(schmal) && /[▀▄]/.test(sauber()) ? 'ok' : 'FEHLT: ' + [/Glowline \d/.test(schmal), !/[▀▄]/.test(schmal), /[▀▄]/.test(sauber())].join(' ') + ' ' + (schmal.match(/.{0,40}[▀▄].{0,40}/) || [''])[0]);
+      }
+      // Leertaste halten = sprechen: Glowline nimmt auf (im Test ein Testton), der erkannte Text landet in der Eingabe
+      {
+        const altText = process.env.GLOWLINE_TEST_HOEREN_TEXT;
+        process.env.GLOWLINE_TEST_HOEREN_TEXT = 'Hallo aus dem Mikrofon';
+        // wie Windows: ein Leerzeichen, nach einer halben Sekunde ~30 pro Sekunde, bis die Taste oben ist
+        const halten = async (n, mitte) => { p.write(' '); await warte(500); for (let i = 0; i < n; i++) { p.write(' '); await warte(33); if (i === 20 && mitte) await mitte(); } };
+        roh = '';
+        await tippe('Hi', 300);
+        let hoert = false;
+        await halten(40, async () => { hoert = /Listening/.test(sauber()); await bild('t-sprechen'); });
+        await warte(2500); await bild('t-sprechen2');
+        const nach = sauber();
+        console.log('TERMINAL SPRECHEN', hoert && /Hi Hallo aus dem Mikrofon/.test(nach) && !/Hi {2,}/.test(nach.slice(nach.lastIndexOf('Hi Hallo'))) ? 'ok' : 'FEHLT: hoert=' + hoert + ' ' + nach.replace(/\s+/g, ' ').slice(-300));
+        // normal getippte Leerzeichen bleiben Leerzeichen
+        await tippe('\x15', 300);
+        roh = '';
+        for (const z of ['a', ' ', 'b', ' ', 'c', ' ', ' ', 'd']) { p.write(z); await warte(90); }
+        await warte(800);
+        console.log('TERMINAL LEERZEICHEN', /a b c  d/.test(sauber()) && !/Listening|Starting the microphone/.test(sauber()) ? 'ok' : 'FEHLT: ' + sauber().replace(/\s+/g, ' ').slice(-200));
+        // Esc beim Sprechen: nichts eintragen, bis zum Loslassen keine neue Aufnahme
+        await tippe('\x15', 300);
+        roh = '';
+        await halten(40, async () => { p.write('\x1b'); await warte(150); });
+        await warte(1500);
+        const weg = sauber();
+        console.log('TERMINAL SPRECHEN ESC', /Recording cancelled/.test(weg) && !/Hallo aus dem Mikrofon/.test(weg) ? 'ok' : 'FEHLT: ' + weg.replace(/\s+/g, ' ').slice(-200));
+        await tippe('\x15', 300);
+        if (altText === undefined) delete process.env.GLOWLINE_TEST_HOEREN_TEXT; else process.env.GLOWLINE_TEST_HOEREN_TEXT = altText;
       }
       await tippe('Hallo, wer bist du?', 400); await bild('t-tippen');
       await tippe('\r', 7000); await bild('t-antwort');
@@ -2552,6 +2598,12 @@ function terminalStarten() {
     erlaubt: terminalErlaubt, freigeben: (f) => freigegeben.add(path.resolve(f)), vorschau: terminalVorschau,
     kopieren: (t) => clipboard.writeText(t), autostart, statistik: () => statistik.stand(),
     geladen: () => statusSchleife.geladen || [], update,
+    // Code im Glowline-Fenster ausfuehren (Spracheingabe fuer gl: das Fenster hat das Mikrofon), zeigen = Fenster nach vorn
+    fensterJs: async (code) => {
+      if (!win || win.isDestroyed()) return { fehler: 'The Glowline window is not ready yet' };
+      try { return await win.webContents.executeJavaScript(code, true); } catch (e) { return { fehler: String((e && e.message) || e).slice(0, 200) }; }
+    },
+    zeigen: zeigeFenster,
     // "Saved costs" genau wie unten im Fenster; ohne Fenster die Summe der Stats-Seite
     gespart: async () => {
       try { if (win && !win.isDestroyed()) return +(await win.webContents.executeJavaScript('gespartJetzt()')) || 0; } catch {}

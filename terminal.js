@@ -7,7 +7,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 
-let d = null; // { chatSenden, chatStopp, hoerer, proxy, gpu, modelle, cfg, erlaubt, freigeben, oeffnen, kopieren, autostart, statistik, vorschau, version, datei, test }
+let d = null; // { chatSenden, chatStopp, hoerer, proxy, gpu, modelle, cfg, erlaubt, freigeben, oeffnen, kopieren, autostart, statistik, vorschau, fensterJs, zeigen, version, datei, test }
 let server = null;
 const MEDIEN = /\.(png|jpe?g|webp|mp4|webm|wav|mp3|flac|ogg|m4a)$/i;
 
@@ -103,6 +103,15 @@ async function anfrage(req, res, schluessel, port) {
       json(res, 200, { ok });
       if (ok) setTimeout(() => d.update.jetzt().catch(() => {}), 1500); // gl hat sich bis dahin verabschiedet
       return;
+    }
+    // Sprechen in gl (Leertaste halten): Glowline nimmt auf, gl bekommt den Text
+    if (req.method === 'POST' && url.pathname === '/hoeren/start') return json(res, 200, await d.fensterJs('glHoerenStart()'));
+    if (req.method === 'POST' && url.pathname === '/hoeren/stopp') { const a = await body(req); return json(res, 200, await d.fensterJs(`glHoerenStopp(${a.verwerfen ? 'true' : 'false'})`)); }
+    if (req.method === 'GET' && url.pathname === '/hoeren/pegel') return json(res, 200, { pegel: +(await d.fensterJs('glHoerenPegel()')) || 0 });
+    if (req.method === 'POST' && url.pathname === '/hoeren/einrichten') {
+      const r = await d.fensterJs('glHoerenEinrichten()');
+      if (r && r.bereit === false) d.zeigen();
+      return json(res, 200, r);
     }
     if (req.method === 'POST' && url.pathname === '/autostart') {
       const a = await body(req);

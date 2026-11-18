@@ -80,6 +80,12 @@ body.vollbild .term { top: 10px; }
 .chip { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border: 1px solid var(--linie); border-radius: 10px; max-width: 250px; font: 12px var(--mono); color: var(--text); }
 .chip:hover, .chip.offen { background: var(--bg3); border-color: #3a3836; }
 .chip span:not(.pfeil):not(.punkt) { overflow: hidden; text-overflow: ellipsis; }
+/* die Knoepfe schrumpfen nicht – fehlt Platz, blendet leisteEinpassen() (app.js) erst Werte aus */
+.werte > .chip { flex: none; }
+.werte .eng-weg { display: none !important; }
+/* sehr eng: Knopf-Texte werden gekuerzt (Ordner, Update, Downloads zuerst, Werkzeug und Modell nur wenig) */
+.werte.eng > .chip { flex: 0 1 auto; min-width: 44px; }
+.werte.eng > #ordner-chip, .werte.eng > #update-chip, .werte.eng > #dl-chip { flex-shrink: 4; }
 .pfeil { color: var(--sehrleise); }
 .punkt { width: 7px; height: 7px; border-radius: 50%; background: var(--sehrleise); flex: none; }
 .punkt.an { background: var(--akzent); }

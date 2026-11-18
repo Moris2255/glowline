@@ -48,17 +48,19 @@ async function diktat(id) {
   if (hz.schreibt) return;
   if (!hz.st) hz.st = await window.api.hoerenStand();
   if (!hz.st.bereit) { hz.wartend = id; return hoerenPopAuf(); }
-  aufnahmeStart(id);
+  const fehler = await aufnahmeStart(id);
+  if (fehler) hinweis(fehler);
 }
 
 // ---------- Aufnahme ----------
+// gibt bei einem Problem den Text dazu zurueck (sonst nichts)
 async function aufnahmeStart(id) {
   let strom = null;
   try {
     // Test: kein echtes Mikrofon – ein leiser Testton statt der Stimme
     if (!HZ_TEST) strom = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
   } catch (e) {
-    return hinweis(/denied|not allowed/i.test(String(e && e.message)) ? 'No access to the microphone – allow it in Windows settings → Privacy → Microphone' : 'No microphone found');
+    return /denied|not allowed/i.test(String(e && e.message)) ? 'No access to the microphone – allow it in Windows settings → Privacy → Microphone' : 'No microphone found';
   }
   const ctx = new AudioContext({ sampleRate: 16000 });
   const quelle = strom ? ctx.createMediaStreamSource(strom) : (() => { const o = ctx.createOscillator(); o.frequency.value = 220; o.start(); const g = ctx.createGain(); g.gain.value = 0.2; o.connect(g); return g; })();
@@ -68,20 +70,23 @@ async function aufnahmeStart(id) {
   proz.port.onmessage = (e) => {
     const d = e.data;
     if (hz.aufnahme !== a) return;
+    // gl haelt die Leertaste: dort beendet das Loslassen, nach 5 Minuten wird nur nichts mehr angehaengt
+    if (a.id === 'gl' && a.laenge > ctx.sampleRate * 300) return;
     a.teile.push(d);
     a.laenge += d.length;
     let s = 0;
     for (let i = 0; i < d.length; i++) s += d[i] * d[i];
     a.pegel = Math.sqrt(s / d.length);
     for (const b of document.querySelectorAll('.mic.nimmt i')) b.style.transform = `scale(${1 + Math.min(1, a.pegel * 8)})`;
-    if (a.laenge > ctx.sampleRate * 300) aufnahmeStopp(); // max. 5 Minuten
+    if (a.id !== 'gl' && a.laenge > ctx.sampleRate * 300) aufnahmeStopp(); // max. 5 Minuten
   };
   quelle.connect(proz);
   proz.connect(ctx.destination); // gibt nur Stille aus (wir kopieren nichts in den Ausgang)
   a.proz = proz;
   hz.aufnahme = a;
   micZeichnen();
-  hinweis('Listening… click the microphone again to stop');
+  if (id !== 'gl') hinweis('Listening… click the microphone again to stop');
+  return null;
 }
 function wavAus(teile, laenge, rate) {
   const buf = new ArrayBuffer(44 + laenge * 2);
@@ -94,20 +99,27 @@ function wavAus(teile, laenge, rate) {
   for (const t of teile) for (let i = 0; i < t.length; i++, o += 2) v.setInt16(o, Math.max(-1, Math.min(1, t[i])) * 0x7fff, true);
   return new Uint8Array(buf);
 }
+// fuer gl: das Ergebnis zurueckgeben statt es ins Feld zu schreiben
 async function aufnahmeStopp(verwerfen) {
   const a = hz.aufnahme;
-  if (!a) return;
+  if (!a) return { fehler: 'Not recording' };
+  const gl = a.id === 'gl';
   hz.aufnahme = null;
   try { a.proz.disconnect(); } catch {}
   if (a.strom) for (const t of a.strom.getTracks()) t.stop();
   const rate = a.ctx.sampleRate;
   a.ctx.close().catch(() => {});
-  if (verwerfen || a.laenge < rate * 0.4) { micZeichnen(); if (!verwerfen) hinweis('Too short – hold on a bit longer'); return; }
+  if (verwerfen || a.laenge < rate * 0.4) {
+    micZeichnen();
+    if (!verwerfen && !gl) hinweis('Too short – hold on a bit longer');
+    return { fehler: verwerfen ? 'Cancelled' : 'Too short – keep holding Space while you talk', kurz: !verwerfen };
+  }
   hz.schreibt = a;
   micZeichnen();
   const r = await window.api.hoerenSchreiben(wavAus(a.teile, a.laenge, rate)).catch((e) => ({ fehler: String(e) }));
   hz.schreibt = null;
   micZeichnen();
+  if (gl) return r;
   if (r.fehler) return hinweis(r.fehler);
   if (!r.text) return hinweis('Didn’t catch anything – try again a bit closer to the microphone');
   einfuegen(a, r.text);
@@ -134,6 +146,27 @@ document.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.shiftKey && (e.code === 'Space' || e.key === ' ') && (ansicht === 'chat' || hz.aufnahme)) { e.preventDefault(); e.stopPropagation(); diktat(hz.aufnahme ? hz.aufnahme.id : null); }
   else if (e.key === 'Escape' && hz.aufnahme) { aufnahmeStopp(true); hinweis('Recording cancelled'); }
 }, true);
+
+// ---------- gl im Terminal: Leertaste halten ----------
+// gl hat kein Mikrofon – Glowline nimmt hier auf (auch wenn das Fenster im Infobereich versteckt ist), gl bekommt nur den Text
+async function glHoerenStart() {
+  if (hz.aufnahme || hz.schreibt) return { fehler: 'Voice input is busy in the Glowline window' };
+  hz.st = await window.api.hoerenStand();
+  if (!hz.st.bereit && !HZ_TEST) return { fehler: 'Voice input is not set up yet – type /voice', einrichten: true };
+  const fehler = await aufnahmeStart('gl');
+  return fehler ? { fehler } : { ok: true };
+}
+async function glHoerenStopp(verwerfen) {
+  if (!hz.aufnahme || hz.aufnahme.id !== 'gl') return { fehler: 'Not recording' };
+  return aufnahmeStopp(verwerfen);
+}
+function glHoerenPegel() { return hz.aufnahme && hz.aufnahme.id === 'gl' ? hz.aufnahme.pegel : 0; }
+async function glHoerenEinrichten() {
+  hz.st = await window.api.hoerenStand();
+  if (hz.st && hz.st.bereit) return { bereit: true, modell: hz.st.modelle[hz.st.modell].name };
+  hoerenPopAuf();
+  return { bereit: false };
+}
 
 // ---------- Einrichten (einmal) ----------
 function hoerenPopAuf() {

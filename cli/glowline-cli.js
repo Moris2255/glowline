@@ -32,7 +32,8 @@ function hilfeText() {
   gl -p "question"      answer once and exit (good for scripts)
 
 In the chat: type / for commands, drag an image in to attach it,
-Esc stops an answer, Ctrl+O opens the last result, Ctrl+C twice exits.`);
+hold Space to talk instead of typing, Esc stops an answer,
+Ctrl+O opens the last result, Ctrl+C twice exits.`);
 }
 function liesApi() { try { return JSON.parse(fs.readFileSync(apiDatei, 'utf8')); } catch { return null; } }
 
@@ -254,6 +255,7 @@ const BEFEHLE = [
   { n: 'image', arg: 'description', info: 'create an image' },
   { n: 'video', arg: 'description', info: 'create a video' },
   { n: 'voice', arg: 'text', info: 'read a text aloud' },
+  { n: 'mic', info: 'talk instead of typing: hold Space (sets up voice input once)' },
   { n: 'upscale', arg: 'path', info: 'upscale an image / video (drag it in) or the last one' },
   { n: 'file', arg: 'what', info: 'create a file in this folder' },
   { n: 'goal', arg: 'text | off', info: 'keep every answer focused on a goal' },
@@ -359,7 +361,7 @@ function liveZeilen() {
   rows.slice(von, von + max).forEach((r, i) => {
     const vor = von + i === 0 ? f(C.hell, '› ') : '  ';
     let t = r.join('');
-    if (leer && i === 0) t = f(C.dunkel, S.laeuft ? 'Type your next message…' : 'Ask anything – or “create an image of …”  ·  / for commands');
+    if (leer && i === 0) t = f(C.dunkel, kuerze(S.laeuft ? 'Type your next message…' : 'Ask anything – or “create an image of …”  ·  / for commands  ·  hold Space to talk', innen - vorW));
     const tb = breite(t);
     if (von + i === curRow) cur = { zeile: z.length, spalte: 2 + vorW + curCol };
     z.push(f(C.dunkel, '│ ') + vor + C.text + t + C.aus + ' '.repeat(Math.max(0, innen - vorW - tb)) + f(C.dunkel, ' │'));
@@ -415,6 +417,8 @@ function leiste(w) {
   return [f(C.dunkel, '─'.repeat(w)), kuerze('  ' + kopf, w), zeile(1, C.dunkel), zeile(2)];
 }
 function fusszeile(w, mitWerten) {
+  const sprechen = sprechZeile(w);
+  if (sprechen) return sprechen;
   if (S.hinweis && Date.now() < S.hinweisBis) return kuerze('  ' + f(C.gelb, S.hinweis), w);
   const modus = S.fest ? modellName(S.fest) + ' (fixed)' : S.immerDenken ? 'Auto · always thinking' : S.immerSchnell ? 'Auto · fast' : 'Auto' + (S.zuletztModell ? ' · ' + modellName(S.zuletztModell) : '');
   // wie die Leiste im Fenster: [Wichtigkeit, Text] – wird es zu eng, fallen die unwichtigsten zuerst weg
@@ -965,7 +969,7 @@ async function befehlOderSenden(text) {
       const r = [f(C.hell + C.fett, '  Commands')];
       for (const x of BEFEHLE) r.push(kuerze('  ' + f(C.hell, ('/' + x.n + (x.arg ? ' ' + x.arg : '')).padEnd(24)) + f(C.leise, x.info), w));
       r.push('', f(C.hell + C.fett, '  Keys'));
-      for (const [k, i] of [['Enter', 'send'], ['Ctrl+J or \\ + Enter', 'new line'], ['Esc', 'stop the answer'], ['↑ ↓', 'earlier messages'], ['Tab', 'complete a command'], ['Ctrl+O', 'open the last image, video or file'], ['Ctrl+L', 'clear the screen'], ['Ctrl+C', 'stop / clear / exit']]) r.push('  ' + f(C.hell, k.padEnd(24)) + f(C.leise, i));
+      for (const [k, i] of [['Enter', 'send'], ['Ctrl+J or \\ + Enter', 'new line'], ['Esc', 'stop the answer'], ['↑ ↓', 'earlier messages'], ['Tab', 'complete a command'], ['Ctrl+O', 'open the last image, video or file'], ['Hold Space', 'talk – release it and the text is typed in'], ['Ctrl+L', 'clear the screen'], ['Ctrl+C', 'stop / clear / exit']]) r.push('  ' + f(C.hell, k.padEnd(24)) + f(C.leise, i));
       r.push('', f(C.leise, '  Drag an image or video into the window to attach it (e.g. “upscale” or “what is in it?”).'), f(C.leise, '  Files you ask for are saved in this folder: ' + kurzPfad(process.cwd())));
       lokal(r);
       break;
@@ -1073,6 +1077,15 @@ async function befehlOderSenden(text) {
       break;
     }
     case 'update': await updateBefehl(); break;
+    case 'mic': {
+      let r;
+      try { r = await anfrage('POST', '/hoeren/einrichten'); } catch { hinweis('Update the Glowline app to use voice input in gl'); break; }
+      if (r && r.fehler) { lokal([f(C.rot, '  ' + r.fehler)]); break; }
+      lokal(r && r.bereit
+        ? [f(C.hell + C.fett, '  ✓ ') + f(C.hell, 'Voice input is ready (' + r.modell + ').') + f(C.leise, ' Hold Space, talk, let go – the text lands in the input.')]
+        : [f(C.hell + C.fett, '  Voice input') + f(C.leise, ' · opened the setup in the Glowline window – download a speech model once (runs on this PC).'), f(C.leise, '  Then hold Space here, talk and let go.')]);
+      break;
+    }
   }
   bald();
 }
@@ -1109,6 +1122,90 @@ async function updateBefehl() {
 function oeffneLetztes() {
   if (!S.letztes) { hinweis('Nothing to open yet'); return; }
   anfrage('POST', '/oeffnen', { pfad: S.letztes.pfad }).then((r) => hinweis(r && r.ok ? 'Opened ' + path.basename(S.letztes.pfad) : 'Can’t open that file'), () => hinweis('Glowline is not reachable'));
+}
+
+// ---------- Sprechen: Leertaste gedrueckt halten ----------
+// Terminals melden kein Loslassen. Eine gehaltene Leertaste erkennt man an der Tasten-Wiederholung von Windows
+// (nach ~0,5 s kommen ~30 Leerzeichen pro Sekunde); hoeren die auf, ist die Taste wieder oben.
+// Glowline nimmt auf (die App hat das Mikrofon und die Spracherkennung), gl bekommt nur den Text.
+const SP = { lauf: null, an: null, schreibt: false, pegel: [], uhr: null, pegelUhr: null };
+const SP_SCHNELL = 150; // ms – so schnell tippt niemand drei Leerzeichen hintereinander
+function leertaste(n) {
+  const jetzt = Date.now();
+  if (SP.an) { SP.an.abstand = (jetzt - SP.an.letzte) / n; SP.an.letzte = jetzt; loslassenPlanen(); return; }
+  if (SP.schreibt) return; // der Text kommt gleich – bis dahin nichts dazwischen tippen
+  const l = SP.lauf;
+  if (!l || jetzt - l.letzte > 1200) SP.lauf = { vorher: S.eingabe, cursor: S.cursor, schnell: 0, letzte: jetzt };
+  else { l.schnell = jetzt - l.letzte < SP_SCHNELL ? l.schnell + 1 : 0; l.letzte = jetzt; }
+  SP.lauf.schnell += n - 1; // mehrere Leerzeichen in einem Paket = Wiederholung
+  einfuegen(' '.repeat(n));
+  if (SP.lauf.schnell < 2) return;
+  // gehalten: die Leerzeichen wieder weg, aufnehmen
+  S.eingabe = SP.lauf.vorher; S.cursor = SP.lauf.cursor; SP.lauf = null;
+  sprechenStart(jetzt);
+}
+function sprechenStart(jetzt) {
+  const a = { modus: 'startet', letzte: jetzt, abstand: 33 };
+  SP.an = a; SP.pegel = [];
+  a.bereit = anfrage('POST', '/hoeren/start').catch(() => ({ fehler: 'Update the Glowline app to use voice input in gl' }));
+  a.bereit.then((r) => {
+    if (a.modus !== 'startet') return;
+    if (r && r.ok) { a.modus = 'nimmt'; pegelHolen(a); } else { a.modus = 'fehler'; hinweis((r && r.fehler) || 'Voice input did not start', 5000); }
+    bald();
+  });
+  loslassenPlanen();
+  bald();
+}
+function loslassenPlanen() {
+  clearTimeout(SP.uhr);
+  // etwas Luft fuer Ruckler im Terminal, bei langsamer Wiederholung entsprechend mehr
+  SP.uhr = setTimeout(loslassen, Math.min(700, Math.max(260, (SP.an ? SP.an.abstand : 33) * 5)));
+}
+function pegelHolen(a) {
+  clearInterval(SP.pegelUhr);
+  const uhr = setInterval(async () => {
+    if (SP.an !== a || a.modus !== 'nimmt') return clearInterval(uhr);
+    try { const r = await anfrage('GET', '/hoeren/pegel'); SP.pegel = [...SP.pegel, r.pegel || 0].slice(-12); bald(); } catch {}
+  }, 110);
+  SP.pegelUhr = uhr;
+}
+async function loslassen() {
+  const a = SP.an;
+  if (!a) return;
+  SP.an = null;
+  clearInterval(SP.pegelUhr);
+  if (a.modus === 'fehler' || a.modus === 'abgebrochen') { bald(); return; }
+  a.modus = 'fertig';
+  SP.schreibt = true;
+  bald();
+  const s = await a.bereit;
+  let r = s;
+  if (s && s.ok) { try { r = await anfrage('POST', '/hoeren/stopp', {}); } catch { r = { fehler: 'Glowline is not reachable' }; } }
+  SP.schreibt = false;
+  if (r && r.text) {
+    const vor = [...S.eingabe].slice(0, S.cursor).join('');
+    einfuegen((vor && !/\s$/.test(vor) ? ' ' : '') + r.text);
+  } else hinweis((r && r.fehler) || 'Didn’t catch anything – try again a bit closer to the microphone', 5000);
+  bald();
+}
+// Esc / Ctrl+C beim Sprechen: Aufnahme wegwerfen. SP.an bleibt, bis die Leertaste oben ist (sonst ginge gleich die naechste los)
+function sprechenAbbrechen() {
+  const a = SP.an;
+  if (!a || a.modus === 'abgebrochen') return;
+  const lief = a.modus;
+  a.modus = 'abgebrochen';
+  clearInterval(SP.pegelUhr);
+  if (lief !== 'fehler') a.bereit.then((s) => { if (s && s.ok) anfrage('POST', '/hoeren/stopp', { verwerfen: true }).catch(() => {}); });
+  hinweis('Recording cancelled', 2000);
+}
+const BLOECKE = '▁▂▃▄▅▆▇█';
+function sprechZeile(w) {
+  if (SP.schreibt) return kuerze('  ' + f(C.gelb, '◌ ') + f(C.hell, 'Turning speech into text…'), w);
+  const a = SP.an;
+  if (!a || (a.modus !== 'startet' && a.modus !== 'nimmt')) return '';
+  const wellen = Array.from({ length: 12 }, (_, i) => BLOECKE[Math.round(Math.min(1, (SP.pegel[SP.pegel.length - 12 + i] || 0) * 10) * 7)]).join('');
+  return kuerze('  ' + f(C.rot, '● ') + f(C.hell + C.fett, a.modus === 'startet' ? 'Starting the microphone…' : 'Listening') + '  ' + f(C.gelb, wellen)
+    + f(C.dunkel, '  release Space to finish · Esc cancels'), w);
 }
 
 // ---------- Tastatur ----------
@@ -1153,6 +1250,9 @@ function historie(richtung) {
   S.cursor = [...S.eingabe].length;
 }
 function taste(k) {
+  // beim Sprechen zaehlen nur Esc und Ctrl+C (abbrechen)
+  if (SP.an) { if (k === '\x1b' || k === '\x03') sprechenAbbrechen(); bald(); return; }
+  SP.lauf = null;
   const z = [...S.eingabe];
   const tr = befehlTreffer();
   if (k !== '\x03') S.ctrlC = 0;
@@ -1234,7 +1334,8 @@ function eingang(d) {
       imPaste = false;
       // eine Groessen-Antwort, die mitten ins Einfuegen gefallen ist, nicht als Text einfuegen
       pasteText = pasteText.replace(/\x1b\[(\d+);(\d+)R/g, (_, z, s) => { if (fenster.offen) { fenster.offen--; groesseErhalten(+s, +z); } return ''; });
-      einfuegen(pasteText.replace(/\r\n?/g, '\n').replace(/\n$/, ''));
+      SP.lauf = null;
+      if (!SP.an) einfuegen(pasteText.replace(/\r\n?/g, '\n').replace(/\n$/, ''));
       pasteText = '';
       bald();
       continue;
@@ -1258,7 +1359,8 @@ function eingang(d) {
     const bis = einPuffer.search(/\x1b/);
     const stueck = bis < 0 ? einPuffer : einPuffer.slice(0, bis);
     if (stueck.length > 1 && /[^\r\n]/.test(stueck) && /[\r\n]/.test(stueck.replace(/[\r\n]+$/, ''))) {
-      einfuegen(stueck.replace(/\r\n?/g, '\n').replace(/\n+$/, ''));
+      SP.lauf = null;
+      if (!SP.an) einfuegen(stueck.replace(/\r\n?/g, '\n').replace(/\n+$/, ''));
       einPuffer = einPuffer.slice(stueck.length);
       bald();
       continue;
@@ -1271,7 +1373,9 @@ function eingang(d) {
     // mehrere normale Zeichen auf einmal einfuegen (schneller)
     let text = ch;
     while (einPuffer.length && !/^[\x00-\x1f\x7f]/.test(einPuffer)) { const c = String.fromCodePoint(einPuffer.codePointAt(0)); text += c; einPuffer = einPuffer.slice(c.length); }
-    einfuegen(text);
+    // nur Leerzeichen: vielleicht wird die Leertaste gehalten (Sprechen)
+    if (/^ +$/.test(text)) leertaste(text.length);
+    else if (!SP.an) { SP.lauf = null; einfuegen(text); }
     bald();
   }
 }
