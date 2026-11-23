@@ -21,11 +21,11 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--app') appExe = argv[++i];
   else if (a === '-p' || a === '--print') nurAusgabe = true;
   else if (a === '-h' || a === '--help' || a === '/?') { hilfeText(); process.exit(0); }
-  else if (a === '-v' || a === '--version') { const k = liesApi(); console.log('Glowline' + (k && k.version ? ' ' + k.version : '')); process.exit(0); }
+  else if (a === '-v' || a === '--version') { const k = liesApi(); console.log('Glowline Code' + (k && k.version ? ' ' + k.version : '')); process.exit(0); }
   else freieArgs.push(a);
 }
 function hilfeText() {
-  console.log(`Glowline – Cowork in your terminal
+  console.log(`Glowline Code – Cowork in your terminal
 
   gl                    start a chat
   gl "question"         start a chat with this message
@@ -591,14 +591,14 @@ function kopf() {
   const w = spalten() - 1;
   const textBreite = Math.max(10, w - 26); // Rahmen + Glim + Abstaende
   const roh = [
-    f(C.hell + C.fett, 'Glowline') + f(C.leise, ' ' + v),
+    f(C.hell + C.fett, 'Glowline Code') + f(C.leise, ' ' + v),
     f(C.text, 'Cowork') + f(C.leise, [gpuName, vram].filter(Boolean).map((t) => ' · ' + t).join('')),
     f(C.leise, ordner),
     '',
     f(C.dunkel, '/help for all commands · drag in an image · Esc stops'),
   ];
   const text = roh.map((t) => (breite(t) > textBreite ? schneideFarbig(t, textBreite - 1) + f(C.dunkel, '…') : t));
-  if (!FARBE) return ['', '  Glowline ' + v + ' · Cowork', '  ' + ordner, '  /help for all commands', ''];
+  if (!FARBE) return ['', '  Glowline Code ' + v + ' · Cowork', '  ' + ordner, '  /help for all commands', ''];
   // sehr schmales Fenster: ohne Glim und Rahmen (passt sonst nicht und bricht um) – gleich viele Zeilen
   kopfMitGlim = w >= 44;
   if (!kopfMitGlim) return ['', ...roh.map((t) => '  ' + (breite(t) > w - 2 ? schneideFarbig(t, w - 3) + f(C.dunkel, '…') : t)), ''];
@@ -1385,7 +1385,7 @@ let ein = null;
 function beenden(code = 0, abschied = 'Bye – Glowline keeps running in the tray.') {
   if (S.laeuft) try { S.laeuft.req && S.laeuft.req.destroy(); } catch {}
   if (!nurAusgabe) {
-    out(liveLeeren() + schiebe(live.zeile + 2 - hoehe()) + geheZu(live.zeile + 1) + '\x1b[?2004l\x1b[?25h');
+    out(liveLeeren() + schiebe(live.zeile + 2 - hoehe()) + geheZu(live.zeile + 1) + '\x1b[?2004l\x1b[?25h\x1b[23;0t');
     try { ein && ein.setRawMode(false); } catch {}
     out(f(C.dunkel, '  ' + abschied) + '\n');
   }
@@ -1415,6 +1415,8 @@ async function start() {
   await ersteGroesse();
   log('fenster', breiteFenster(), hoeheFenster(), 'stdout', process.stdout.columns, process.stdout.rows);
   // alten Inhalt nach oben in den Verlauf schieben: Glowline bekommt einen leeren Bildschirm
+  // Fenstertitel: alten merken, solange gl laeuft "Glowline Code"
+  out('\x1b[22;0t\x1b]0;Glowline Code\x07');
   out('\x1b[?2004h' + '\n'.repeat(hoehe()) + geheZu(1));
   live.zeile = 0;
   zeigeKopf();
@@ -1455,7 +1457,7 @@ async function start() {
   if (text) befehlOderSenden(text);
 }
 process.on('uncaughtException', (e) => {
-  try { out(liveLeeren() + '\x1b[?2004l\x1b[?25h'); ein && ein.setRawMode && ein.setRawMode(false); } catch {}
+  try { out(liveLeeren() + '\x1b[?2004l\x1b[?25h\x1b[23;0t'); ein && ein.setRawMode && ein.setRawMode(false); } catch {}
   process.stderr.write('\nGlowline terminal crashed: ' + (e && e.stack || e) + '\n');
   process.exit(1);
 });
