@@ -936,6 +936,16 @@ ipcMain.handle('gehirn:vaults', () => ({ vaults: gehirn.vaults().map((v) => ({ p
 ipcMain.handle('gehirn:speichern', (_e, titel, text, modell) => {
   try { const r = gehirn.speichereAntwort(titel, text, modell); return { ok: true, rel: r.rel, url: gehirn.oeffnenUrl(r.rel) }; } catch (e) { return { fehler: e.message }; }
 });
+// Schalter in der Leiste: aus merkt sich die vorige Wahl, an stellt sie wieder her
+ipcMain.handle('gehirn:schalten', () => {
+  if (gehirn.aktiv()) { cfg.obsidianVorher = cfg.obsidian; cfg.obsidian = 'aus'; }
+  else {
+    cfg.obsidian = cfg.obsidianVorher && cfg.obsidianVorher !== 'aus' ? cfg.obsidianVorher : 'auto';
+    if (!gehirn.aktiv()) cfg.obsidian = 'auto';
+  }
+  speichereConfig();
+  return { aktiv: gehirn.aktiv(), obsidian: cfg.obsidian };
+});
 ipcMain.on('gehirn:oeffnen', (_e, rel) => { const u = gehirn.oeffnenUrl(String(rel || '')); if (u) shell.openExternal(u); });
 ipcMain.handle('auto:rollen', async (_e, neu) => ({ rollen: await autoChat.rollen(!!neu), namen: autoChat.NAME }));
 ipcMain.handle('auto:setzen', (_e, rolle, id) => {
@@ -1502,6 +1512,14 @@ async function testLauf(ordner) {
       await warte(800);
       const gesp = fs.existsSync(path.join(vault, 'Glowline', 'Benachrichtigungen.md')) && /source: Glowline/.test(fs.readFileSync(path.join(vault, 'Glowline', 'Benachrichtigungen.md'), 'utf8'));
       console.log('GEHIRN FENSTER', chips === 'Python unter Windows' && gesp && (await js(`[...document.querySelectorAll('.n-fuss button')].some((b) => b.textContent === '✓ In Obsidian')`)) ? 'ok' : 'FEHLT chips=' + chips + ' gespeichert=' + gesp);
+      // Schalter in der Leiste: aus, dann wieder an (zurueck auf denselben Vault)
+      await js(`zeigeObsidian()`); await warte(400);
+      const sicht = await js(`!document.querySelector('#obsidian-chip').classList.contains('versteckt')`);
+      await js(`document.querySelector('#obsidian-chip').click()`); await warte(700);
+      const nachAus = cfg.obsidian, chipAus = await js(`document.querySelector('#obsidian-chip').classList.contains('aus') && !document.querySelector('.n-fuss button[title*="Obsidian"]')`);
+      await bild('gehirn-schalter-aus');
+      await js(`document.querySelector('#obsidian-chip').click()`); await warte(700);
+      console.log('GEHIRN SCHALTER', sicht && nachAus === 'aus' && chipAus && cfg.obsidian === vault && !(await js(`document.querySelector('#obsidian-chip').classList.contains('aus')`)) ? 'ok' : 'FEHLT sicht=' + sicht + ' aus=' + nachAus + ' chipAus=' + chipAus + ' danach=' + cfg.obsidian);
       cfg.obsidian = 'aus';
       const aus = await baueBefehl('claude', 'ollama/test:1b', 'gehirntest');
       console.log('GEHIRN AUS', !/glowline-obsidian/.test(z(aus)) && !gehirn.kontext('Wie mache ich Windows Benachrichtigungen in Python?') ? 'ok' : 'FEHLT');

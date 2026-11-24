@@ -85,7 +85,7 @@ body.vollbild .term { top: 10px; }
 .werte .eng-weg { display: none !important; }
 /* sehr eng: Knopf-Texte werden gekuerzt (Ordner, Update, Downloads zuerst, Werkzeug und Modell nur wenig) */
 .werte.eng > .chip { flex: 0 1 auto; min-width: 44px; }
-.werte.eng > #ordner-chip, .werte.eng > #update-chip, .werte.eng > #dl-chip { flex-shrink: 4; }
+.werte.eng > #ordner-chip, .werte.eng > #obsidian-chip, .werte.eng > #update-chip, .werte.eng > #dl-chip { flex-shrink: 4; }
 .pfeil { color: var(--sehrleise); }
 .punkt { width: 7px; height: 7px; border-radius: 50%; background: var(--sehrleise); flex: none; }
 .punkt.an { background: var(--akzent); }
@@ -511,6 +511,9 @@ body[data-ansicht="studio"] #f-vram { display: flex; }
 #ordner-chip { max-width: 220px; }
 #ordner-chip #ordner-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #ordner-chip .ordner-symbol { color: var(--sehrleise); margin-right: 2px; }
+#obsidian-chip .ob-symbol { color: #a78bfa; margin-right: 2px; }
+#obsidian-chip.aus { color: var(--leise); }
+#obsidian-chip.aus .ob-symbol { color: var(--sehrleise); }
 body[data-ansicht="chat"] #ordner-chip, body[data-ansicht="studio"] #ordner-chip { display: none; }
 
 /* Modellfenster: Cowork-Rollen */

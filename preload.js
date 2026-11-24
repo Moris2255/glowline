@@ -93,6 +93,7 @@ contextBridge.exposeInMainWorld('api', {
   gehirnVaults: () => ipcRenderer.invoke('gehirn:vaults'),
   gehirnSpeichern: (titel, text, modell) => ipcRenderer.invoke('gehirn:speichern', titel, text, modell),
   gehirnOeffnen: (rel) => ipcRenderer.send('gehirn:oeffnen', rel),
+  gehirnSchalten: () => ipcRenderer.invoke('gehirn:schalten'),
   handyStopp: (s) => ipcRenderer.send('handy:stopp', s),
   onFilm: (cb) => ipcRenderer.on('film', (_e, s) => cb(s)),
   updatePruefen: () => ipcRenderer.invoke('update:pruefen'),

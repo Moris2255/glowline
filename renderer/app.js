@@ -317,6 +317,7 @@ function zeichneAnpassen() {
       cfg.obsidian = w.value;
       await window.api.setConfig({ obsidian: w.value });
       gehirnPruefen();
+      zeigeObsidian();
       const r = await window.api.gehirnVaults();
       hinweis(r.aktiv ? `Obsidian: “${r.aktiv.name}” – Cowork uses fitting notes, agents can read and change it (new sessions)` : 'Obsidian is off');
     });
@@ -417,6 +418,30 @@ $('#ordner-chip').addEventListener('click', async () => {
   const p = await window.api.pickDir(sitzung ? sitzung.cwd : cfg.lastDir);
   if (p) starteSitzung({ cwd: p });
 });
+
+// Obsidian-Schalter in der Leiste: an/aus mit einem Klick (nur sichtbar, wenn Obsidian einen Vault kennt)
+async function zeigeObsidian() {
+  let r;
+  try { r = await window.api.gehirnVaults(); } catch { return; }
+  const c = $('#obsidian-chip');
+  c.classList.toggle('versteckt', !r.vaults.length && !r.aktiv);
+  c.classList.toggle('aus', !r.aktiv);
+  $('#obsidian-name').textContent = r.aktiv ? 'Obsidian' : 'Obsidian off';
+  c.title = r.aktiv ? `Obsidian “${r.aktiv.name}” is on – Cowork uses fitting notes, agents can read and change it. Click to turn it off.` : 'Obsidian is off – click to turn it on';
+  if (typeof gehirnAktiv !== 'undefined' && !!gehirnAktiv !== !!r.aktiv) {
+    gehirnAktiv = r.aktiv;
+    if (document.body.dataset.ansicht === 'chat') zeichneChat(); // "Save to Obsidian" ein-/ausblenden
+  }
+}
+$('#obsidian-chip').addEventListener('click', async () => {
+  schliesseMenues();
+  const r = await window.api.gehirnSchalten();
+  if (cfg) cfg.obsidian = r.obsidian;
+  await zeigeObsidian();
+  hinweis(r.aktiv ? `Obsidian on: “${r.aktiv.name}” – agents get it in their next session` : 'Obsidian off – Cowork and agents leave your vault alone');
+});
+zeigeObsidian();
+window.addEventListener('focus', zeigeObsidian); // Vault in Obsidian neu angelegt? dann taucht der Knopf auf
 
 // Kleines Menue an der Leiste: nur Favoriten + Knopf zum grossen Modellfenster
 $('#modell-chip').addEventListener('click', async () => {

@@ -81,6 +81,7 @@ Have an [Obsidian](https://obsidian.md) vault? Glowline finds it by itself (it r
 - **Agents can read and write it – without asking** – Claude Code, Codex, OpenCode and Qwen Code started from Glowline get the `glowline-obsidian` MCP server with `search_notes`, `read_note`, `list_notes`, `write_note`, `edit_note`, `append_to_note`, `move_note` (updates `[[links]]` in all other notes), `delete_note` and `note_links`. They're allowed without a permission prompt (Claude Code `--allowedTools`, Codex `default_tools_approval_mode = "approve"`, Qwen Code `trust`), so an agent can tidy or extend your vault overnight.
 - **Nothing gets lost** – before a note is changed, moved or deleted, Glowline copies the old version to `%APPDATA%\Glowline\gehirn-sicherung\<vault>\<date>\` (kept 30 days). Deleted notes go to the vault's `.trash`, like in Obsidian. Agents can't touch anything outside the vault or in hidden folders (`.obsidian`, `.trash`, `.git`).
 - **Glowline Code** (`gl`) uses your notes the same way and lists them under the answer.
+- **On/off with one click** – the **◆ Obsidian** button in the bar at the bottom turns it off (*Obsidian off*) and on again, back to the vault you had. It only shows up when Obsidian knows a vault.
 - Tool menu → **Customize → Obsidian**: *Auto* (the vault you opened last), a specific vault, or *Off*.
 
 ## Glowline Code – the terminal (`gl`)
@@ -89,7 +90,7 @@ Have an [Obsidian](https://obsidian.md) vault? Glowline finds it by itself (it r
 
 ```
 ╭───────────────────────────────────────────────────────────────────────────╮
-│    ▀▄      ▄▀      Glowline Code 6.0.14                                   │
+│    ▀▄      ▄▀      Glowline Code 6.0.15                                   │
 │ ▄▄ ███▀███▀██ ▄▄   Cowork · RTX 4060 Ti · 2.6 / 8 GB VRAM                 │
 │ ▀██ ▀██████▀ ██▀   ~\Projekte\my-game                                     │
 │     ▄██████▄                                                              │
