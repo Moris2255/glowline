@@ -1317,6 +1317,16 @@ function fenster() {
     },
   });
   Menu.setApplicationMenu(null);
+  // Eingebettete ARTEX-Oberflaeche: ohne preload/Node und nur auf localhost:8787 – alles andere oeffnet der Browser
+  const nurArtex = (u) => /^http:\/\/(localhost|127\.0\.0\.1):8787(\/|$)/.test(String(u)) || /^data:text\/html,/.test(String(u));
+  win.webContents.on('will-attach-webview', (e, wp, params) => {
+    delete wp.preload; wp.nodeIntegration = false; wp.contextIsolation = true; wp.sandbox = true;
+    if (!nurArtex(params.src)) e.preventDefault();
+  });
+  win.webContents.on('did-attach-webview', (_e, gast) => {
+    gast.on('will-navigate', (e, u) => { if (!nurArtex(u)) { e.preventDefault(); if (/^https?:\/\//.test(u)) shell.openExternal(u); } });
+    gast.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
+  });
   // Fenster bleibt immer Glowline: eine daneben fallen gelassene Datei oder ein Link ersetzt sonst die ganze App
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

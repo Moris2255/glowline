@@ -469,8 +469,8 @@ async function artexAktualisiere() {
     return;
   }
   if (st.laeuft) {
-    status.textContent = 'running';
-    start.classList.add('versteckt'); stop.classList.remove('versteckt'); neu.classList.remove('versteckt');
+    status.textContent = st.unser ? 'running' : 'running (started outside Glowline)';
+    start.classList.add('versteckt'); stop.classList.toggle('versteckt', !st.unser); neu.classList.remove('versteckt');
     $('#ax-leer').classList.add('versteckt'); view.classList.remove('versteckt');
     try { if (!/8787/.test(view.src || '')) view.src = st.url; } catch {}
   } else {

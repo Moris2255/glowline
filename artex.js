@@ -85,15 +85,18 @@ async function starten() {
   if (!g) return { ok: false, grund: 'nicht-gefunden' };
   if (await erreichbar()) return { ok: true, schon: true };
   // 1) PostgreSQL (kein Dienst, kein Admin) auf Port 5433 starten
-  try {
-    await new Promise((loese) => {
-      execFile(g.pgCtl, ['-D', g.pgData, '-o', '-p 5433', '-l', g.pgLog, 'start'], { windowsHide: true }, () => loese());
+  const pgLaeuft = () => new Promise((loese) => execFile(path.join(g.pgBin, 'pg_isready.exe'), ['-p', '5433'], { windowsHide: true }, (f) => loese(!f)));
+  if (!(await pgLaeuft())) {
+    const ok = await new Promise((loese) => {
+      execFile(g.pgCtl, ['-D', g.pgData, '-o', '-p 5433', '-l', g.pgLog, '-w', 'start'], { windowsHide: true }, (f) => loese(!f));
     });
-    wirStartetenPg = true;
-  } catch {}
+    if (ok) wirStartetenPg = true; // nur dann gehoert es uns und wird beim Stoppen wieder beendet
+  }
   // 2) ARTEX starten (artex.exe im App-Ordner, damit es seine config.json findet)
   try {
-    artexProc = spawn(g.exe, [], { cwd: g.appDir, windowsHide: true, stdio: 'ignore', detached: false });
+    const log = fs.openSync(path.join(g.appDir, 'artex.log'), 'a');
+    artexProc = spawn(g.exe, [], { cwd: g.appDir, windowsHide: true, stdio: ['ignore', log, log], detached: false });
+    fs.closeSync(log);
     artexProc.on('exit', () => { artexProc = null; });
   } catch (e) { return { ok: false, grund: 'start-fehler', fehler: e.message }; }
   const da = await warteBis(true);
