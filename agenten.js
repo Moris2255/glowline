@@ -7,6 +7,24 @@ const PORT = process.env.GLOWLINE_TEST ? 3467 : 3461; // Selbsttest eigener Port
 const schluessel = crypto.randomBytes(18).toString('hex');
 const url = () => `http://127.0.0.1:${PORT}/mcp/${schluessel}`;
 const urlObsidian = () => `http://127.0.0.1:${PORT}/mcp/${schluessel}/obsidian`;
+const urlGedaechtnis = (aufgabe) => `http://127.0.0.1:${PORT}/mcp/${schluessel}/gedaechtnis/${aufgabe}`;
+
+// Arbeitsgedaechtnis der Aufgabe: kurz, nur fuer diese Sitzung – uebersteht /clear und das Zusammenfassen
+const GEDAECHTNIS_HINWEIS = 'Your working memory for the current task – a short note that survives /clear and context compaction and is erased when the user ends the task. '
+  + 'At the start of every session and right after the context was cleared or compacted, call read_memory first. '
+  + 'Keep it current while you work, without being asked: the goal, what is done, decisions and why, key file paths, open problems and the next steps. '
+  + 'Update it after each meaningful step and before long operations. Keep it short (bullet points, max ~20 000 characters) – rewrite it with write_memory when it gets long. '
+  + 'Don\'t copy file contents or the chat into it; it is only for what you would otherwise forget.';
+const GEDAECHTNIS = [
+  { name: 'read_memory', description: 'Reads the working memory of the current task. Call it first in every session and after the context was cleared or compacted.',
+    inputSchema: { type: 'object', properties: {} } },
+  { name: 'write_memory', description: 'Replaces the whole working memory (use it to restructure or condense). Markdown, short bullet points.',
+    inputSchema: { type: 'object', required: ['content'], properties: { content: { type: 'string' } } } },
+  { name: 'append_memory', description: 'Adds lines to the end of the working memory.',
+    inputSchema: { type: 'object', required: ['text'], properties: { text: { type: 'string' } } } },
+  { name: 'edit_memory', description: 'Replaces one exact piece of text in the working memory (must occur exactly once), e.g. to tick off a step.',
+    inputSchema: { type: 'object', required: ['old_text', 'new_text'], properties: { old_text: { type: 'string' }, new_text: { type: 'string' } } } },
+];
 
 // Obsidian-Vault ("Gehirn"): darf alles lesen und aendern, ohne Nachfrage – Glowline sichert alte Fassungen
 const OBSIDIAN = [
@@ -84,7 +102,7 @@ const WERKZEUGE = [
   },
 ];
 
-function starten(studio, vorVramFrei, version, gehirn) {
+function starten(studio, vorVramFrei, version, gehirn, gedaechtnis) {
   let nr = 0;
   const ergebnis = (id, result) => ({ jsonrpc: '2.0', id, result });
   const text = (t, fehler) => ({ content: [{ type: 'text', text: t }], isError: !!fehler });
@@ -132,9 +150,26 @@ function starten(studio, vorVramFrei, version, gehirn) {
     return text('Unknown tool ' + name, true);
   }
 
-  async function nachricht(m, obsidian) {
+  function rufeGedaechtnis(aufgabe, name, a) {
+    if (name === 'read_memory') { const t = gedaechtnis.lese(aufgabe); return text(t ? t : '(empty – nothing saved yet for this task. Start it with write_memory: goal, plan, next steps.)'); }
+    if (name === 'write_memory') { const n = gedaechtnis.schreibe(aufgabe, a.content); return text(`Saved (${n} characters)`); }
+    if (name === 'append_memory') { const n = gedaechtnis.anhaengen(aufgabe, a.text); return text(`Added (${n} characters in total)`); }
+    if (name === 'edit_memory') { const n = gedaechtnis.ersetze(aufgabe, a.old_text, a.new_text); return text(`Changed (${n} characters)`); }
+    return text('Unknown tool ' + name, true);
+  }
+
+  async function nachricht(m, art, aufgabe) {
+    const obsidian = art === 'obsidian';
     if (!m || m.jsonrpc !== '2.0' || !m.method) return null;
     if (m.id === undefined) return null; // Benachrichtigung
+    if (m.method === 'initialize' && art === 'gedaechtnis') {
+      return ergebnis(m.id, {
+        protocolVersion: (m.params && m.params.protocolVersion) || '2025-06-18',
+        capabilities: { tools: {} },
+        serverInfo: { name: 'glowline-memory', version },
+        instructions: GEDAECHTNIS_HINWEIS,
+      });
+    }
     if (m.method === 'initialize' && obsidian) {
       const v = gehirn.aktiv();
       return ergebnis(m.id, {
@@ -153,24 +188,27 @@ function starten(studio, vorVramFrei, version, gehirn) {
       });
     }
     if (m.method === 'ping') return ergebnis(m.id, {});
-    if (m.method === 'tools/list') return ergebnis(m.id, { tools: obsidian ? OBSIDIAN : WERKZEUGE });
+    if (m.method === 'tools/list') return ergebnis(m.id, { tools: art === 'gedaechtnis' ? GEDAECHTNIS : obsidian ? OBSIDIAN : WERKZEUGE });
     if (m.method === 'tools/call') {
-      try { return ergebnis(m.id, obsidian ? rufeObsidian(m.params.name, m.params.arguments || {}) : await rufe(m.params.name, m.params.arguments || {})); } catch (e) { return ergebnis(m.id, text('Failed: ' + e.message, true)); }
+      const n = m.params.name, a = m.params.arguments || {};
+      try { return ergebnis(m.id, art === 'gedaechtnis' ? rufeGedaechtnis(aufgabe, n, a) : obsidian ? rufeObsidian(n, a) : await rufe(n, a)); } catch (e) { return ergebnis(m.id, text('Failed: ' + e.message, true)); }
     }
     return { jsonrpc: '2.0', id: m.id, error: { code: -32601, message: 'Method not found' } };
   }
 
   const server = http.createServer((req, res) => {
     // nur unser Pfad, keine Browser (die schicken einen Origin mit)
-    const obsidian = req.url === `/mcp/${schluessel}/obsidian` && !!gehirn;
-    if ((req.url !== `/mcp/${schluessel}` && !obsidian) || req.headers.origin) { res.writeHead(404).end(); return; }
+    const basis = `/mcp/${schluessel}`;
+    const g = req.url.startsWith(basis + '/gedaechtnis/') && gedaechtnis ? req.url.slice(basis.length + 13) : null;
+    const art = req.url === basis ? 'studio' : req.url === basis + '/obsidian' && gehirn ? 'obsidian' : g && gedaechtnis.gueltig(g) ? 'gedaechtnis' : null;
+    if (!art || req.headers.origin) { res.writeHead(404).end(); return; }
     if (req.method !== 'POST') { res.writeHead(405, { allow: 'POST' }).end(); return; }
     let roh = '';
     req.on('data', (d) => { roh += d; if (roh.length > 1e6) req.destroy(); });
     req.on('end', async () => {
       let m;
       try { m = JSON.parse(roh); } catch { res.writeHead(400).end(); return; }
-      const antworten = (await Promise.all((Array.isArray(m) ? m : [m]).map((x) => nachricht(x, obsidian)))).filter(Boolean);
+      const antworten = (await Promise.all((Array.isArray(m) ? m : [m]).map((x) => nachricht(x, art, g)))).filter(Boolean);
       if (!antworten.length) { res.writeHead(202).end(); return; }
       const out = JSON.stringify(Array.isArray(m) ? antworten : antworten[0]);
       res.writeHead(200, { 'content-type': 'application/json' }).end(out);
@@ -182,4 +220,4 @@ function starten(studio, vorVramFrei, version, gehirn) {
   return server;
 }
 
-module.exports = { starten, url, urlObsidian, PORT };
+module.exports = { starten, url, urlObsidian, urlGedaechtnis, PORT };

@@ -84,13 +84,22 @@ Have an [Obsidian](https://obsidian.md) vault? Glowline finds it by itself (it r
 - **On/off with one click** – the **◆ Obsidian** button in the bar at the bottom turns it off (*Obsidian off*) and on again, back to the vault you had. It only shows up when Obsidian knows a vault.
 - Tool menu → **Customize → Obsidian**: *Auto* (the vault you opened last), a specific vault, or *Off*.
 
+## Working memory – per task
+
+Long agent tasks fill up the context. Claude Code, Codex, OpenCode and Qwen Code started from Glowline get a small **working memory** for the current task (MCP server `glowline-memory`: `read_memory`, `write_memory`, `append_memory`, `edit_memory`, allowed without asking).
+
+- The agent keeps it up to date by itself: goal, what's done, decisions, key files, next steps. After `/clear`, after the context gets compacted, or when you switch the model, it reads the memory first and carries on – without dragging the whole old conversation along.
+- It belongs to **this task only**: switching the model or tool in the same folder keeps it; a new folder starts a new task with an empty memory; quitting Glowline erases it. Nothing goes into your Obsidian vault or anywhere else.
+- The **✦ Memory** button in the bar at the bottom (terminal view) shows up as soon as the agent has saved something – click it to see what it remembers, **Forget** erases it.
+- Tool menu → **Customize → Memory**: On / Off.
+
 ## Glowline Code – the terminal (`gl`)
 
 **Glowline Code** is Cowork in your terminal – the app window stays plain **Glowline**. Open any terminal (PowerShell, cmd, Windows Terminal, Git Bash) and type **`gl`** or **`glowline`**:
 
 ```
 ╭───────────────────────────────────────────────────────────────────────────╮
-│    ▀▄      ▄▀      Glowline Code 6.0.16                                   │
+│    ▀▄      ▄▀      Glowline Code 6.0.17                                   │
 │ ▄▄ ███▀███▀██ ▄▄   Cowork · RTX 4060 Ti · 2.6 / 8 GB VRAM                 │
 │ ▀██ ▀██████▀ ██▀   ~\Projekte\my-game                                     │
 │     ▄██████▄                                                              │

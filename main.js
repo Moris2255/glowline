@@ -22,6 +22,7 @@ const film = require('./film');
 const handy = require('./handy');
 const statistik = require('./statistik');
 const gehirn = require('./gehirn');
+const gedaechtnis = require('./gedaechtnis');
 // eigene App "Glowline Link" (gleicher Code, eigener Installer): nutzt die Modelle eines PCs im Heimnetz
 const LINK_APP = !!require('./package.json').glowlineLink || !!(process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_LINKAPP);
 const autoChat = require('./auto');
@@ -42,6 +43,7 @@ const STANDARD = {
   updates: 'auto', // auto = im Hintergrund laden + beim Beenden installieren | fragen = nur Bescheid sagen | aus
   beimSchliessen: 'beenden', // X oben rechts: beenden | minimieren | tray (laeuft im Infobereich weiter)
   lastDir: HOME,
+  arbeitsgedaechtnis: true, // Agenten bekommen ein Gedaechtnis pro Aufgabe (weg, wenn die Aufgabe endet)
   obsidian: 'auto', // Obsidian-Vault fuer Cowork und die Agenten: auto (der zuletzt offene) | aus | Ordnerpfad
   ohneDenken: [], // Modelle ohne "Denken"-Unterstuetzung
   favoriten: [], // Modell-IDs fuer das kleine Modellmenue
@@ -591,7 +593,7 @@ function nutzerStatuszeile() {
   try { return !!JSON.parse(fs.readFileSync(path.join(ordner, 'settings.json'), 'utf8')).statusLine; } catch { return false; }
 }
 
-async function baueBefehl(tool, modellId, tab) {
+async function baueBefehl(tool, modellId, tab, aufgabe) {
   const { backend, model } = teileModell(modellId || cfg.defaultModel || '');
   const basis = `http://127.0.0.1:${cfg.port}/s/${tab}/${backend || 'auto'}`;
   const pfad = await frischerPfad();
@@ -623,6 +625,7 @@ async function baueBefehl(tool, modellId, tab) {
 
   const mitStudio = studio.status().eingerichtet; // Agenten bekommen die Studio-Werkzeuge (MCP)
   const mitGehirn = !LINK_APP && !!gehirn.aktiv(); // und den Obsidian-Vault – Lesen und Schreiben ohne Nachfrage
+  const mitGedaechtnis = !LINK_APP && cfg.arbeitsgedaechtnis !== false && cfg.arbeitsgedaechtnis !== 'aus' && gedaechtnis.gueltig(aufgabe); // und ein Arbeitsgedaechtnis fuer diese Aufgabe
   if (tool === 'claude') {
     if (!wolke) {
       Object.assign(env, cfg.claude.env, { ANTHROPIC_BASE_URL: basis, ANTHROPIC_AUTH_TOKEN: 'glowline' });
@@ -649,14 +652,17 @@ async function baueBefehl(tool, modellId, tab) {
     const einstPfad = path.join(app.getPath('userData'), 'claude-settings.json');
     fs.writeFileSync(einstPfad, JSON.stringify(einst, null, 2));
     a.push('--settings', q(einstPfad));
-    if (mitStudio || mitGehirn) {
+    if (mitStudio || mitGehirn || mitGedaechtnis) {
       const server = {};
       if (mitStudio) server['glowline-studio'] = { type: 'http', url: agenten.url() };
       if (mitGehirn) server['glowline-obsidian'] = { type: 'http', url: agenten.urlObsidian() };
+      if (mitGedaechtnis) server['glowline-memory'] = { type: 'http', url: agenten.urlGedaechtnis(aufgabe) };
       const mcpPfad = path.join(app.getPath('userData'), 'claude-mcp.json');
       fs.writeFileSync(mcpPfad, JSON.stringify({ mcpServers: server }, null, 2));
       a.push('--mcp-config', q(mcpPfad));
-      if (mitGehirn) a.push('--allowedTools=mcp__glowline-obsidian'); // mit = – sonst schluckt die Liste folgende Argumente
+      // ohne Nachfrage; mit = – sonst schluckt die Liste folgende Argumente
+      const frei = [mitGehirn && 'mcp__glowline-obsidian', mitGedaechtnis && 'mcp__glowline-memory'].filter(Boolean);
+      if (frei.length) a.push('--allowedTools=' + frei.join(','));
     }
     if (cfg.claude.systemPromptFile && fs.existsSync(cfg.claude.systemPromptFile)) a.push('--append-system-prompt-file', q(cfg.claude.systemPromptFile));
     if (cfg.claude.skipPermissions) a.push('--dangerously-skip-permissions');
@@ -697,16 +703,18 @@ async function baueBefehl(tool, modellId, tab) {
     // timeout gilt auch fuer Werkzeug-Aufrufe (Videos dauern Minuten)
     if (mitStudio) oc.mcp = { 'glowline-studio': { type: 'remote', url: agenten.url(), enabled: true, timeout: 1800000 } };
     if (mitGehirn) oc.mcp = { ...(oc.mcp || {}), 'glowline-obsidian': { type: 'remote', url: agenten.urlObsidian(), enabled: true } };
+    if (mitGedaechtnis) oc.mcp = { ...(oc.mcp || {}), 'glowline-memory': { type: 'remote', url: agenten.urlGedaechtnis(aufgabe), enabled: true } };
     env.OPENCODE_CONFIG_CONTENT = JSON.stringify(oc);
     // --standalone: eigener Server, sonst nimmt OpenCode 2 den Hintergrund-Dienst ohne unsere Einstellungen
     zeile = `& ${q(exe)} --standalone`;
   } else if (tool === 'qwen') {
     // Qwen Code spricht OpenAI-Format: lokale Modelle und Cloud-Schluessel laufen ueber den Proxy
     const a = [q(exe), '--openai-base-url', q(basis + '/v1'), '--openai-api-key', 'glowline', '-m', q(model)];
-    if (mitStudio || mitGehirn) {
+    if (mitStudio || mitGehirn || mitGedaechtnis) {
       const server = {};
       if (mitStudio) server['glowline-studio'] = { httpUrl: agenten.url(), timeout: 1800000 };
       if (mitGehirn) server['glowline-obsidian'] = { httpUrl: agenten.urlObsidian(), trust: true }; // trust = ohne Nachfrage
+      if (mitGedaechtnis) server['glowline-memory'] = { httpUrl: agenten.urlGedaechtnis(aufgabe), trust: true };
       const mcpPfad = path.join(app.getPath('userData'), 'qwen-mcp.json');
       fs.writeFileSync(mcpPfad, JSON.stringify({ mcpServers: server }, null, 2));
       a.push('--mcp-config', q(mcpPfad));
@@ -715,6 +723,7 @@ async function baueBefehl(tool, modellId, tab) {
   }
 
   if (tool === 'codex' && zeile && mitStudio) zeile += ` -c ${q(`mcp_servers.glowline_studio.url="${agenten.url()}"`)} -c mcp_servers.glowline_studio.tool_timeout_sec=1800`;
+  if (tool === 'codex' && zeile && mitGedaechtnis) zeile += ` -c ${q(`mcp_servers.glowline_memory.url="${agenten.urlGedaechtnis(aufgabe)}"`)} -c ${q('mcp_servers.glowline_memory.default_tools_approval_mode="approve"')}`;
   if (tool === 'codex' && zeile && mitGehirn) zeile += ` -c ${q(`mcp_servers.glowline_obsidian.url="${agenten.urlObsidian()}"`)} -c ${q('mcp_servers.glowline_obsidian.default_tools_approval_mode="approve"')}`;
   const args = zeile ? ['-NoLogo', '-NoProfile', '-NoExit', '-Command', zeile] : ['-NoLogo'];
   if (exe && /\.ps1$/i.test(exe)) args.splice(2, 0, '-ExecutionPolicy', 'Bypass');
@@ -896,7 +905,7 @@ ipcMain.handle('pty:spawn', async (_e, o) => {
   const id = naechsteId++;
   const tab = 't' + id;
   const cwd = o.cwd && fs.existsSync(o.cwd) ? o.cwd : HOME;
-  const { file, args, env, fehlt } = await baueBefehl(o.tool, o.model, tab);
+  const { file, args, env, fehlt } = await baueBefehl(o.tool, o.model, tab, o.aufgabe);
   const p = pty.spawn(file, args, { name: 'xterm-256color', cols: o.cols || 120, rows: o.rows || 30, cwd, env, useConpty: true });
   // Ausgabe buendeln, damit schnelle Modelle das Fenster nicht mit IPC fluten
   let puffer = '', geplant = false, ende = '';
@@ -946,6 +955,9 @@ ipcMain.handle('gehirn:schalten', () => {
   speichereConfig();
   return { aktiv: gehirn.aktiv(), obsidian: cfg.obsidian };
 });
+// Arbeitsgedaechtnis der Aufgabe: ansehen und vergessen
+ipcMain.handle('gedaechtnis:lesen', (_e, id) => gedaechtnis.lese(id));
+ipcMain.on('gedaechtnis:loeschen', (_e, id) => gedaechtnis.loesche(id));
 ipcMain.on('gehirn:oeffnen', (_e, rel) => { const u = gehirn.oeffnenUrl(String(rel || '')); if (u) shell.openExternal(u); });
 ipcMain.handle('auto:rollen', async (_e, neu) => ({ rollen: await autoChat.rollen(!!neu), namen: autoChat.NAME }));
 ipcMain.handle('auto:setzen', (_e, rolle, id) => {
@@ -1228,7 +1240,7 @@ function normalGroesse() {
 // Fenster so aufmachen, wie es eingestellt ist (maximiert, Vollbild, Fenster …)
 function oeffneWieEingestellt(art, grenzen) {
   win.gezeigt = true;
-  if (art === 'normal') { win.setBounds(grenzen || normalGroesse()); win.show(); }
+  if (art === 'normal') { if (win.isMaximized()) win.unmaximize(); win.setBounds(grenzen || normalGroesse()); win.show(); }
   else if (art === 'gross') { win.maximize(); win.show(); }
   else if (art === 'minimiert') win.minimize();
   else { win.show(); win.setFullScreen(true); }
@@ -1530,6 +1542,60 @@ async function testLauf(ordner) {
       cfg.obsidian = 'aus';
       const aus = await baueBefehl('claude', 'ollama/test:1b', 'gehirntest');
       console.log('GEHIRN AUS', !/glowline-obsidian/.test(z(aus)) && !gehirn.kontext('Wie mache ich Windows Benachrichtigungen in Python?') ? 'ok' : 'FEHLT');
+    }
+    if (was.includes('gedaechtnis')) {
+      // Arbeitsgedaechtnis: MCP pro Aufgabe, ohne Nachfrage, Knopf in der Leiste, weg bei neuem Ordner
+      const id = 'a1b2c3d4e5f6a7b8c9d0';
+      const post = async (u, m) => { const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, ...m }) }); return r.status === 200 ? (await r.json()).result : r.status; };
+      const u = agenten.urlGedaechtnis(id);
+      const ruf = async (name, args) => { const r = await post(u, { method: 'tools/call', params: { name, arguments: args } }); return (r.isError ? 'FEHLER ' : '') + r.content[0].text; };
+      const init = await post(u, { method: 'initialize', params: {} });
+      const tools = (await post(u, { method: 'tools/list' })).tools.map((t) => t.name).join(',');
+      const leer = await ruf('read_memory', {});
+      await ruf('write_memory', { content: '# Ziel\n- Login bauen\n- [ ] Tests' });
+      await ruf('append_memory', { text: '- Entscheidung: JWT' });
+      const ed = await ruf('edit_memory', { old_text: '- [ ] Tests', new_text: '- [x] Tests' });
+      const voll = await ruf('read_memory', {});
+      const zuLang = await ruf('write_memory', { content: 'x'.repeat(gedaechtnis.MAX + 1) });
+      const fremd = await post(agenten.urlGedaechtnis('../boese'), { method: 'tools/list' });
+      console.log('GEDAECHTNIS MCP', init.serverInfo.name === 'glowline-memory' && /read_memory first/.test(init.instructions) && tools === 'read_memory,write_memory,append_memory,edit_memory'
+        && /empty/.test(leer) && /^Changed/.test(ed) && voll === '# Ziel\n- Login bauen\n- [x] Tests\n- Entscheidung: JWT' && /^FEHLER .*too long/.test(zuLang) && fremd === 404 ? 'ok' : 'FEHLT ' + JSON.stringify({ tools, leer, ed, voll, zuLang: zuLang.slice(0, 40), fremd }));
+      // Agenten bekommen es ohne Nachfrage
+      const st = studio.status, ob = cfg.obsidian;
+      studio.status = () => ({ ...st(), eingerichtet: false }); cfg.obsidian = 'aus';
+      const z = (x) => x.args[x.args.length - 1];
+      const b = await baueBefehl('claude', 'ollama/test:1b', 'gedtest', id);
+      const cmcp = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'claude-mcp.json'), 'utf8'));
+      const cx = await baueBefehl('codex', 'ollama/test:1b', 'gedtest', id);
+      await baueBefehl('qwen', 'ollama/test:1b', 'gedtest', id);
+      const qmcp = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'qwen-mcp.json'), 'utf8'));
+      cfg.arbeitsgedaechtnis = 'aus';
+      const ohne = await baueBefehl('claude', 'ollama/test:1b', 'gedtest', id);
+      cfg.arbeitsgedaechtnis = true; studio.status = st; cfg.obsidian = ob;
+      console.log('GEDAECHTNIS AGENTEN', /--allowedTools=mcp__glowline-memory/.test(z(b)) && cmcp.mcpServers['glowline-memory'].url.endsWith('/gedaechtnis/' + id)
+        && /glowline_memory\.default_tools_approval_mode="approve"/.test(z(cx)) && qmcp.mcpServers['glowline-memory'].trust === true && !/--allowedTools|--mcp-config/.test(z(ohne)) ? 'ok' : 'FEHLT ' + z(b) + ' | ' + z(ohne));
+      // Leiste: Knopf erscheint mit dem Gedaechtnis, Fenster zeigt den Text, "Forget" leert es
+      await js(`zeigeTerminal && zeigeTerminal(); aufgabe = '${id}'; 1`).catch(() => js(`aufgabe = '${id}'; 1`));
+      await js(`document.body.dataset.ansicht = 'terminal'; 1`);
+      await ruf('append_memory', { text: '- naechster Schritt: Logout' }); await warte(400);
+      const chip = await js(`[!document.querySelector('#gedaechtnis-chip').classList.contains('versteckt'), document.querySelector('#gedaechtnis-name').textContent].join(' ')`);
+      await js(`document.querySelector('#gedaechtnis-chip').click()`); await warte(600);
+      await bild('gedaechtnis-fenster');
+      const fenster = await js(`!document.querySelector('#gedaechtnis').classList.contains('versteckt') && /Logout/.test(document.querySelector('#gedaechtnis-text').textContent)`);
+      await js(`document.querySelector('#gedaechtnis-weg').click()`); await warte(500);
+      const weg = !gedaechtnis.lese(id) && (await js(`document.querySelector('#gedaechtnis-chip').classList.contains('versteckt')`));
+      console.log('GEDAECHTNIS LEISTE', chip === 'true Memory · 5' && fenster && weg ? 'ok' : 'FEHLT chip=' + chip + ' fenster=' + fenster + ' weg=' + weg);
+      // Aufgabe: gleicher Ordner = gleiches Gedaechtnis, neuer Ordner = neu (altes geloescht)
+      const o1 = path.join(process.env.GLOWLINE_TEST, 'ordner1'), o2 = path.join(process.env.GLOWLINE_TEST, 'ordner2');
+      fs.mkdirSync(o1, { recursive: true }); fs.mkdirSync(o2, { recursive: true });
+      await js(`starteSitzung({ tool: 'shell', cwd: ${JSON.stringify(o1)} })`); await warte(800);
+      const a1 = await js('aufgabe');
+      gedaechtnis.schreibe(a1, 'Stand 1');
+      await js(`starteSitzung({ tool: 'shell' })`); await warte(800);
+      const a2 = await js('aufgabe');
+      await js(`starteSitzung({ tool: 'shell', cwd: ${JSON.stringify(o2)} })`); await warte(800);
+      const a3 = await js('aufgabe');
+      console.log('GEDAECHTNIS AUFGABE', a1 && a1 === a2 && a3 !== a1 && !gedaechtnis.lese(a1) && gedaechtnis.gueltig(a3) ? 'ok' : 'FEHLT ' + [a1, a2, a3, gedaechtnis.lese(a1)].join(' | '));
     }
     if (was.includes('loeschen')) {
       // "Sure?" bleibt stehen, waehrend nebenbei ein Modell laedt (Video-Bereich, Karte nicht sichtbar)
@@ -2191,6 +2257,8 @@ async function testLauf(ordner) {
       // im Infobereich gestartet (gl / Autostart): erstes Oeffnen nimmt die eingestellte Startart statt der Rohgroesse
       {
         const vorher = win.getBounds(), alt = cfg.startFenster;
+        delete cfg.nachUpdate; // der Update-Test merkt sich sonst einen Fensterzustand
+        if (win.isMaximized()) { win.unmaximize(); await warte(500); }
         win.hide(); win.gezeigt = false; cfg.startFenster = 'normal';
         zeigeFenster(); await warte(600);
         const b = win.getBounds(), n = normalGroesse();
@@ -2793,7 +2861,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
   app.on('second-instance', () => zeigeFenster());
   app.on('before-quit', () => { wirklichBeenden = true; });
   // fertig geladenes Update beim Beenden still installieren (Einstellung "auto")
-  app.on('will-quit', () => { statistik.jetztSpeichern(); update.beimBeenden(); terminal.stoppe(); handy.alleStopp(); });
+  app.on('will-quit', () => { statistik.jetztSpeichern(); gedaechtnis.alleLoeschen(); update.beimBeenden(); terminal.stoppe(); handy.alleStopp(); });
   app.setAppUserModelId('Glowline');
   app.whenReady().then(async () => {
     ladeConfig();
@@ -2850,9 +2918,10 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     });
     dateien.init((art) => app.getPath(art));
     gehirn.init({ cfg: () => cfg, userData: app.getPath('userData') });
+    gedaechtnis.init(app.getPath('userData'), (id, text) => sende('gedaechtnis', { id, text }));
     dateiProtokoll();
     terminalStarten();
-    if (!LINK_APP) agenten.starten(studio, vramFrei, app.getVersion(), gehirn);
+    if (!LINK_APP) agenten.starten(studio, vramFrei, app.getVersion(), gehirn, gedaechtnis);
     fenster();
     statusSchleife();
     if (process.env.GLOWLINE_TEST) {

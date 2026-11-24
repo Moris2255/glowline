@@ -37,6 +37,7 @@ const aktiveKennung = () => (imChat() ? 'chat' : sitzung && sitzung.kennung);
 let liste = null; // Modell-Liste
 let status = { loaded: [] };
 let sitzung = null; // { id, kennung, tool, model, cwd, beendet }
+let aufgabe = null; // Arbeitsgedaechtnis: Kennung der Aufgabe (gleich bei Modellwechsel, neu bei neuem Ordner)
 let neueEingabe = false; // Enter gedrueckt -> naechste Anfrage startet einen neuen Turn
 const stats = new Map(); // Kennung -> Messwerte
 
@@ -117,9 +118,15 @@ async function starteSitzung(neu) {
     return;
   }
   if (sitzung && !sitzung.beendet) window.api.kill(sitzung.id);
+  // Arbeitsgedaechtnis: gleiche Aufgabe, solange der Ordner bleibt (Modell- oder Werkzeugwechsel, Neustart) – neuer Ordner = neue Aufgabe
+  if (!aufgabe || !sitzung || cwd !== sitzung.cwd) {
+    if (aufgabe) window.api.gedaechtnisLoeschen(aufgabe);
+    aufgabe = crypto.randomUUID().replace(/-/g, '');
+    zeigeGedaechtnis('');
+  }
   term.reset();
   try { fit.fit(); } catch {}
-  const r = await window.api.spawn({ tool, model, cwd, cols: term.cols, rows: term.rows });
+  const r = await window.api.spawn({ tool, model, cwd, cols: term.cols, rows: term.rows, aufgabe });
   sitzung = { id: r.id, kennung: r.tab, tool, model, cwd: r.cwd, beendet: false };
   if (r.fehlt) hinweis('Installing ' + WERKZEUG_NAME[r.fehlt] + ' – it starts by itself when done');
   if (tool !== 'shell') { cfg.defaultTool = tool; if (model) cfg.defaultModel = model; }
@@ -287,6 +294,8 @@ function zeichneAnpassen() {
   auswahlZeile('Window', 'startFenster', [['vollbild', 'Full screen'], ['gross', 'Maximized'], ['normal', 'Window'], ['minimiert', 'Minimized']],
     ['vollbild', 'gross', 'normal', 'minimiert'].includes(cfg.startFenster) ? cfg.startFenster : cfg.startVollbild === false ? 'gross' : 'vollbild',
     (n) => 'Glowline starts: ' + n + ' (F11 switches full screen)');
+  auswahlZeile('Memory', 'arbeitsgedaechtnis', [['an', 'On'], ['aus', 'Off']], cfg.arbeitsgedaechtnis === 'aus' || cfg.arbeitsgedaechtnis === false ? 'aus' : 'an',
+    (n) => n === 'On' ? 'Working memory on – agents keep notes for the current task (new sessions)' : 'Working memory off (new sessions)');
   auswahlZeile('Updates', 'updates', [['auto', 'Automatic'], ['fragen', 'Just tell me'], ['aus', 'Off']], cfg.updates || 'auto',
     (n) => 'Updates: ' + n + (n === 'Automatic' ? ' – downloads in the background, installs when you quit' : ''));
   const upd = elem('div', 'anp-zeile anp-update');
@@ -417,6 +426,30 @@ $('#ordner-chip').addEventListener('click', async () => {
   schliesseMenues();
   const p = await window.api.pickDir(sitzung ? sitzung.cwd : cfg.lastDir);
   if (p) starteSitzung({ cwd: p });
+});
+
+// Arbeitsgedaechtnis der Aufgabe: Knopf erscheint, sobald der Agent sich etwas gemerkt hat
+function zeigeGedaechtnis(text) {
+  const c = $('#gedaechtnis-chip');
+  c.classList.toggle('versteckt', !text);
+  const zeilen = text ? text.split('\n').filter((z) => z.trim()).length : 0;
+  $('#gedaechtnis-name').textContent = 'Memory' + (zeilen ? ' · ' + zeilen : '');
+  $('#gedaechtnis-text').textContent = text || '';
+  if (!text) $('#gedaechtnis').classList.add('versteckt');
+}
+window.api.onGedaechtnis((s) => { if (s.id === aufgabe) zeigeGedaechtnis(s.text); });
+$('#gedaechtnis-chip').addEventListener('click', async () => {
+  const offen = !$('#gedaechtnis').classList.contains('versteckt');
+  schliesseMenues();
+  if (offen) return;
+  zeigeGedaechtnis(await window.api.gedaechtnisLesen(aufgabe));
+  $('#gedaechtnis').classList.remove('versteckt');
+  $('#gedaechtnis-chip').classList.add('offen');
+});
+$('#gedaechtnis-weg').addEventListener('click', () => {
+  window.api.gedaechtnisLoeschen(aufgabe);
+  schliesseMenues();
+  hinweis('Memory erased – the agent starts this task from scratch');
 });
 
 // Obsidian-Schalter in der Leiste: an/aus mit einem Klick (nur sichtbar, wenn Obsidian einen Vault kennt)
