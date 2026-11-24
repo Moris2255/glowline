@@ -294,8 +294,10 @@ function zeichneAnpassen() {
   auswahlZeile('Window', 'startFenster', [['vollbild', 'Full screen'], ['gross', 'Maximized'], ['normal', 'Window'], ['minimiert', 'Minimized']],
     ['vollbild', 'gross', 'normal', 'minimiert'].includes(cfg.startFenster) ? cfg.startFenster : cfg.startVollbild === false ? 'gross' : 'vollbild',
     (n) => 'Glowline starts: ' + n + ' (F11 switches full screen)');
-  auswahlZeile('Memory', 'arbeitsgedaechtnis', [['an', 'On'], ['aus', 'Off']], cfg.arbeitsgedaechtnis === 'aus' || cfg.arbeitsgedaechtnis === false ? 'aus' : 'an',
-    (n) => n === 'On' ? 'Working memory on – agents keep notes for the current task (new sessions)' : 'Working memory off (new sessions)');
+  auswahlZeile('Memory', 'arbeitsgedaechtnis', [['256k', 'Note + 256k archive'], ['512k', 'Note + 512k archive'], ['1m', 'Note + 1M archive'], ['notiz', 'Note only'], ['aus', 'Off']],
+    cfg.arbeitsgedaechtnis === 'aus' || cfg.arbeitsgedaechtnis === false ? 'aus' : ['notiz', '256k', '512k', '1m'].includes(cfg.arbeitsgedaechtnis) ? cfg.arbeitsgedaechtnis : '256k',
+    (n) => n === 'Off' ? 'Working memory off (new sessions)' : n === 'Note only' ? 'Agents keep a short note for the current task (new sessions)'
+      : `Agents keep a note and a searchable archive (${n.split(' ')[2]} tokens) for the current task – a virtual extension of their context (new sessions)`);
   auswahlZeile('Updates', 'updates', [['auto', 'Automatic'], ['fragen', 'Just tell me'], ['aus', 'Off']], cfg.updates || 'auto',
     (n) => 'Updates: ' + n + (n === 'Automatic' ? ' – downloads in the background, installs when you quit' : ''));
   const upd = elem('div', 'anp-zeile anp-update');
@@ -429,20 +431,30 @@ $('#ordner-chip').addEventListener('click', async () => {
 });
 
 // Arbeitsgedaechtnis der Aufgabe: Knopf erscheint, sobald der Agent sich etwas gemerkt hat
-function zeigeGedaechtnis(text) {
+const kTokens = (n) => n >= 1e6 ? (n / 1e6).toFixed(n % 1e6 ? 1 : 0) + 'M' : Math.round(n / 1000) + 'k';
+function zeigeGedaechtnis(text, archiv) {
   const c = $('#gedaechtnis-chip');
-  c.classList.toggle('versteckt', !text);
+  const mitArchiv = !!(archiv && archiv.eintraege);
+  c.classList.toggle('versteckt', !text && !mitArchiv);
   const zeilen = text ? text.split('\n').filter((z) => z.trim()).length : 0;
-  $('#gedaechtnis-name').textContent = 'Memory' + (zeilen ? ' · ' + zeilen : '');
-  $('#gedaechtnis-text').textContent = text || '';
-  if (!text) $('#gedaechtnis').classList.add('versteckt');
+  $('#gedaechtnis-name').textContent = 'Memory' + (zeilen ? ' · ' + zeilen : '') + (mitArchiv ? ' · ' + kTokens(archiv.belegt) : '');
+  $('#gedaechtnis-text').textContent = text || '(no note yet)';
+  // Archiv: wie voll der "virtuelle Kontext" ist
+  const a = $('#gedaechtnis-archiv');
+  a.classList.toggle('versteckt', !(archiv && archiv.max));
+  if (archiv && archiv.max) {
+    $('#gedaechtnis-archiv-text').textContent = `Archive · ${archiv.eintraege} ${archiv.eintraege === 1 ? 'entry' : 'entries'} · ${kTokens(archiv.belegt)} of ${kTokens(archiv.max)} tokens`;
+    $('#gedaechtnis-archiv-balken').style.width = Math.min(100, (archiv.belegt / archiv.max) * 100) + '%';
+  }
+  if (!text && !mitArchiv) $('#gedaechtnis').classList.add('versteckt');
 }
-window.api.onGedaechtnis((s) => { if (s.id === aufgabe) zeigeGedaechtnis(s.text); });
+window.api.onGedaechtnis((s) => { if (s.id === aufgabe) zeigeGedaechtnis(s.text, s.archiv); });
 $('#gedaechtnis-chip').addEventListener('click', async () => {
   const offen = !$('#gedaechtnis').classList.contains('versteckt');
   schliesseMenues();
   if (offen) return;
-  zeigeGedaechtnis(await window.api.gedaechtnisLesen(aufgabe));
+  const g = await window.api.gedaechtnisLesen(aufgabe);
+  zeigeGedaechtnis(g.text, g.archiv);
   $('#gedaechtnis').classList.remove('versteckt');
   $('#gedaechtnis-chip').classList.add('offen');
 });

@@ -519,6 +519,10 @@ body:not([data-ansicht="terminal"]) #gedaechtnis-chip { display: none; }
 .ge-kopf small { color: var(--sehrleise); font-size: 11px; }
 #gedaechtnis-text { margin: 0; font: 12px/1.5 var(--mono); color: var(--leise); white-space: pre-wrap; overflow: auto; max-height: 50vh; background: var(--bg); border: 1px solid var(--linie); border-radius: 10px; padding: 10px 12px; }
 .ge-fuss { display: flex; justify-content: flex-end; }
+#gedaechtnis-archiv { display: flex; flex-direction: column; gap: 5px; font: 11.5px var(--mono); color: var(--leise); }
+#gedaechtnis-archiv.versteckt { display: none; }
+#gedaechtnis-archiv .balken { height: 4px; border-radius: 2px; background: var(--bg3); overflow: hidden; }
+#gedaechtnis-archiv .balken i { display: block; height: 100%; width: 0; background: #fbbf24; border-radius: 2px; }
 #obsidian-chip.aus { color: var(--leise); }
 #obsidian-chip.aus .ob-symbol { color: var(--sehrleise); }
 body[data-ansicht="chat"] #ordner-chip, body[data-ansicht="studio"] #ordner-chip { display: none; }

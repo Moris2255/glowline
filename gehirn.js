@@ -312,4 +312,4 @@ function speichereAntwort(titel, text, modell) {
   return schreibe(rel, kopf + String(text).trim() + '\n', false);
 }
 
-module.exports = { init, vaults, aktiv, oeffnenUrl, suche, kontext, lese, liste, schreibe, anhaengen, ersetze, verschiebe, loesche, links, speichereAntwort, aktualisiere };
+module.exports = { init, vaults, aktiv, oeffnenUrl, suche, kontext, lese, liste, schreibe, anhaengen, ersetze, verschiebe, loesche, links, speichereAntwort, aktualisiere, woerter };

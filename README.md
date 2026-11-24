@@ -91,7 +91,9 @@ Long agent tasks fill up the context. Claude Code, Codex, OpenCode and Qwen Code
 - The agent keeps it up to date by itself: goal, what's done, decisions, key files, next steps. After `/clear`, after the context gets compacted, or when you switch the model, it reads the memory first and carries on – without dragging the whole old conversation along.
 - It belongs to **this task only**: switching the model or tool in the same folder keeps it; a new folder starts a new task with an empty memory; quitting Glowline erases it. Nothing goes into your Obsidian vault or anywhere else.
 - The **✦ Memory** button in the bar at the bottom (terminal view) shows up as soon as the agent has saved something – click it to see what it remembers, **Forget** erases it.
-- Tool menu → **Customize → Memory**: On / Off.
+- **Archive – a virtual context of 256k, 512k or 1M tokens.** Besides the short note, the agent gets a searchable archive for the task (`archive_save`, `archive_search`, `archive_read`). Whatever it reads or works out in detail – docs, long files, logs, analyses – goes there; later only the matching passages come back into the real context. The context window itself stays the same size, but the agent can work with far more than fits into it. When the archive is full, nothing more is added. The Memory window shows how full it is.
+- Claude Code also gets a short start instruction to read the memory first – it loads MCP tools only on demand and would otherwise skip it now and then.
+- Tool menu → **Customize → Memory**: *Note + 256k / 512k / 1M archive*, *Note only* or *Off*.
 
 ## Glowline Code – the terminal (`gl`)
 
@@ -99,7 +101,7 @@ Long agent tasks fill up the context. Claude Code, Codex, OpenCode and Qwen Code
 
 ```
 ╭───────────────────────────────────────────────────────────────────────────╮
-│    ▀▄      ▄▀      Glowline Code 6.0.17                                   │
+│    ▀▄      ▄▀      Glowline Code 6.0.18                                   │
 │ ▄▄ ███▀███▀██ ▄▄   Cowork · RTX 4060 Ti · 2.6 / 8 GB VRAM                 │
 │ ▀██ ▀██████▀ ██▀   ~\Projekte\my-game                                     │
 │     ▄██████▄                                                              │

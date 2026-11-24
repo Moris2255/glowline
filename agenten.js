@@ -25,6 +25,20 @@ const GEDAECHTNIS = [
   { name: 'edit_memory', description: 'Replaces one exact piece of text in the working memory (must occur exactly once), e.g. to tick off a step.',
     inputSchema: { type: 'object', required: ['old_text', 'new_text'], properties: { old_text: { type: 'string' }, new_text: { type: 'string' } } } },
 ];
+// Archiv der Aufgabe ("virtueller Kontext"): gross, durchsuchbar, nur die passenden Stellen kommen zurueck
+const ARCHIV = [
+  { name: 'archive_save', description: 'Saves something to the task archive for later: findings, analyses, error logs, documentation you read, intermediate results, details behind the short memory note. Give it a clear title.',
+    inputSchema: { type: 'object', required: ['title', 'text'], properties: { title: { type: 'string' }, text: { type: 'string' } } } },
+  { name: 'archive_search', description: 'Searches the task archive and returns the best matching passages (with entry numbers). Use it before re-reading files or redoing work.',
+    inputSchema: { type: 'object', required: ['query'], properties: { query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 15, default: 5 } } } },
+  { name: 'archive_read', description: 'Reads one whole archive entry by its number.',
+    inputSchema: { type: 'object', required: ['number'], properties: { number: { type: 'integer' } } } },
+];
+const tausend = (n) => n >= 1e6 ? (n / 1e6).toFixed(n % 1e6 ? 1 : 0) + 'M' : n < 1000 ? String(n) : Math.round(n / 1000) + 'k';
+const archivHinweis = (max) => ` You also have a task archive of ${tausend(max)} tokens – a virtual extension of your context window. `
+  + 'Whenever you read something big (docs, long files, logs) or work out details (analyses, findings, intermediate results), save the details there with archive_save and keep only a one-line pointer in the memory note. '
+  + 'Later, archive_search finds the right passages instead of re-reading files or redoing work; only those come back into your context. '
+  + `The archive holds at most ${tausend(max)} tokens for this task – when it is full, nothing more can be added.`;
 
 // Obsidian-Vault ("Gehirn"): darf alles lesen und aendern, ohne Nachfrage – Glowline sichert alte Fassungen
 const OBSIDIAN = [
@@ -151,10 +165,22 @@ function starten(studio, vorVramFrei, version, gehirn, gedaechtnis) {
   }
 
   function rufeGedaechtnis(aufgabe, name, a) {
-    if (name === 'read_memory') { const t = gedaechtnis.lese(aufgabe); return text(t ? t : '(empty – nothing saved yet for this task. Start it with write_memory: goal, plan, next steps.)'); }
-    if (name === 'write_memory') { const n = gedaechtnis.schreibe(aufgabe, a.content); return text(`Saved (${n} characters)`); }
-    if (name === 'append_memory') { const n = gedaechtnis.anhaengen(aufgabe, a.text); return text(`Added (${n} characters in total)`); }
-    if (name === 'edit_memory') { const n = gedaechtnis.ersetze(aufgabe, a.old_text, a.new_text); return text(`Changed (${n} characters)`); }
+    if (name === 'read_memory') {
+      const t = gedaechtnis.lese(aufgabe), st = gedaechtnis.archivStand(aufgabe);
+      const archiv = st.max ? `\n\n---\nArchive: ${st.eintraege} entries, ~${tausend(st.belegt)} of ${tausend(st.max)} tokens used${st.eintraege ? ' – search it with archive_search' : ''}.` : '';
+      return text((t ? t : '(empty – nothing saved yet for this task. Start it with write_memory: goal, plan, next steps.)') + archiv);
+    }
+    if (name === 'archive_save') { const r = gedaechtnis.archivSpeichere(aufgabe, a.title, a.text); return text(`Saved as entry #${r.nr} (~${r.tokens} tokens). Archive: ~${tausend(r.belegt)} of ${tausend(r.max)} tokens used.`); }
+    if (name === 'archive_search') {
+      const r = gedaechtnis.archivSuche(aufgabe, String(a.query || ''), Math.min(15, Math.max(1, +a.limit || 5)));
+      return text(r.length ? r.map((x) => `## #${x.nr} ${x.titel}\n${x.text}`).join('\n\n') : 'Nothing found in the archive. Try other words.');
+    }
+    if (name === 'archive_read') { const e = gedaechtnis.archivEintrag(aufgabe, a.number); return text(`# #${e.nr} ${e.titel}\n\n${e.text}`); }
+    // Erinnerung, solange das Archiv leer ist: Details gehoeren dorthin, nicht in die kurze Notiz
+    const tipp = () => { const st = gedaechtnis.archivStand(aufgabe); return st.max && !st.eintraege ? ' Tip: your archive is still empty – save the details of what you read or worked out (analyses, findings, docs, logs) with archive_save now, so a later session can search them instead of redoing the work.' : ''; };
+    if (name === 'write_memory') { const n = gedaechtnis.schreibe(aufgabe, a.content); return text(`Saved (${n} characters).` + tipp()); }
+    if (name === 'append_memory') { const n = gedaechtnis.anhaengen(aufgabe, a.text); return text(`Added (${n} characters in total).` + tipp()); }
+    if (name === 'edit_memory') { const n = gedaechtnis.ersetze(aufgabe, a.old_text, a.new_text); return text(`Changed (${n} characters).` + tipp()); }
     return text('Unknown tool ' + name, true);
   }
 
@@ -167,7 +193,7 @@ function starten(studio, vorVramFrei, version, gehirn, gedaechtnis) {
         protocolVersion: (m.params && m.params.protocolVersion) || '2025-06-18',
         capabilities: { tools: {} },
         serverInfo: { name: 'glowline-memory', version },
-        instructions: GEDAECHTNIS_HINWEIS,
+        instructions: GEDAECHTNIS_HINWEIS + (gedaechtnis.archivStand(aufgabe).max ? archivHinweis(gedaechtnis.archivStand(aufgabe).max) : ''),
       });
     }
     if (m.method === 'initialize' && obsidian) {
@@ -188,7 +214,7 @@ function starten(studio, vorVramFrei, version, gehirn, gedaechtnis) {
       });
     }
     if (m.method === 'ping') return ergebnis(m.id, {});
-    if (m.method === 'tools/list') return ergebnis(m.id, { tools: art === 'gedaechtnis' ? GEDAECHTNIS : obsidian ? OBSIDIAN : WERKZEUGE });
+    if (m.method === 'tools/list') return ergebnis(m.id, { tools: art === 'gedaechtnis' ? (gedaechtnis.archivStand(aufgabe).max ? [...GEDAECHTNIS, ...ARCHIV] : GEDAECHTNIS) : obsidian ? OBSIDIAN : WERKZEUGE });
     if (m.method === 'tools/call') {
       const n = m.params.name, a = m.params.arguments || {};
       try { return ergebnis(m.id, art === 'gedaechtnis' ? rufeGedaechtnis(aufgabe, n, a) : obsidian ? rufeObsidian(n, a) : await rufe(n, a)); } catch (e) { return ergebnis(m.id, text('Failed: ' + e.message, true)); }
