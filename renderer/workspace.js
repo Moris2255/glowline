@@ -68,6 +68,10 @@ Answer with the task inside one code block and nothing else.`,
   },
 };
 
+// Obsidian-Vault verbunden? (fuer "Save to Obsidian")
+let gehirnAktiv = null;
+function gehirnPruefen() { window.api.gehirnVaults().then((r) => { gehirnAktiv = r.aktiv; }).catch(() => {}); }
+gehirnPruefen();
 const chat = { modus: 'auto', verlaeufe: {}, laeuft: null, nr: 0, autoModell: '', fest: '', ziel: '', immerDenken: false }; // fest = Modell, das man ueber die Leiste gewaehlt hat
 const verlauf = () => (chat.verlaeufe[chat.modus] = chat.verlaeufe[chat.modus] || []);
 const chatModell = () => cfg.chatModel || cfg.defaultModel || '';
@@ -364,6 +368,18 @@ function nachrichtElem(n) {
   const inhalt = elem('div', 'inhalt');
   inhalt.innerHTML = n.fehler ? esc(n.fehler) : markdown(n.content || (n.laeuft && !n.medien && !n.datei ? '…' : ''));
   z.appendChild(inhalt);
+  // Notizen aus dem Obsidian-Vault, die mitgeschickt wurden – Klick oeffnet sie in Obsidian
+  if (n.notizen && n.notizen.length) {
+    const nz = elem('div', 'n-notizen');
+    nz.appendChild(elem('span', null, 'From your notes'));
+    for (const x of n.notizen) {
+      const b = elem('button', null, x.titel);
+      b.title = 'Open in Obsidian: ' + x.rel;
+      b.addEventListener('click', () => window.api.gehirnOeffnen(x.rel));
+      nz.appendChild(b);
+    }
+    z.appendChild(nz);
+  }
   if (n.medien) { z.appendChild(chatMedienElem(n)); return z; }
   if (n.datei) { z.appendChild(chatDateiElem(n)); return z; }
   if (!n.laeuft && n.content) {
@@ -371,6 +387,21 @@ function nachrichtElem(n) {
     const kopie = elem('button', null, 'Copy');
     kopie.addEventListener('click', () => { window.api.clipWrite(ersterCode(n.content) || n.content); hinweis('Copied'); });
     fuss.appendChild(kopie);
+    if (gehirnAktiv) {
+      const o = elem('button', null, n.obsidian ? '✓ In Obsidian' : 'Save to Obsidian');
+      o.title = n.obsidian ? 'Open the note in Obsidian' : 'Save this answer as a note in your Obsidian vault (folder “Glowline”)';
+      o.addEventListener('click', async () => {
+        if (n.obsidian) return window.api.gehirnOeffnen(n.obsidian);
+        const titel = (/^#{1,3}\s+(.+)$/m.exec(n.content) || [])[1] || n.frage || 'Glowline note';
+        const r = await window.api.gehirnSpeichern(titel, n.content, n.modell);
+        if (r.fehler) return hinweis(r.fehler);
+        n.obsidian = r.rel;
+        speichereChats();
+        o.textContent = '✓ In Obsidian';
+        hinweis('Saved to Obsidian: ' + r.rel);
+      });
+      fuss.appendChild(o);
+    }
     if (chat.modus === 'coding' && sitzung && !sitzung.beendet && sitzung.tool !== 'shell') {
       const t = elem('button', null, '→ Send to ' + WERKZEUG_NAME[sitzung.tool]);
       t.addEventListener('click', () => {
@@ -730,7 +761,7 @@ function sendeChat(vorgabe) {
   // Auto: welches Modell hat zuletzt geantwortet (Folgefragen bleiben beim Coder / Denker / beim Bild)
   const voriges = istAuto ? [...v].reverse().find((n) => n.role === 'assistant' && !n.fehler && !n.lokal) : null;
   v.push({ role: 'user', content: text, anhang });
-  const antwort = { role: 'assistant', content: '', denken: '', laeuft: true, modell: istAuto ? '' : model };
+  const antwort = { role: 'assistant', content: '', denken: '', laeuft: true, modell: istAuto ? '' : model, frage: text.slice(0, 120) };
   v.push(antwort);
   if (!vorgabe) {
     $('#chat-text').value = '';
@@ -745,7 +776,7 @@ function sendeChat(vorgabe) {
     id, model, system: [(!fest && MODI[chat.modus].system) || cfg.chatSystem || '', chat.ziel ? `The user's goal for this conversation: ${chat.ziel}\nKeep your answers focused on this goal.` : ''].filter(Boolean).join('\n\n'),
     nachrichten: v.filter((n) => n !== antwort && !n.fehler && !n.lokal).map(fuerModell),
     medien: mitStudio, anhang, letztesMedium: vorher, erzwinge: vorgabe && vorgabe.erzwinge,
-    letzteDatei: letzteDatei(), datei: !!(vorgabe && vorgabe.datei),
+    letzteDatei: letzteDatei(), datei: !!(vorgabe && vorgabe.datei), gehirn: true,
     auto: istAuto, vorigeRolle: voriges && voriges.rolle, rolle: (vorgabe && vorgabe.rolle) || (chat.immerDenken ? 'denker' : undefined), bildFrage: istAuto ? bildImGespraech(v.slice(0, -2)) : null,
   });
   zeichneChat();
@@ -760,6 +791,7 @@ window.api.onChat((p) => {
   if ('datei' in p) a.datei = p.datei ? { ...(a.datei || {}), ...p.datei } : null;
   if (p.rolle) a.rolle = p.rolle;
   if (p.bild) a.bild = p.bild;
+  if (p.notizen) a.notizen = p.notizen;
   if (p.modell) { a.modell = p.modell; chat.autoModell = p.modell; zeichneLeiste(); }
   if (p.fertig) {
     a.laeuft = false;

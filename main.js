@@ -21,6 +21,7 @@ const terminal = require('./terminal');
 const film = require('./film');
 const handy = require('./handy');
 const statistik = require('./statistik');
+const gehirn = require('./gehirn');
 // eigene App "Glowline Link" (gleicher Code, eigener Installer): nutzt die Modelle eines PCs im Heimnetz
 const LINK_APP = !!require('./package.json').glowlineLink || !!(process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_LINKAPP);
 const autoChat = require('./auto');
@@ -41,6 +42,7 @@ const STANDARD = {
   updates: 'auto', // auto = im Hintergrund laden + beim Beenden installieren | fragen = nur Bescheid sagen | aus
   beimSchliessen: 'beenden', // X oben rechts: beenden | minimieren | tray (laeuft im Infobereich weiter)
   lastDir: HOME,
+  obsidian: 'auto', // Obsidian-Vault fuer Cowork und die Agenten: auto (der zuletzt offene) | aus | Ordnerpfad
   ohneDenken: [], // Modelle ohne "Denken"-Unterstuetzung
   favoriten: [], // Modell-IDs fuer das kleine Modellmenue
   downloadZiel: 'ollama', // wohin Hugging-Face-Downloads gehen: ollama | lmstudio
@@ -175,7 +177,7 @@ function chatZiel(modellId) {
 }
 
 // aus: wohin die Antwort geht (Fenster oder Terminal); ordner: Standardordner fuer Dateien (Terminal: aktueller Ordner)
-async function chatSenden({ id, model: modellId, system, nachrichten, medien, anhang, erzwinge, letztesMedium, auto: istAuto, bildFrage, vorigeRolle, rolle: vorgabeRolle, letzteDatei, datei: dateiErzwingen, ordner: standardOrdner }, aus = (p) => sende('chat', p)) {
+async function chatSenden({ id, model: modellId, system, nachrichten, medien, anhang, erzwinge, letztesMedium, auto: istAuto, bildFrage, vorigeRolle, rolle: vorgabeRolle, letzteDatei, datei: dateiErzwingen, ordner: standardOrdner, gehirn: mitGehirn }, aus = (p) => sende('chat', p)) {
   const ac = new AbortController();
   chats.set(id, ac);
   const melde = (p) => aus({ id, ...p });
@@ -233,6 +235,12 @@ async function chatSenden({ id, model: modellId, system, nachrichten, medien, an
         msgs[msgs.length - 1].content += `\n\nCurrent content of ${path.basename(datei.bearbeite)}:\n\`\`\`\n${alt}\n\`\`\``;
       }
       melde({ datei: { status: erstellen.deutsch(frageText) ? 'Schreibt die Datei…' : 'Writing the file…', ordner: datei.name } });
+    }
+    // Obsidian-Vault: passende Notizen gehen als Wissen mit (nur Cowork, nicht beim Datei-Schreiben)
+    if (mitGehirn && !datei) {
+      let k = null;
+      try { k = gehirn.kontext(frageText); } catch {}
+      if (k) { system = [system, k.text].filter(Boolean).join('\n\n'); melde({ notizen: k.notizen }); }
     }
     if (bild) {
       if (!(typeof bild === 'string' && (studio.inAusgabe(bild) || freigegeben.has(path.resolve(bild))) && fs.existsSync(bild))) throw new Error('Image not found');
@@ -614,6 +622,7 @@ async function baueBefehl(tool, modellId, tab) {
   }
 
   const mitStudio = studio.status().eingerichtet; // Agenten bekommen die Studio-Werkzeuge (MCP)
+  const mitGehirn = !LINK_APP && !!gehirn.aktiv(); // und den Obsidian-Vault – Lesen und Schreiben ohne Nachfrage
   if (tool === 'claude') {
     if (!wolke) {
       Object.assign(env, cfg.claude.env, { ANTHROPIC_BASE_URL: basis, ANTHROPIC_AUTH_TOKEN: 'glowline' });
@@ -640,10 +649,14 @@ async function baueBefehl(tool, modellId, tab) {
     const einstPfad = path.join(app.getPath('userData'), 'claude-settings.json');
     fs.writeFileSync(einstPfad, JSON.stringify(einst, null, 2));
     a.push('--settings', q(einstPfad));
-    if (mitStudio) {
+    if (mitStudio || mitGehirn) {
+      const server = {};
+      if (mitStudio) server['glowline-studio'] = { type: 'http', url: agenten.url() };
+      if (mitGehirn) server['glowline-obsidian'] = { type: 'http', url: agenten.urlObsidian() };
       const mcpPfad = path.join(app.getPath('userData'), 'claude-mcp.json');
-      fs.writeFileSync(mcpPfad, JSON.stringify({ mcpServers: { 'glowline-studio': { type: 'http', url: agenten.url() } } }, null, 2));
+      fs.writeFileSync(mcpPfad, JSON.stringify({ mcpServers: server }, null, 2));
       a.push('--mcp-config', q(mcpPfad));
+      if (mitGehirn) a.push('--allowedTools=mcp__glowline-obsidian'); // mit = – sonst schluckt die Liste folgende Argumente
     }
     if (cfg.claude.systemPromptFile && fs.existsSync(cfg.claude.systemPromptFile)) a.push('--append-system-prompt-file', q(cfg.claude.systemPromptFile));
     if (cfg.claude.skipPermissions) a.push('--dangerously-skip-permissions');
@@ -683,21 +696,26 @@ async function baueBefehl(tool, modellId, tab) {
     const oc = { $schema: 'https://opencode.ai/config.json', provider, model: gewaehlt };
     // timeout gilt auch fuer Werkzeug-Aufrufe (Videos dauern Minuten)
     if (mitStudio) oc.mcp = { 'glowline-studio': { type: 'remote', url: agenten.url(), enabled: true, timeout: 1800000 } };
+    if (mitGehirn) oc.mcp = { ...(oc.mcp || {}), 'glowline-obsidian': { type: 'remote', url: agenten.urlObsidian(), enabled: true } };
     env.OPENCODE_CONFIG_CONTENT = JSON.stringify(oc);
     // --standalone: eigener Server, sonst nimmt OpenCode 2 den Hintergrund-Dienst ohne unsere Einstellungen
     zeile = `& ${q(exe)} --standalone`;
   } else if (tool === 'qwen') {
     // Qwen Code spricht OpenAI-Format: lokale Modelle und Cloud-Schluessel laufen ueber den Proxy
     const a = [q(exe), '--openai-base-url', q(basis + '/v1'), '--openai-api-key', 'glowline', '-m', q(model)];
-    if (mitStudio) {
+    if (mitStudio || mitGehirn) {
+      const server = {};
+      if (mitStudio) server['glowline-studio'] = { httpUrl: agenten.url(), timeout: 1800000 };
+      if (mitGehirn) server['glowline-obsidian'] = { httpUrl: agenten.urlObsidian(), trust: true }; // trust = ohne Nachfrage
       const mcpPfad = path.join(app.getPath('userData'), 'qwen-mcp.json');
-      fs.writeFileSync(mcpPfad, JSON.stringify({ mcpServers: { 'glowline-studio': { httpUrl: agenten.url(), timeout: 1800000 } } }, null, 2));
+      fs.writeFileSync(mcpPfad, JSON.stringify({ mcpServers: server }, null, 2));
       a.push('--mcp-config', q(mcpPfad));
     }
     zeile = '& ' + a.join(' ');
   }
 
   if (tool === 'codex' && zeile && mitStudio) zeile += ` -c ${q(`mcp_servers.glowline_studio.url="${agenten.url()}"`)} -c mcp_servers.glowline_studio.tool_timeout_sec=1800`;
+  if (tool === 'codex' && zeile && mitGehirn) zeile += ` -c ${q(`mcp_servers.glowline_obsidian.url="${agenten.urlObsidian()}"`)} -c ${q('mcp_servers.glowline_obsidian.default_tools_approval_mode="approve"')}`;
   const args = zeile ? ['-NoLogo', '-NoProfile', '-NoExit', '-Command', zeile] : ['-NoLogo'];
   if (exe && /\.ps1$/i.test(exe)) args.splice(2, 0, '-ExecutionPolicy', 'Bypass');
   return { file: 'powershell.exe', args, env };
@@ -913,6 +931,12 @@ ipcMain.handle('konten:status', () => konten.status());
 ipcMain.handle('konten:setzen', (_e, id, wert) => { konten.setzeSchluessel(id, wert); return konten.status(); });
 ipcMain.on('link:oeffnen', (_e, url) => { if (/^https:\/\/[\w.-]+\//.test(String(url))) shell.openExternal(url); });
 ipcMain.on('chat:senden', (_e, a) => chatSenden({ ...a, ordner: null }));
+// Obsidian: Vaults zur Auswahl, Antwort als Notiz speichern, Notiz in Obsidian oeffnen
+ipcMain.handle('gehirn:vaults', () => ({ vaults: gehirn.vaults().map((v) => ({ pfad: v.pfad, name: v.name })), aktiv: gehirn.aktiv() }));
+ipcMain.handle('gehirn:speichern', (_e, titel, text, modell) => {
+  try { const r = gehirn.speichereAntwort(titel, text, modell); return { ok: true, rel: r.rel, url: gehirn.oeffnenUrl(r.rel) }; } catch (e) { return { fehler: e.message }; }
+});
+ipcMain.on('gehirn:oeffnen', (_e, rel) => { const u = gehirn.oeffnenUrl(String(rel || '')); if (u) shell.openExternal(u); });
 ipcMain.handle('auto:rollen', async (_e, neu) => ({ rollen: await autoChat.rollen(!!neu), namen: autoChat.NAME }));
 ipcMain.handle('auto:setzen', (_e, rolle, id) => {
   if (!autoChat.ROLLEN.includes(rolle)) return;
@@ -1426,6 +1450,61 @@ async function testLauf(ordner) {
       await js(`zeigeStudio('bild')`); await warte(1200);
       await js(`sz.auswahl = { datei: sz.galerie.find((g) => /\.png$/.test(g.datei)).datei }; zeichneStudio()`); await warte(1000); await bild('s-mitte');
       console.log('STUDIO MITTE', await js(`(() => { const r = document.querySelector('#studio-rechts').getBoundingClientRect(), b = document.querySelector('.s-buehne').getBoundingClientRect(), i = document.querySelector('.s-buehne > img').getBoundingClientRect(), g = document.querySelector('.s-galerie'); return (r.right <= innerWidth && Math.abs((i.left + i.right) / 2 - (b.left + b.right) / 2) < 3 ? 'ok' : 'FEHLT') + ' rechts=' + Math.round(r.right) + '/' + innerWidth + ' galerie=' + g.children.length + ' scrollt=' + (g.scrollWidth > g.clientWidth); })()`));
+    }
+    if (was.includes('gehirn')) {
+      // Obsidian-Vault: Cowork-Kontext, MCP-Werkzeuge ohne Nachfrage, Sicherung, nichts ausserhalb des Vaults
+      const vault = path.join(process.env.GLOWLINE_TEST, 'Testgehirn');
+      fs.rmSync(vault, { recursive: true, force: true });
+      fs.mkdirSync(path.join(vault, 'Wissen'), { recursive: true });
+      fs.mkdirSync(path.join(vault, '.obsidian'), { recursive: true });
+      fs.writeFileSync(path.join(vault, 'Wissen', 'Python unter Windows.md'), '# Python unter Windows\n\nFuer Benachrichtigungen unter Windows nimm winotify statt win10toast.\n\nSiehe [[Lernen]].');
+      fs.writeFileSync(path.join(vault, 'Lernen.md'), '# Lernen\n\nKarteikarten und Pausen helfen beim Lernen fuer Pruefungen.');
+      fs.writeFileSync(path.join(vault, 'Index.md'), 'Start: [[Lernen]] und [[Python unter Windows]]');
+      cfg.obsidian = vault;
+      const k = gehirn.kontext('Wie mache ich Windows Benachrichtigungen in Python?');
+      const leer = gehirn.kontext('Was ist die Hauptstadt von Frankreich?');
+      console.log('GEHIRN KONTEXT', k && k.notizen[0].titel === 'Python unter Windows' && /winotify/.test(k.text) && !leer ? 'ok' : 'FEHLT ' + JSON.stringify(k && k.notizen) + ' leer=' + !!leer);
+      const mcp = async (m) => (await (await fetch(agenten.urlObsidian(), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, ...m }) })).json()).result;
+      const ruf = async (name, args) => { const r = await mcp({ method: 'tools/call', params: { name, arguments: args } }); return (r.isError ? 'FEHLER ' : '') + r.content[0].text; };
+      const init = await mcp({ method: 'initialize', params: {} });
+      const tools = (await mcp({ method: 'tools/list' })).tools.map((t) => t.name);
+      const such = await ruf('search_notes', { query: 'winotify Benachrichtigung' });
+      const neu = await ruf('write_note', { path: 'Ideen/Neue Idee', content: '# Neue Idee\n\nTest' });
+      const edit = await ruf('edit_note', { path: 'Lernen.md', old_text: 'Karteikarten', new_text: 'Lernkarten' });
+      const zug = await ruf('move_note', { from: 'Lernen.md', to: 'Wissen/Lernen gut.md' });
+      const links = fs.readFileSync(path.join(vault, 'Index.md'), 'utf8');
+      const weg = await ruf('delete_note', { path: 'Ideen/Neue Idee.md' });
+      const raus = await ruf('write_note', { path: '../boese.md', content: 'x' });
+      const versteckt = await ruf('read_note', { path: '.obsidian/app.json' });
+      const sicherung = fs.existsSync(path.join(app.getPath('userData'), 'gehirn-sicherung', 'Testgehirn', new Date().toISOString().slice(0, 10), 'Lernen.md'));
+      console.log('GEHIRN MCP', init.serverInfo.name === 'glowline-obsidian' && tools.length === 9 && /Python unter Windows/.test(such) && /^Created Ideen\/Neue Idee\.md/.test(neu) && /^Changed/.test(edit)
+        && /updated links in 2 notes/.test(zug) && /\[\[Lernen gut\]\]/.test(links) && /trash/.test(weg) && fs.existsSync(path.join(vault, '.trash', 'Neue Idee.md'))
+        && /^FEHLER .*outside/.test(raus) && /^FEHLER .*Hidden/.test(versteckt) && !fs.existsSync(path.join(process.env.GLOWLINE_TEST, 'boese.md')) && sicherung
+        ? 'ok' : 'FEHLT ' + JSON.stringify({ tools: tools.length, such: such.slice(0, 60), neu, edit, zug, links, weg, raus, versteckt, sicherung }));
+      // Agenten bekommen den Vault – Claude Code ohne Nachfrage
+      const st = studio.status;
+      studio.status = () => ({ ...st(), eingerichtet: false });
+      const b = await baueBefehl('claude', 'ollama/test:1b', 'gehirntest');
+      const cmcp = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'claude-mcp.json'), 'utf8'));
+      const cx = await baueBefehl('codex', 'ollama/test:1b', 'gehirntest');
+      const qw = await baueBefehl('qwen', 'ollama/test:1b', 'gehirntest');
+      const qmcp = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'qwen-mcp.json'), 'utf8'));
+      studio.status = st;
+      const z = (x) => x.args[x.args.length - 1];
+      console.log('GEHIRN AGENTEN', /--allowedTools=mcp__glowline-obsidian/.test(z(b)) && cmcp.mcpServers['glowline-obsidian'] && !cmcp.mcpServers['glowline-studio']
+        && /glowline_obsidian\.default_tools_approval_mode="approve"/.test(z(cx)) && qmcp.mcpServers['glowline-obsidian'].trust === true ? 'ok' : 'FEHLT ' + z(b) + ' | ' + z(cx));
+      // Fenster: Chips unter der Antwort + "Save to Obsidian"
+      await js(`gehirnPruefen()`); await warte(500);
+      await js(`zeigeWorkspace('auto'); const v = chat.verlaeufe[chat.modus] || (chat.verlaeufe[chat.modus] = []); v.length = 0; v.push({ role: 'user', content: 'Python Benachrichtigung?' }, { role: 'assistant', content: '# Benachrichtigungen\\n\\nNimm winotify.', modell: 'test', frage: 'Python Benachrichtigung?', notizen: [{ rel: 'Wissen/Python unter Windows.md', titel: 'Python unter Windows' }] }); zeichneChat()`);
+      await warte(800); await bild('gehirn-chat');
+      const chips = await js(`[...document.querySelectorAll('.n-notizen button')].map((b) => b.textContent).join(',')`);
+      await js(`[...document.querySelectorAll('.n-fuss button')].find((b) => b.textContent === 'Save to Obsidian').click()`);
+      await warte(800);
+      const gesp = fs.existsSync(path.join(vault, 'Glowline', 'Benachrichtigungen.md')) && /source: Glowline/.test(fs.readFileSync(path.join(vault, 'Glowline', 'Benachrichtigungen.md'), 'utf8'));
+      console.log('GEHIRN FENSTER', chips === 'Python unter Windows' && gesp && (await js(`[...document.querySelectorAll('.n-fuss button')].some((b) => b.textContent === '✓ In Obsidian')`)) ? 'ok' : 'FEHLT chips=' + chips + ' gespeichert=' + gesp);
+      cfg.obsidian = 'aus';
+      const aus = await baueBefehl('claude', 'ollama/test:1b', 'gehirntest');
+      console.log('GEHIRN AUS', !/glowline-obsidian/.test(z(aus)) && !gehirn.kontext('Wie mache ich Windows Benachrichtigungen in Python?') ? 'ok' : 'FEHLT');
     }
     if (was.includes('loeschen')) {
       // "Sure?" bleibt stehen, waehrend nebenbei ein Modell laedt (Video-Bereich, Karte nicht sichtbar)
@@ -2736,9 +2815,10 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
       setzeConfig: (neu) => { Object.assign(cfg, neu); speichereConfig(); sende('config', cfg); },
     });
     dateien.init((art) => app.getPath(art));
+    gehirn.init({ cfg: () => cfg, userData: app.getPath('userData') });
     dateiProtokoll();
     terminalStarten();
-    if (!LINK_APP) agenten.starten(studio, vramFrei, app.getVersion());
+    if (!LINK_APP) agenten.starten(studio, vramFrei, app.getVersion(), gehirn);
     fenster();
     statusSchleife();
     if (process.env.GLOWLINE_TEST) {

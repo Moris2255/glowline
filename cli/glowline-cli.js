@@ -703,7 +703,7 @@ function senden(text, vorgabe = {}) {
     nachrichten: v.filter((n) => !n.fehler && !n.lokal).map(fuerModell),
     medien: mitStudio, anhang, letztesMedium: vorher, erzwinge, letzteDatei: letzteDatei(), datei: !!vorgabe.datei,
     auto: istAuto, vorigeRolle: voriges && voriges.rolle, rolle: vorgabe.rolle || (S.immerDenken ? 'denker' : S.immerSchnell ? 'schnell' : undefined),
-    bildFrage: istAuto ? bildImGespraech(v.slice(0, -1)) : null, ordner: process.cwd(),
+    bildFrage: istAuto ? bildImGespraech(v.slice(0, -1)) : null, ordner: process.cwd(), gehirn: true,
   };
   v.push(antwort);
   const L = { antwort, start: Date.now(), req: null, gestoppt: false };
@@ -763,6 +763,7 @@ function empfange(L, p) {
   if (p.denken != null) a.denken = p.denken;
   if (p.rolle) a.rolle = p.rolle;
   if (p.bild) a.bild = p.bild;
+  if (p.notizen) a.notizen = p.notizen;
   if (p.modell) { a.modell = p.modell; S.zuletztModell = p.modell; }
   if (p.medien) a.medien = { ...(a.medien || {}), ...p.medien };
   if ('datei' in p) a.datei = p.datei ? { ...(a.datei || {}), ...p.datei } : null;
@@ -855,6 +856,8 @@ async function abschliessen(L, fehler) {
   if (!fehler && a.text && !(a.medien && a.medien.dateien)) {
     const t = [modellName(a.modell || S.fest), a.rolle && ROLLE[a.rolle], sekunden(L.start), S.tps && a.text ? Math.round(S.tps) + ' tok/s' : ''].filter(Boolean);
     drucke(f(C.dunkel, '  ⎿ ' + t.join(' · ')));
+    // mitgeschickte Notizen aus dem Obsidian-Vault
+    if (a.notizen && a.notizen.length) drucke(f(C.dunkel, '  ◆ from your notes: ') + f(C.leise, a.notizen.map((x) => x.titel).join(', ')));
   }
 }
 

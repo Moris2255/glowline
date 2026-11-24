@@ -72,13 +72,24 @@ Open **Cowork** from the tool menu at the bottom right – no extra windows.
 - **Create right in the chat** – just ask: *“create an image of a tree”*, *“make a TikTok video of a dancing cat”*, *“read this aloud: …”*. Glowline writes a better prompt and the Studio makes it on your GPU – the result appears in the chat. Follow-ups work too (*“make the sky purple”*), images get **Upscale 4×** and **Animate** buttons, videos an **Upscale** button, and you can attach your own image with 📎 or drag & drop. Needs the Studio set up.
 - **Files on your PC** – *“make an HTML file on my desktop with a little jump game”*: the Code model writes it and Glowline saves it (Desktop, Documents, Downloads … or a folder path you name, only inside your user folder). The file appears in the chat with **Open** and **Show in folder**; follow-ups like *“make the background blue”* change the same file. Existing files are never overwritten, and nothing gets run. Or use `/file …`.
 
+## Obsidian – your second brain
+
+Have an [Obsidian](https://obsidian.md) vault? Glowline finds it by itself (it reads Obsidian's own vault list) – nothing to set up.
+
+- **Cowork knows your notes** – before each message, Glowline searches your vault (fast, offline, German and English) and quietly passes the notes that really fit to the model. They show up under the answer as **From your notes** chips – click one to open it in Obsidian. Questions your notes don't cover (*“what's the capital of France?”*) get no notes.
+- **Save to Obsidian** – every answer has a **Save to Obsidian** button: it becomes a note in the folder `Glowline` of your vault, with date, source and model in the front matter.
+- **Agents can read and write it – without asking** – Claude Code, Codex, OpenCode and Qwen Code started from Glowline get the `glowline-obsidian` MCP server with `search_notes`, `read_note`, `list_notes`, `write_note`, `edit_note`, `append_to_note`, `move_note` (updates `[[links]]` in all other notes), `delete_note` and `note_links`. They're allowed without a permission prompt (Claude Code `--allowedTools`, Codex `default_tools_approval_mode = "approve"`, Qwen Code `trust`), so an agent can tidy or extend your vault overnight.
+- **Nothing gets lost** – before a note is changed, moved or deleted, Glowline copies the old version to `%APPDATA%\Glowline\gehirn-sicherung\<vault>\<date>\` (kept 30 days). Deleted notes go to the vault's `.trash`, like in Obsidian. Agents can't touch anything outside the vault or in hidden folders (`.obsidian`, `.trash`, `.git`).
+- **Glowline Code** (`gl`) uses your notes the same way and lists them under the answer.
+- Tool menu → **Customize → Obsidian**: *Auto* (the vault you opened last), a specific vault, or *Off*.
+
 ## Glowline Code – the terminal (`gl`)
 
 **Glowline Code** is Cowork in your terminal – the app window stays plain **Glowline**. Open any terminal (PowerShell, cmd, Windows Terminal, Git Bash) and type **`gl`** or **`glowline`**:
 
 ```
 ╭───────────────────────────────────────────────────────────────────────────╮
-│    ▀▄      ▄▀      Glowline Code 6.0.13                                   │
+│    ▀▄      ▄▀      Glowline Code 6.0.14                                   │
 │ ▄▄ ███▀███▀██ ▄▄   Cowork · RTX 4060 Ti · 2.6 / 8 GB VRAM                 │
 │ ▀██ ▀██████▀ ██▀   ~\Projekte\my-game                                     │
 │     ▄██████▄                                                              │
@@ -196,4 +207,4 @@ Older installers are moved to `dist/alt/` automatically.
 
 ## Config
 
-`%APPDATA%\Glowline\config.json` – port, backends, default tool/model, chat model, the comparison model and token counter for "Saved costs", Claude Code environment, `studioOrdner` (another place for the Studio).
+`%APPDATA%\Glowline\config.json` – port, backends, default tool/model, chat model, the comparison model and token counter for "Saved costs", Claude Code environment, `studioOrdner` (another place for the Studio), `obsidian` (`auto`, `aus` or a vault folder).

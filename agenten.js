@@ -1,4 +1,4 @@
-// Studio-Werkzeuge fuer Claude Code, Codex und OpenCode (MCP ueber HTTP, nur 127.0.0.1).
+// Studio-Werkzeuge und der Obsidian-Vault fuer Claude Code, Codex, OpenCode und Qwen Code (MCP ueber HTTP, nur 127.0.0.1).
 // Ein zufaelliger Schluessel im Pfad sorgt dafuer, dass nur von Glowline gestartete Agenten sie benutzen koennen.
 const http = require('http');
 const crypto = require('crypto');
@@ -6,6 +6,29 @@ const crypto = require('crypto');
 const PORT = 3461;
 const schluessel = crypto.randomBytes(18).toString('hex');
 const url = () => `http://127.0.0.1:${PORT}/mcp/${schluessel}`;
+const urlObsidian = () => `http://127.0.0.1:${PORT}/mcp/${schluessel}/obsidian`;
+
+// Obsidian-Vault ("Gehirn"): darf alles lesen und aendern, ohne Nachfrage – Glowline sichert alte Fassungen
+const OBSIDIAN = [
+  { name: 'search_notes', description: 'Full-text search in the user\'s Obsidian vault (their knowledge base). Returns the best matching notes with a snippet. Search here first when a task touches what the user knows, likes or has written down.',
+    inputSchema: { type: 'object', required: ['query'], properties: { query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 20, default: 6 } } } },
+  { name: 'read_note', description: 'Reads a note. Path relative to the vault, e.g. "Wissen/Python.md" – a plain note name like "Python" also works.',
+    inputSchema: { type: 'object', required: ['path'], properties: { path: { type: 'string' } } } },
+  { name: 'list_notes', description: 'Lists all notes in the vault or in one folder of it.',
+    inputSchema: { type: 'object', properties: { folder: { type: 'string', description: 'Folder relative to the vault (optional)' } } } },
+  { name: 'write_note', description: 'Creates a note or replaces its whole content. Markdown with [[wikilinks]] and optional YAML front matter. Folders are created as needed.',
+    inputSchema: { type: 'object', required: ['path', 'content'], properties: { path: { type: 'string' }, content: { type: 'string' }, overwrite: { type: 'boolean', default: true } } } },
+  { name: 'edit_note', description: 'Replaces one exact piece of text in a note (must occur exactly once). Read the note first.',
+    inputSchema: { type: 'object', required: ['path', 'old_text', 'new_text'], properties: { path: { type: 'string' }, old_text: { type: 'string' }, new_text: { type: 'string' } } } },
+  { name: 'append_to_note', description: 'Adds text to the end of a note (creates it if missing).',
+    inputSchema: { type: 'object', required: ['path', 'text'], properties: { path: { type: 'string' }, text: { type: 'string' } } } },
+  { name: 'move_note', description: 'Renames or moves a note. [[Links]] to it are updated in all other notes.',
+    inputSchema: { type: 'object', required: ['from', 'to'], properties: { from: { type: 'string' }, to: { type: 'string' } } } },
+  { name: 'delete_note', description: 'Moves a note to the vault trash (.trash), like deleting in Obsidian.',
+    inputSchema: { type: 'object', required: ['path'], properties: { path: { type: 'string' } } } },
+  { name: 'note_links', description: 'Shows which notes a note links to and which notes link to it.',
+    inputSchema: { type: 'object', required: ['path'], properties: { path: { type: 'string' } } } },
+];
 
 const WERKZEUGE = [
   {
@@ -61,7 +84,7 @@ const WERKZEUGE = [
   },
 ];
 
-function starten(studio, vorVramFrei, version) {
+function starten(studio, vorVramFrei, version, gehirn) {
   let nr = 0;
   const ergebnis = (id, result) => ({ jsonrpc: '2.0', id, result });
   const text = (t, fehler) => ({ content: [{ type: 'text', text: t }], isError: !!fehler });
@@ -93,9 +116,34 @@ function starten(studio, vorVramFrei, version) {
     return text('Done. File(s):\n' + r.dateien.join('\n'));
   }
 
-  async function nachricht(m) {
+  function rufeObsidian(name, a) {
+    if (name === 'search_notes') {
+      const r = gehirn.suche(String(a.query || ''), Math.min(20, Math.max(1, +a.limit || 6)));
+      return text(r.length ? r.map((x) => `## ${x.rel}${x.kopf && x.kopf !== x.titel ? ' › ' + x.kopf : ''}\n${x.text.slice(0, 700)}`).join('\n\n') : 'No matching notes. Try other words, or list_notes.');
+    }
+    if (name === 'read_note') { const r = gehirn.lese(a.path); return text(`# ${r.rel}\n\n${r.text}`); }
+    if (name === 'list_notes') { const r = gehirn.liste(a.folder ? String(a.folder) : ''); return text(`Vault "${r.vault}" – ${r.notizen.length} notes:\n` + r.notizen.join('\n')); }
+    if (name === 'write_note') { const r = gehirn.schreibe(a.path, String(a.content ?? ''), a.overwrite !== false); return text((r.neu ? 'Created ' : 'Updated ') + r.rel); }
+    if (name === 'edit_note') { const r = gehirn.ersetze(a.path, a.old_text, String(a.new_text ?? '')); return text('Changed ' + r.rel); }
+    if (name === 'append_to_note') { const r = gehirn.anhaengen(a.path, String(a.text ?? '')); return text('Appended to ' + r.rel); }
+    if (name === 'move_note') { const r = gehirn.verschiebe(a.from, a.to); return text(`Moved ${r.von} → ${r.nach}` + (r.links ? ` (updated links in ${r.links} notes)` : '')); }
+    if (name === 'delete_note') { const r = gehirn.loesche(a.path); return text(`Moved ${r.rel} to the vault trash`); }
+    if (name === 'note_links') { const r = gehirn.links(a.path); return text(`${r.rel}\nLinks to: ${r.ausgehend.join(', ') || '–'}\nLinked from: ${r.eingehend.join(', ') || '–'}`); }
+    return text('Unknown tool ' + name, true);
+  }
+
+  async function nachricht(m, obsidian) {
     if (!m || m.jsonrpc !== '2.0' || !m.method) return null;
     if (m.id === undefined) return null; // Benachrichtigung
+    if (m.method === 'initialize' && obsidian) {
+      const v = gehirn.aktiv();
+      return ergebnis(m.id, {
+        protocolVersion: (m.params && m.params.protocolVersion) || '2025-06-18',
+        capabilities: { tools: {} },
+        serverInfo: { name: 'glowline-obsidian', version },
+        instructions: `The user's Obsidian vault${v ? ' "' + v.name + '"' : ''} – their second brain. Search and read it whenever a task touches their knowledge. You may create, change, move and delete notes freely, no need to ask: Glowline keeps a backup of every old version. Write Markdown with [[wikilinks]], keep the vault's folder structure and style.`,
+      });
+    }
     if (m.method === 'initialize') {
       return ergebnis(m.id, {
         protocolVersion: (m.params && m.params.protocolVersion) || '2025-06-18',
@@ -105,23 +153,24 @@ function starten(studio, vorVramFrei, version) {
       });
     }
     if (m.method === 'ping') return ergebnis(m.id, {});
-    if (m.method === 'tools/list') return ergebnis(m.id, { tools: WERKZEUGE });
+    if (m.method === 'tools/list') return ergebnis(m.id, { tools: obsidian ? OBSIDIAN : WERKZEUGE });
     if (m.method === 'tools/call') {
-      try { return ergebnis(m.id, await rufe(m.params.name, m.params.arguments || {})); } catch (e) { return ergebnis(m.id, text('Failed: ' + e.message, true)); }
+      try { return ergebnis(m.id, obsidian ? rufeObsidian(m.params.name, m.params.arguments || {}) : await rufe(m.params.name, m.params.arguments || {})); } catch (e) { return ergebnis(m.id, text('Failed: ' + e.message, true)); }
     }
     return { jsonrpc: '2.0', id: m.id, error: { code: -32601, message: 'Method not found' } };
   }
 
   const server = http.createServer((req, res) => {
     // nur unser Pfad, keine Browser (die schicken einen Origin mit)
-    if (req.url !== `/mcp/${schluessel}` || req.headers.origin) { res.writeHead(404).end(); return; }
+    const obsidian = req.url === `/mcp/${schluessel}/obsidian` && !!gehirn;
+    if ((req.url !== `/mcp/${schluessel}` && !obsidian) || req.headers.origin) { res.writeHead(404).end(); return; }
     if (req.method !== 'POST') { res.writeHead(405, { allow: 'POST' }).end(); return; }
     let roh = '';
     req.on('data', (d) => { roh += d; if (roh.length > 1e6) req.destroy(); });
     req.on('end', async () => {
       let m;
       try { m = JSON.parse(roh); } catch { res.writeHead(400).end(); return; }
-      const antworten = (await Promise.all((Array.isArray(m) ? m : [m]).map(nachricht))).filter(Boolean);
+      const antworten = (await Promise.all((Array.isArray(m) ? m : [m]).map((x) => nachricht(x, obsidian)))).filter(Boolean);
       if (!antworten.length) { res.writeHead(202).end(); return; }
       const out = JSON.stringify(Array.isArray(m) ? antworten : antworten[0]);
       res.writeHead(200, { 'content-type': 'application/json' }).end(out);
@@ -133,4 +182,4 @@ function starten(studio, vorVramFrei, version) {
   return server;
 }
 
-module.exports = { starten, url, PORT };
+module.exports = { starten, url, urlObsidian, PORT };

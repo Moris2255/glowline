@@ -302,6 +302,25 @@ function zeichneAnpassen() {
   upd.append(updText, updK);
   box.appendChild(upd);
   hoerenMenueZeile(box);
+  // Obsidian-Vault fuer Cowork und die Agenten (Liste kommt von Obsidian selbst)
+  {
+    const z = elem('label', 'anp-zeile anp-start');
+    const w = elem('select');
+    z.append(elem('span', null, 'Obsidian'), w);
+    box.appendChild(z);
+    window.api.gehirnVaults().then(({ vaults, aktiv }) => {
+      const opt = [['auto', 'Auto' + (cfg.obsidian === 'auto' || !cfg.obsidian ? (aktiv ? ' · ' + aktiv.name : ' · no vault found') : '')], ...vaults.map((v) => [v.pfad, v.name]), ['aus', 'Off']];
+      for (const [id, name] of opt) { const o = elem('option', null, name); o.value = id; w.appendChild(o); }
+      w.value = opt.some((o) => o[0] === cfg.obsidian) ? cfg.obsidian : 'auto';
+    });
+    w.addEventListener('change', async () => {
+      cfg.obsidian = w.value;
+      await window.api.setConfig({ obsidian: w.value });
+      gehirnPruefen();
+      const r = await window.api.gehirnVaults();
+      hinweis(r.aktiv ? `Obsidian: “${r.aktiv.name}” – Cowork uses fitting notes, agents can read and change it (new sessions)` : 'Obsidian is off');
+    });
+  }
   auswahlZeile('Close (X)', 'beimSchliessen', [['beenden', 'Quit'], ['minimieren', 'Minimize'], ['tray', 'Keep running in tray']], cfg.beimSchliessen || 'beenden',
     (n) => 'Close button: ' + n);
   box.appendChild(elem('div', 'm-gruppe', 'Show, hide and sort the list'));
