@@ -5,7 +5,20 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-const { spawn, execFile } = require('child_process');
+const { spawn } = require('child_process');
+
+// Hilfsprogramm ausfuehren und auf sein Ende warten. Ohne Ausgabe-Kanaele: pg_ctl startet den Datenbank-Server,
+// der sonst die Kanaele erbt und offen haelt – dann kaeme die Rueckmeldung nie (execFile haengt).
+function lauf(exe, args, { ms = 30000, los = false } = {}) {
+  return new Promise((loese) => {
+    let p;
+    try { p = spawn(exe, args, { windowsHide: true, stdio: 'ignore', detached: los }); } catch { return loese(false); }
+    if (los) { p.unref(); return loese(true); }
+    const t = setTimeout(() => { try { p.kill(); } catch {} loese(false); }, ms);
+    p.on('error', () => { clearTimeout(t); loese(false); });
+    p.on('exit', (code) => { clearTimeout(t); loese(code === 0); });
+  });
+}
 
 const PORT = 8787;
 const URL = `http://localhost:${PORT}`;
@@ -85,11 +98,8 @@ async function starten() {
   if (!g) return { ok: false, grund: 'nicht-gefunden' };
   if (await erreichbar()) return { ok: true, schon: true };
   // 1) PostgreSQL (kein Dienst, kein Admin) auf Port 5433 starten
-  const pgLaeuft = () => new Promise((loese) => execFile(path.join(g.pgBin, 'pg_isready.exe'), ['-p', '5433'], { windowsHide: true }, (f) => loese(!f)));
-  if (!(await pgLaeuft())) {
-    const ok = await new Promise((loese) => {
-      execFile(g.pgCtl, ['-D', g.pgData, '-o', '-p 5433', '-l', g.pgLog, '-w', 'start'], { windowsHide: true }, (f) => loese(!f));
-    });
+  if (!(await lauf(path.join(g.pgBin, 'pg_isready.exe'), ['-p', '5433'], { ms: 5000 }))) {
+    const ok = await lauf(g.pgCtl, ['-D', g.pgData, '-o', '-p 5433', '-l', g.pgLog, '-w', 'start']);
     if (ok) wirStartetenPg = true; // nur dann gehoert es uns und wird beim Stoppen wieder beendet
   }
   // 2) ARTEX starten (artex.exe im App-Ordner, damit es seine config.json findet)
@@ -104,20 +114,22 @@ async function starten() {
 }
 async function stoppen() {
   if (artexProc && artexProc.pid) {
-    try { process.platform === 'win32' ? execFile('taskkill', ['/pid', String(artexProc.pid), '/t', '/f'], { windowsHide: true }, () => {}) : artexProc.kill(); } catch {}
+    if (process.platform === 'win32') await lauf('taskkill', ['/pid', String(artexProc.pid), '/t', '/f'], { ms: 10000 });
+    else { try { artexProc.kill(); } catch {} }
     artexProc = null;
   }
   // Nur das Postgres stoppen, das wir selbst gestartet haben
   if (wirStartetenPg) {
     const g = gefunden();
-    if (g) { try { execFile(g.pgCtl, ['-D', g.pgData, '-o', '-p 5433', 'stop'], { windowsHide: true }, () => {}); } catch {} }
+    if (g) await lauf(g.pgCtl, ['-D', g.pgData, '-m', 'fast', '-w', 'stop']);
     wirStartetenPg = false;
   }
 }
 function beimBeenden() {
   // synchron genug fuer will-quit: nur unseren ARTEX-Prozess beenden
-  if (artexProc && artexProc.pid) { try { execFile('taskkill', ['/pid', String(artexProc.pid), '/t', '/f'], { windowsHide: true }, () => {}); } catch {} artexProc = null; }
-  if (wirStartetenPg) { const g = gefunden(); if (g) { try { execFile(g.pgCtl, ['-D', g.pgData, '-o', '-p 5433', 'stop'], { windowsHide: true }, () => {}); } catch {} } wirStartetenPg = false; }
+  // losgeloest starten, damit es auch nach dem Ende von Glowline noch fertig wird
+  if (artexProc && artexProc.pid) { lauf('taskkill', ['/pid', String(artexProc.pid), '/t', '/f'], { los: true }); artexProc = null; }
+  if (wirStartetenPg) { const g = gefunden(); if (g) lauf(g.pgCtl, ['-D', g.pgData, '-m', 'fast', '-w', 'stop'], { los: true }); wirStartetenPg = false; }
 }
 
 async function status() {

@@ -330,6 +330,8 @@ details.denken div { max-height: 220px; overflow-y: auto; padding: 6px 0 0 12px;
 #studio-haupt.einrichtung #studio-links { display: none; }
 
 /* ARTEX: eingebettete Pentest-Oberflaeche */
+#tools button.gesperrt { opacity: .5; }
+#tools button.gesperrt b::after { content: ' 🔒'; font-size: 11px; }
 #artex { position: absolute; inset: 2px 16px 8px 16px; display: flex; flex-direction: column; }
 .ax-titel { display: flex; align-items: baseline; gap: 8px; }
 .ax-titel b { font-size: 14px; }

@@ -29,6 +29,8 @@ function anzeigeName(voll) {
 
 let cfg = {};
 let ansicht = 'terminal'; // terminal | chat | studio
+// ARTEX ist noch gesperrt, bis es einmal echt getestet ist (dann ARTEX_FREI = true). Shift+Klick oeffnet es trotzdem.
+const ARTEX_FREI = false;
 const imChat = () => ansicht === 'chat' || ansicht === 'studio'; // Studio nutzt das Chat-Modell fuer den Prompt-Helfer
 const BACKEND_NAME = { ollama: 'Ollama', lmstudio: 'LM Studio', abo: 'Claude subscription', chatgpt: 'ChatGPT account', anthropic: 'Anthropic API', openai: 'OpenAI API', openrouter: 'OpenRouter', gemini: 'Google Gemini', deepseek: 'DeepSeek', groq: 'Groq', mistral: 'Mistral', xai: 'xAI' };
 const backendVon = (id) => (/^([a-z]+),/.exec(id || '') || [])[1] || 'ollama';
@@ -263,12 +265,12 @@ function setzeMenue(neu) {
   zeichneAnpassen();
 }
 // Was beim Start aufgeht (cfg.startMit) – '' = das zuletzt benutzte Werkzeug
-const START_WAHL = [['', 'Last used'], ['claude', 'Claude Code'], ['codex', 'Codex'], ['opencode', 'OpenCode'], ['antigravity', 'Antigravity'], ['cowork', 'Cowork'], ['studio', 'Studio'], ['artex', 'ARTEX']];
+const START_WAHL = [['', 'Last used'], ['claude', 'Claude Code'], ['codex', 'Codex'], ['opencode', 'OpenCode'], ['antigravity', 'Antigravity'], ['cowork', 'Cowork'], ['studio', 'Studio'], ['artex', 'ARTEX']].filter((x) => x[0] !== 'artex' || ARTEX_FREI);
 function startAnsicht() {
   const s = cfg.startMit || '';
   if (s === 'cowork') return zeigeWorkspace('auto');
   if (s === 'studio') return zeigeStudio();
-  if (s === 'artex') return zeigeArtex();
+  if (s === 'artex' && ARTEX_FREI) return zeigeArtex();
   if (ansicht !== 'terminal') zeigeTerminal();
   return starteSitzung(WERKZEUG_NAME[s] ? { tool: s } : {});
 }
@@ -421,7 +423,11 @@ for (const b of document.querySelectorAll('#tools [data-studio]')) {
   b.addEventListener('click', () => { schliesseMenues(); zeigeStudio(b.dataset.studio); });
 }
 for (const b of document.querySelectorAll('#tools [data-artex]')) {
-  b.addEventListener('click', () => { schliesseMenues(); zeigeArtex(); });
+  if (!ARTEX_FREI) { b.classList.add('gesperrt'); b.querySelector('small').textContent = 'coming soon – Shift+click to try it'; }
+  b.addEventListener('click', (e) => {
+    if (!ARTEX_FREI && !e.shiftKey) return hinweis('ARTEX comes with the next update – Shift+click to try it now');
+    schliesseMenues(); zeigeArtex();
+  });
 }
 
 // ---------------- ARTEX (eingebettetes Pentest-Werkzeug) ----------------

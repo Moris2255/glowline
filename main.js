@@ -1672,6 +1672,27 @@ async function testLauf(ordner) {
       const ansichtArtex = await js(`document.body.dataset.ansicht`);
       const sichtbar = await js(`!document.querySelector('#artex').classList.contains('versteckt')`);
       const knopf = await js(`!document.querySelector('#ax-start').classList.contains('versteckt') || !document.querySelector('#ax-stop').classList.contains('versteckt')`);
+      // Gesperrt bis zum echten Test: normaler Klick bleibt zu, Shift+Klick geht auf, nicht als Start-Ansicht waehlbar
+      await js(`zeigeWorkspace('auto')`); await warte(300);
+      await js(`document.querySelector('#tools [data-artex]').click()`); await warte(300);
+      const zu = await js(`document.body.dataset.ansicht`);
+      await js(`document.querySelector('#tools [data-artex]').dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))`); await warte(600);
+      const auf = await js(`document.body.dataset.ansicht`);
+      const gesperrt = await js(`document.querySelector('#tools [data-artex]').classList.contains('gesperrt') && !START_WAHL.some((x) => x[0] === 'artex')`);
+      console.log('ARTEX GESPERRT', zu === 'chat' && auf === 'artex' && gesperrt ? 'ok' : 'FEHLT ' + JSON.stringify({ zu, auf, gesperrt }));
+      // Mit echtem ARTEX (GLOWLINE_TEST_ARTEX_ECHT=1): Start ueber den Knopf, Konsole laedt im Tab, Stop beendet es
+      if (process.env.GLOWLINE_TEST_ARTEX_ECHT) {
+        cfg.artexOrdner = '';
+        await js(`zeigeArtex()`); await warte(500);
+        await js(`document.querySelector('#ax-start').click()`);
+        let url = '', titel = '';
+        for (let i = 0; i < 60 && !/ARTEX/.test(titel); i++) { await warte(500); [url, titel] = await js(`(() => { const v = document.querySelector('#ax-view'); try { return [v.getURL(), v.getTitle()]; } catch { return ['', '']; } })()`); }
+        const stopDa = await js(`!document.querySelector('#ax-stop').classList.contains('versteckt')`);
+        await js(`document.querySelector('#ax-stop').click()`);
+        let weg = false;
+        for (let i = 0; i < 20 && !weg; i++) { await warte(500); weg = !(await artex.erreichbar()); }
+        console.log('ARTEX ECHT', /localhost:8787/.test(url) && /ARTEX/.test(titel) && stopDa && weg ? 'ok' : 'FEHLT ' + JSON.stringify({ url, titel, stopDa, weg }));
+      }
       cfg.artexOrdner = vorher;
       console.log('ARTEX', typeof stSchlecht.laeuft === 'boolean' && stGut.installiert && stGut.ordner === gut && typeof stGut.laeuft === 'boolean'
         && !setzFalsch.ok && setzGut.ok && g && g.exe.endsWith('artex.exe') && ansichtArtex === 'artex' && sichtbar && knopf
