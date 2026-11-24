@@ -101,7 +101,7 @@ Long agent tasks fill up the context. Claude Code, Codex, OpenCode and Qwen Code
 
 ```
 ╭───────────────────────────────────────────────────────────────────────────╮
-│    ▀▄      ▄▀      Glowline Code 6.0.18                                   │
+│    ▀▄      ▄▀      Glowline Code 6.0.19                                   │
 │ ▄▄ ███▀███▀██ ▄▄   Cowork · RTX 4060 Ti · 2.6 / 8 GB VRAM                 │
 │ ▀██ ▀██████▀ ██▀   ~\Projekte\my-game                                     │
 │     ▄██████▄                                                              │
@@ -182,6 +182,15 @@ When the Studio is set up, Claude Code, Codex, OpenCode and Qwen Code started fr
 ### Interface size
 
 Glowline scales itself to your screen (bigger on large monitors). **Ctrl +** / **Ctrl −** make it bigger or smaller, **Ctrl 0** goes back to automatic.
+
+## ARTEX – autonomous pentest
+
+If you use [ARTEX](https://github.com/BaaRai/ARTEX) (a local, autonomous LLM pentest tool), it opens as its own view inside Glowline. Tool menu → **ARTEX**.
+
+- Glowline looks for ARTEX in the usual places (`~/Projekte/ARTEX`, `~/ARTEX`, …). If it isn't there, **Select ARTEX folder…** lets you point at it once; a valid folder has a `pg` and an `app` folder inside.
+- **Start** launches PostgreSQL and ARTEX for you and shows ARTEX's own web interface (`localhost:8787`) right in the window once it's up. **Stop** shuts the ARTEX process down again, and **Browser ↗** opens the same interface in your normal browser.
+- Glowline only stops the parts it started itself, and it closes ARTEX when you quit Glowline.
+- **Only point ARTEX at systems you own or are explicitly allowed to test.**
 
 ## Glowline Link – use your PC from your laptop
 

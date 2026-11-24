@@ -116,6 +116,7 @@ function zeigeWorkspace(modus) {
   if (modus) chat.modus = modus;
   el.classList.add('versteckt');
   $('#studio').classList.add('versteckt');
+  $('#artex').classList.add('versteckt');
   $('#chat').classList.remove('versteckt');
   $('#titel-text').innerHTML = '';
   $('#titel-text').append(elem('b', null, 'Cowork'));
@@ -129,6 +130,7 @@ function zeigeTerminal() {
   document.body.dataset.ansicht = ansicht;
   $('#chat').classList.add('versteckt');
   $('#studio').classList.add('versteckt');
+  $('#artex').classList.add('versteckt');
   el.classList.remove('versteckt');
   try { fit.fit(); } catch {}
   if (sitzung) {

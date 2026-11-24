@@ -263,11 +263,12 @@ function setzeMenue(neu) {
   zeichneAnpassen();
 }
 // Was beim Start aufgeht (cfg.startMit) – '' = das zuletzt benutzte Werkzeug
-const START_WAHL = [['', 'Last used'], ['claude', 'Claude Code'], ['codex', 'Codex'], ['opencode', 'OpenCode'], ['antigravity', 'Antigravity'], ['cowork', 'Cowork'], ['studio', 'Studio']];
+const START_WAHL = [['', 'Last used'], ['claude', 'Claude Code'], ['codex', 'Codex'], ['opencode', 'OpenCode'], ['antigravity', 'Antigravity'], ['cowork', 'Cowork'], ['studio', 'Studio'], ['artex', 'ARTEX']];
 function startAnsicht() {
   const s = cfg.startMit || '';
   if (s === 'cowork') return zeigeWorkspace('auto');
   if (s === 'studio') return zeigeStudio();
+  if (s === 'artex') return zeigeArtex();
   if (ansicht !== 'terminal') zeigeTerminal();
   return starteSitzung(WERKZEUG_NAME[s] ? { tool: s } : {});
 }
@@ -376,6 +377,7 @@ $('#tool-chip').addEventListener('click', () => {
   for (const b of document.querySelectorAll('#tools [data-tool]')) b.classList.toggle('an', ansicht === 'terminal' && !!sitzung && b.dataset.tool === sitzung.tool);
   for (const b of document.querySelectorAll('#tools [data-modus]')) b.classList.toggle('an', ansicht === 'chat');
   for (const b of document.querySelectorAll('#tools [data-studio]')) b.classList.toggle('an', ansicht === 'studio' && (!b.dataset.studio || b.dataset.studio === sz.bereich));
+  for (const b of document.querySelectorAll('#tools [data-artex]')) b.classList.toggle('an', ansicht === 'artex');
   // nur die Gruppe aufklappen, in der man gerade ist
   klappAuf = sitzung && MEHR_AGENTEN.includes(sitzung.tool) ? 'agenten' : null;
   zeigeKlapp();
@@ -418,6 +420,94 @@ for (const b of document.querySelectorAll('#tools [data-modus]')) {
 for (const b of document.querySelectorAll('#tools [data-studio]')) {
   b.addEventListener('click', () => { schliesseMenues(); zeigeStudio(b.dataset.studio); });
 }
+for (const b of document.querySelectorAll('#tools [data-artex]')) {
+  b.addEventListener('click', () => { schliesseMenues(); zeigeArtex(); });
+}
+
+// ---------------- ARTEX (eingebettetes Pentest-Werkzeug) ----------------
+// ARTEX hat eine eigene Web-Oberflaeche auf localhost:8787. Diese Ansicht bettet sie per <webview> ein,
+// startet ARTEX bei Bedarf und laedt die Seite erst, wenn der Port erreichbar ist.
+const AX_LEER = 'data:text/html,%3Cbody%20style%3D%22background%3A%230e0e0e%22%3E%3C%2Fbody%3E';
+let artexLaedt = false;
+async function zeigeArtex() {
+  ansicht = 'artex';
+  document.body.dataset.ansicht = ansicht;
+  el.classList.add('versteckt');
+  $('#chat').classList.add('versteckt');
+  $('#studio').classList.add('versteckt');
+  $('#artex').classList.remove('versteckt');
+  $('#titel-text').innerHTML = '';
+  $('#titel-text').append(elem('b', null, 'ARTEX'), '  ·  autonomous pentest');
+  zeichneLeiste();
+  await artexAktualisiere();
+}
+window.zeigeArtex = zeigeArtex;
+
+function artexText(s, kind) {
+  const box = $('#ax-leer');
+  box.innerHTML = '';
+  const t = elem('div', 'ax-leer-text');
+  for (const z of s.split('\n')) t.append(elem('p', null, z));
+  box.appendChild(t);
+  if (kind === 'ordner') {
+    const k = elem('button', 'ax-knopf', 'Select ARTEX folder…');
+    k.addEventListener('click', artexOrdnerWaehlen);
+    box.appendChild(k);
+  }
+}
+
+async function artexAktualisiere() {
+  const view = $('#ax-view'), start = $('#ax-start'), stop = $('#ax-stop'), neu = $('#ax-neu'), status = $('#ax-status');
+  const st = await window.api.artexStatus().catch(() => null);
+  if (ansicht !== 'artex') return;
+  if (!st || !st.installiert) {
+    status.textContent = 'not found';
+    start.classList.add('versteckt'); stop.classList.add('versteckt'); neu.classList.add('versteckt');
+    view.classList.add('versteckt'); $('#ax-leer').classList.remove('versteckt');
+    try { if (view.src && view.src !== AX_LEER) view.src = AX_LEER; } catch {}
+    artexText('ARTEX was not found on this PC.\nPick the folder where ARTEX is installed (it has a pg and an app folder inside).', 'ordner');
+    return;
+  }
+  if (st.laeuft) {
+    status.textContent = 'running';
+    start.classList.add('versteckt'); stop.classList.remove('versteckt'); neu.classList.remove('versteckt');
+    $('#ax-leer').classList.add('versteckt'); view.classList.remove('versteckt');
+    try { if (!/8787/.test(view.src || '')) view.src = st.url; } catch {}
+  } else {
+    status.textContent = artexLaedt ? 'starting…' : 'stopped';
+    start.classList.toggle('versteckt', artexLaedt); stop.classList.add('versteckt'); neu.classList.add('versteckt');
+    view.classList.add('versteckt'); $('#ax-leer').classList.remove('versteckt');
+    try { if (view.src && view.src !== AX_LEER) view.src = AX_LEER; } catch {}
+    artexText(artexLaedt ? 'Starting ARTEX and PostgreSQL…\nThis can take a few seconds.' : 'ARTEX is installed but not running.\nClick Start to launch PostgreSQL and ARTEX.');
+  }
+}
+
+async function artexStarten() {
+  if (artexLaedt) return;
+  artexLaedt = true;
+  await artexAktualisiere();
+  const r = await window.api.artexStart().catch(() => ({ ok: false }));
+  artexLaedt = false;
+  if (!r.ok && r.grund === 'nicht-gefunden') hinweis('ARTEX folder not found');
+  else if (!r.ok) hinweis('ARTEX did not come up – check the ARTEX logs');
+  await artexAktualisiere();
+}
+async function artexStoppen() {
+  await window.api.artexStop().catch(() => {});
+  try { $('#ax-view').src = AX_LEER; } catch {}
+  await artexAktualisiere();
+}
+async function artexOrdnerWaehlen() {
+  const r = await window.api.artexOrdner().catch(() => ({ ok: false }));
+  if (r.abgebrochen) return;
+  if (!r.ok) return hinweis('That folder is not an ARTEX installation (no pg/app inside)');
+  hinweis('ARTEX folder set');
+  await artexAktualisiere();
+}
+$('#ax-start').addEventListener('click', artexStarten);
+$('#ax-stop').addEventListener('click', artexStoppen);
+$('#ax-neu').addEventListener('click', () => { const v = $('#ax-view'); try { v.reload(); } catch { v.src = v.src; } });
+$('#ax-extern').addEventListener('click', () => window.api.artexExtern());
 // Ordner-Knopf in der Leiste (nur im Terminal): zeigt den Arbeitsordner, Klick waehlt einen anderen
 function zeigeOrdner() {
   const voll = String((sitzung ? sitzung.cwd : cfg && cfg.lastDir) || '');

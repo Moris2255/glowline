@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: glowline:; media-src glowline:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: glowline:; media-src glowline:; frame-src http://localhost:8787 http://127.0.0.1:8787">
   <title>Glowline</title>
   <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
   <link rel="stylesheet" href="style.css">
@@ -40,6 +40,21 @@
       <div id="studio-haupt">
         <div id="studio-links"></div>
         <div id="studio-rechts"></div>
+      </div>
+    </section>
+    <section id="artex" class="versteckt">
+      <div class="chat-kopf">
+        <div class="ax-titel"><b>ARTEX</b><small>autonomous pentest · local · only your own targets</small></div>
+        <div class="platz"></div>
+        <span id="ax-status" class="ax-status"></span>
+        <button id="ax-start">Start</button>
+        <button id="ax-stop" class="versteckt">Stop</button>
+        <button id="ax-neu" class="versteckt" title="Reload">⟳</button>
+        <button id="ax-extern" title="Open in your browser">Browser ↗</button>
+      </div>
+      <div id="artex-haupt">
+        <webview id="ax-view" class="versteckt" partition="persist:artex"></webview>
+        <div id="ax-leer" class="ax-leer"></div>
       </div>
     </section>
     <div id="hinweis" class="versteckt"></div>
@@ -126,6 +141,7 @@
     <button class="unter" data-g="agenten" data-tool="cline"><b>Cline</b><small>Cline account</small></button>
     <button data-modus="auto"><b>Cowork</b><small>one chat for everything – picks the right model itself</small></button>
     <button data-studio=""><b>Studio</b><small>images, video, upscale and voice</small></button>
+    <button data-artex=""><b>ARTEX</b><small>autonomous pentest – local, your own targets</small></button>
     <div class="m-fuss tools-fuss"><span>Switching restarts the session</span><button id="tools-anpassen-knopf">Start &amp; list ⚙</button></div>
     <div id="tools-anpassen"></div>
   </div>

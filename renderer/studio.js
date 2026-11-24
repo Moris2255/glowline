@@ -96,6 +96,7 @@ async function zeigeStudio(bereich) {
   if (bereich) sz.bereich = bereich;
   el.classList.add('versteckt');
   $('#chat').classList.add('versteckt');
+  $('#artex').classList.add('versteckt');
   $('#studio').classList.remove('versteckt');
   zeichneStudio();
   zeichneLeiste();

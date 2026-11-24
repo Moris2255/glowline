@@ -23,6 +23,7 @@ const handy = require('./handy');
 const statistik = require('./statistik');
 const gehirn = require('./gehirn');
 const gedaechtnis = require('./gedaechtnis');
+const artex = require('./artex');
 // eigene App "Glowline Link" (gleicher Code, eigener Installer): nutzt die Modelle eines PCs im Heimnetz
 const LINK_APP = !!require('./package.json').glowlineLink || !!(process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_LINKAPP);
 const autoChat = require('./auto');
@@ -968,6 +969,16 @@ ipcMain.handle('gehirn:schalten', () => {
 ipcMain.handle('gedaechtnis:lesen', (_e, id) => ({ text: gedaechtnis.lese(id), archiv: gedaechtnis.gueltig(id) ? gedaechtnis.archivStand(id) : null }));
 ipcMain.on('gedaechtnis:loeschen', (_e, id) => gedaechtnis.loesche(id));
 ipcMain.on('gehirn:oeffnen', (_e, rel) => { const u = gehirn.oeffnenUrl(String(rel || '')); if (u) shell.openExternal(u); });
+// ARTEX (lokales Pentest-Werkzeug): Status, starten/stoppen, Ordner waehlen, im Browser oeffnen
+ipcMain.handle('artex:status', () => artex.status());
+ipcMain.handle('artex:start', () => artex.starten());
+ipcMain.handle('artex:stop', async () => { await artex.stoppen(); return artex.status(); });
+ipcMain.handle('artex:ordner', async () => {
+  const r = await dialog.showOpenDialog(win, { title: 'Select your ARTEX folder', properties: ['openDirectory'] });
+  if (r.canceled || !r.filePaths[0]) return { ok: false, abgebrochen: true };
+  return artex.setzeOrdner(r.filePaths[0]);
+});
+ipcMain.on('artex:extern', () => shell.openExternal(artex.URL));
 ipcMain.handle('auto:rollen', async (_e, neu) => ({ rollen: await autoChat.rollen(!!neu), namen: autoChat.NAME }));
 ipcMain.handle('auto:setzen', (_e, rolle, id) => {
   if (!autoChat.ROLLEN.includes(rolle)) return;
@@ -1301,6 +1312,7 @@ function fenster() {
     titleBarOverlay: { color: '#0e0e0e', symbolColor: '#cfccc7', height: 36 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false,
+      webviewTag: true, // nur fuer die eingebettete ARTEX-Oberflaeche (localhost)
       offscreen: !!process.env.GLOWLINE_TEST,
     },
   });
@@ -1627,6 +1639,33 @@ async function testLauf(ordner) {
       await js(`starteSitzung({ tool: 'shell', cwd: ${JSON.stringify(o2)} })`); await warte(800);
       const a3 = await js('aufgabe');
       console.log('GEDAECHTNIS AUFGABE', a1 && a1 === a2 && a3 !== a1 && !gedaechtnis.lese(a1) && gedaechtnis.gueltig(a3) ? 'ok' : 'FEHLT ' + [a1, a2, a3, gedaechtnis.lese(a1)].join(' | '));
+    }
+    if (was.includes('artex')) {
+      // ARTEX findet seine Installation (pg + app/<ver>/artex.exe), prueft Ordner, Status; Ansicht schaltet um
+      const gut = path.join(process.env.GLOWLINE_TEST, 'ARTEX');
+      fs.mkdirSync(path.join(gut, 'pg', 'pgsql', 'bin'), { recursive: true });
+      fs.mkdirSync(path.join(gut, 'app', 'artex-0.6.0-windows-amd64'), { recursive: true });
+      fs.writeFileSync(path.join(gut, 'pg', 'pgsql', 'bin', 'pg_ctl.exe'), '');
+      fs.writeFileSync(path.join(gut, 'app', 'artex-0.6.0-windows-amd64', 'artex.exe'), '');
+      const schlecht = path.join(process.env.GLOWLINE_TEST, 'nichtartex');
+      fs.mkdirSync(schlecht, { recursive: true });
+      const vorher = cfg.artexOrdner;
+      cfg.artexOrdner = schlecht;
+      const stSchlecht = await artex.status();
+      cfg.artexOrdner = gut;
+      const stGut = await artex.status();
+      const setzFalsch = artex.setzeOrdner(schlecht);
+      cfg.artexOrdner = '';
+      const setzGut = artex.setzeOrdner(gut); // setzt cfg.artexOrdner wieder
+      const g = artex.gefunden();
+      await js(`zeigeArtex()`); await warte(600);
+      const ansichtArtex = await js(`document.body.dataset.ansicht`);
+      const sichtbar = await js(`!document.querySelector('#artex').classList.contains('versteckt')`);
+      const knopf = await js(`!document.querySelector('#ax-start').classList.contains('versteckt') || !document.querySelector('#ax-stop').classList.contains('versteckt')`);
+      cfg.artexOrdner = vorher;
+      console.log('ARTEX', typeof stSchlecht.laeuft === 'boolean' && stGut.installiert && stGut.ordner === gut && typeof stGut.laeuft === 'boolean'
+        && !setzFalsch.ok && setzGut.ok && g && g.exe.endsWith('artex.exe') && ansichtArtex === 'artex' && sichtbar && knopf
+        ? 'ok' : 'FEHLT ' + JSON.stringify({ sl: typeof stSchlecht.laeuft, g: stGut.installiert, o: stGut.ordner === gut, l: typeof stGut.laeuft, sf: setzFalsch.ok, sg: setzGut.ok, exe: !!g, a: ansichtArtex, sichtbar, knopf }));
     }
     if (was.includes('loeschen')) {
       // "Sure?" bleibt stehen, waehrend nebenbei ein Modell laedt (Video-Bereich, Karte nicht sichtbar)
@@ -2892,7 +2931,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
   app.on('second-instance', () => zeigeFenster());
   app.on('before-quit', () => { wirklichBeenden = true; });
   // fertig geladenes Update beim Beenden still installieren (Einstellung "auto")
-  app.on('will-quit', () => { statistik.jetztSpeichern(); gedaechtnis.alleLoeschen(); update.beimBeenden(); terminal.stoppe(); handy.alleStopp(); });
+  app.on('will-quit', () => { statistik.jetztSpeichern(); gedaechtnis.alleLoeschen(); update.beimBeenden(); terminal.stoppe(); handy.alleStopp(); artex.beimBeenden(); });
   app.setAppUserModelId('Glowline');
   app.whenReady().then(async () => {
     ladeConfig();
@@ -2949,6 +2988,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     });
     dateien.init((art) => app.getPath(art));
     gehirn.init({ cfg: () => cfg, userData: app.getPath('userData') });
+    artex.init({ cfg: () => cfg, setCfg: speichereConfig, userData: app.getPath('userData') });
     gedaechtnis.init(app.getPath('userData'), (id, text, archiv) => sende('gedaechtnis', { id, text, archiv }), () => {
       const v = cfg.arbeitsgedaechtnis; // aus | notiz | 256k | 512k | 1m (alt: true/an = 256k)
       return v === 'notiz' || v === 'aus' || v === false ? 0 : gedaechtnis.GROESSEN[v] || 256000;
