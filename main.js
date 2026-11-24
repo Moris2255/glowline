@@ -1225,8 +1225,18 @@ function normalGroesse() {
   const b = Math.round(wa.width * 0.72), h = Math.round(wa.height * 0.78);
   return { x: wa.x + Math.round((wa.width - b) / 2), y: wa.y + Math.round((wa.height - h) / 2), width: b, height: h };
 }
+// Fenster so aufmachen, wie es eingestellt ist (maximiert, Vollbild, Fenster …)
+function oeffneWieEingestellt(art, grenzen) {
+  win.gezeigt = true;
+  if (art === 'normal') { win.setBounds(grenzen || normalGroesse()); win.show(); }
+  else if (art === 'gross') { win.maximize(); win.show(); }
+  else if (art === 'minimiert') win.minimize();
+  else { win.show(); win.setFullScreen(true); }
+}
 function zeigeFenster() {
   if (!win || win.isDestroyed()) return;
+  // im Infobereich gestartet (Autostart oder von Glowline Code): beim ersten Oeffnen wie eingestellt, nicht in der Rohgroesse mit Rand
+  if (!win.gezeigt) { const art = startFenster(); oeffneWieEingestellt(art === 'tray' || art === 'minimiert' ? 'gross' : art, startFenster.grenzen); win.focus(); return; }
   if (!win.isVisible()) win.show();
   if (win.isMinimized()) win.restore();
   win.focus();
@@ -1278,17 +1288,14 @@ function fenster() {
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   // Testmodus: Fenster ausserhalb des Bildschirms, ohne Fokus und ohne Taskleiste
-  if (process.env.GLOWLINE_TEST) win.webContents.on('paint', (_e, _d, bild) => { win.letztesBild = bild; });
+  if (process.env.GLOWLINE_TEST) { win.gezeigt = true; win.webContents.on('paint', (_e, _d, bild) => { win.letztesBild = bild; }); }
   else win.once('ready-to-show', () => {
     // mit Windows gestartet: unsichtbar im Infobereich (Link-Teilen laeuft trotzdem)
     if (process.argv.includes('--tray')) { trayAnlegen(); return; }
     const art = startFenster(), grenzen = startFenster.grenzen;
     if (grenzen) win.setBounds(grenzen); // nach einem Update: wieder an derselben Stelle
     if (art === 'tray') { trayAnlegen(); return; }
-    if (art === 'normal') { win.setBounds(grenzen || normalGroesse()); win.show(); }
-    else if (art === 'gross') { win.maximize(); win.show(); }
-    else if (art === 'minimiert') win.minimize();
-    else { win.show(); win.setFullScreen(true); }
+    oeffneWieEingestellt(art, grenzen);
   });
   // X oben rechts: je nach Einstellung beenden, minimieren oder im Infobereich weiterlaufen
   win.on('close', (e) => {
@@ -2181,6 +2188,15 @@ async function testLauf(ordner) {
       console.log('FENSTER tray', 'zerstoert=' + win.isDestroyed(), 'sichtbar=' + win.isVisible(), 'tray=' + !!tray);
       zeigeFenster(); await warte(800);
       console.log('FENSTER zurueck', 'sichtbar=' + win.isVisible(), 'minimiert=' + win.isMinimized());
+      // im Infobereich gestartet (gl / Autostart): erstes Oeffnen nimmt die eingestellte Startart statt der Rohgroesse
+      {
+        const vorher = win.getBounds(), alt = cfg.startFenster;
+        win.hide(); win.gezeigt = false; cfg.startFenster = 'normal';
+        zeigeFenster(); await warte(600);
+        const b = win.getBounds(), n = normalGroesse();
+        console.log('FENSTER AUS TRAY', win.gezeigt && win.isVisible() && b.width === n.width && b.height === n.height ? 'ok' : 'FEHLT ' + JSON.stringify(b) + ' soll ' + JSON.stringify(n));
+        cfg.startFenster = alt; win.setBounds(vorher); await warte(300);
+      }
       cfg.beimSchliessen = 'beenden';
       console.log('FENSTER start', startFenster(), JSON.stringify(normalGroesse()));
       if (tray) { tray.destroy(); tray = null; }

@@ -90,7 +90,7 @@ Have an [Obsidian](https://obsidian.md) vault? Glowline finds it by itself (it r
 
 ```
 ╭───────────────────────────────────────────────────────────────────────────╮
-│    ▀▄      ▄▀      Glowline Code 6.0.15                                   │
+│    ▀▄      ▄▀      Glowline Code 6.0.16                                   │
 │ ▄▄ ███▀███▀██ ▄▄   Cowork · RTX 4060 Ti · 2.6 / 8 GB VRAM                 │
 │ ▀██ ▀██████▀ ██▀   ~\Projekte\my-game                                     │
 │     ▄██████▄                                                              │

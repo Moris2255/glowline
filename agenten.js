@@ -3,7 +3,7 @@
 const http = require('http');
 const crypto = require('crypto');
 
-const PORT = 3461;
+const PORT = process.env.GLOWLINE_TEST ? 3467 : 3461; // Selbsttest eigener Port – die echte App laeuft oft nebenher
 const schluessel = crypto.randomBytes(18).toString('hex');
 const url = () => `http://127.0.0.1:${PORT}/mcp/${schluessel}`;
 const urlObsidian = () => `http://127.0.0.1:${PORT}/mcp/${schluessel}/obsidian`;
