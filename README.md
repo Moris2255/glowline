@@ -101,7 +101,7 @@ Long agent tasks fill up the context. Claude Code, Codex, OpenCode and Qwen Code
 
 ```
 ╭───────────────────────────────────────────────────────────────────────────╮
-│    ▀▄      ▄▀      Glowline Code 6.0.25                                   │
+│    ▀▄      ▄▀      Glowline Code 6.0.26                                   │
 │ ▄▄ ███▀███▀██ ▄▄   Cowork · RTX 4060 Ti · 2.6 / 8 GB VRAM                 │
 │ ▀██ ▀██████▀ ██▀   ~\Projekte\my-game                                     │
 │     ▄██████▄                                                              │

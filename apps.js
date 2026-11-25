@@ -56,11 +56,21 @@ function githubTeile(url) {
   const m = String(url || '').trim().match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i);
   return m ? { nutzer: m[1], repo: m[2] } : null;
 }
+// Ordnernamen immer sauber aus dem Repo-Namen ableiten und sicher INNERHALB von WDIR halten
+// (ein Repo-Name wie "." oder ".." darf nicht aus dem apps-Ordner herausfuehren)
+function sichererName(repo) {
+  let name = String(repo || '').replace(/[^\w.-]/g, '').replace(/^\.+/, '').slice(0, 40);
+  return name || 'app';
+}
+function imOrdner(ziel) {
+  const r = path.resolve(ziel), basis = path.resolve(WDIR);
+  return r === basis || r.startsWith(basis + path.sep);
+}
 function freierOrdner(repo) {
-  let name = repo.replace(/[^\w.-]/g, '').slice(0, 40) || 'app';
+  const name = sichererName(repo);
   let ziel = path.join(WDIR, name), i = 2;
   while (fs.existsSync(ziel)) { ziel = path.join(WDIR, name + '-' + i); i++; }
-  return ziel;
+  return imOrdner(ziel) ? ziel : path.join(WDIR, 'app-' + Date.now().toString(36));
 }
 async function klonen(url) {
   const t = githubTeile(url);
@@ -122,18 +132,12 @@ function speichere({ id, name, quelle, ordner, install, start, port }) {
 async function entfernen(id) {
   const a = hol(id);
   await stop(id);
-  if (a && a.ordner && a.ordner.startsWith(WDIR)) { try { fs.rmSync(a.ordner, { recursive: true, force: true }); } catch {} }
+  if (a && a.ordner && imOrdner(a.ordner) && path.resolve(a.ordner) !== path.resolve(WDIR)) { try { fs.rmSync(a.ordner, { recursive: true, force: true }); } catch {} }
   sichere(liste().filter((x) => x.id !== id));
   return { ok: true };
 }
 
 // ---------- Starten / Stoppen ----------
-function teileBefehl(cmd) {
-  // einfache Zerlegung; auf Windows laufen npm/yarn/pnpm/npx als .cmd -> ueber die Shell starten
-  const first = String(cmd).trim().split(/\s+/)[0] || '';
-  const shell = process.platform === 'win32';
-  return { shell, first };
-}
 async function einrichten(id) {
   const a = hol(id);
   if (!a) return { ok: false, grund: 'weg' };
@@ -179,4 +183,4 @@ function beimBeenden() {
   for (const [id, p] of prozesse) { if (p && p.pid) { lauf('taskkill', ['/pid', String(p.pid), '/t', '/f'], { los: true }); } prozesse.delete(id); }
 }
 
-module.exports = { init, liste, hol, klonen, analysiere, speichere, entfernen, start, stop, status, beimBeenden, githubTeile, WDIR: () => WDIR };
+module.exports = { init, liste, hol, klonen, analysiere, speichere, entfernen, start, stop, status, beimBeenden, githubTeile, sichererName, freierOrdner, imOrdner, WDIR: () => WDIR };

@@ -1724,6 +1724,8 @@ async function testLauf(ordner) {
       const go = apps.analysiere(mk('go', { 'go.mod': 'module x' }));
       const stat = apps.analysiere(mk('stat', { 'index.html': '<h1>hi' }));
       const gh = apps.githubTeile('https://github.com/BaaRai/ARTEX'), ghBad = apps.githubTeile('https://evil.example/repo');
+      // Praepariertes Repo (".."/".") darf nie aus dem apps-Ordner herausfuehren
+      const bose = ['..', '.', '...'].every((r) => apps.sichererName(r) === 'app') && ['..', '.', 'x/../..'].every((r) => apps.imOrdner(apps.freierOrdner(r)));
       // Eine App mit echtem Mini-Server starten, Status, stoppen, entfernen (Ordner unter apps/ wird geloescht)
       const port = 39871;
       const appDir = path.join(app.getPath('userData'), 'apps', 'testapp');
@@ -1743,9 +1745,9 @@ async function testLauf(ordner) {
       await bild('apps');
       const weg = await apps.entfernen(eintrag.id);
       console.log('APPS', node.start === 'npm run dev' && node.port === 5173 && node.install === 'npm install' && py.start === 'python app.py' && py.install === 'pip install -r requirements.txt'
-        && go.start === 'go run .' && stat.start.includes('serve') && gh && gh.repo === 'ARTEX' && !ghBad
+        && go.start === 'go run .' && stat.start.includes('serve') && gh && gh.repo === 'ARTEX' && !ghBad && bose
         && startR.ok && stLauf.laeuft && stLauf.unser && !stAus.laeuft && ansichtApps === 'apps' && inListe && formular && weg.ok && !fs.existsSync(appDir)
-        ? 'ok' : 'FEHLT ' + JSON.stringify({ node, py: py.start, go: go.start, stat: stat.start, gh: !!gh, ghBad: !!ghBad, startR, stLauf, stAus: stAus.laeuft, ansichtApps, inListe, formular, weg: weg.ok, ordnerWeg: !fs.existsSync(appDir) }));
+        ? 'ok' : 'FEHLT ' + JSON.stringify({ node, py: py.start, go: go.start, stat: stat.start, gh: !!gh, ghBad: !!ghBad, bose, startR, stLauf, stAus: stAus.laeuft, ansichtApps, inListe, formular, weg: weg.ok, ordnerWeg: !fs.existsSync(appDir) }));
     }
     if (was.includes('loeschen')) {
       // "Sure?" bleibt stehen, waehrend nebenbei ein Modell laedt (Video-Bereich, Karte nicht sichtbar)
