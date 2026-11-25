@@ -1678,14 +1678,16 @@ async function testLauf(ordner) {
       const ansichtArtex = await js(`document.body.dataset.ansicht`);
       const sichtbar = await js(`!document.querySelector('#artex').classList.contains('versteckt')`);
       const knopf = await js(`!document.querySelector('#ax-start').classList.contains('versteckt') || !document.querySelector('#ax-stop').classList.contains('versteckt')`);
-      // Gesperrt bis zum echten Test: normaler Klick bleibt zu, Shift+Klick geht auf, nicht als Start-Ansicht waehlbar
+      // Freigegeben: normaler Klick oeffnet ARTEX, kein Schloss, als Start-Ansicht waehlbar (und startet dann dort)
       await js(`zeigeWorkspace('auto')`); await warte(300);
-      await js(`document.querySelector('#tools [data-artex]').click()`); await warte(300);
-      const zu = await js(`document.body.dataset.ansicht`);
-      await js(`document.querySelector('#tools [data-artex]').dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))`); await warte(600);
+      await js(`document.querySelector('#tools [data-artex]').click()`); await warte(600);
       const auf = await js(`document.body.dataset.ansicht`);
-      const gesperrt = await js(`document.querySelector('#tools [data-artex]').classList.contains('gesperrt') && !START_WAHL.some((x) => x[0] === 'artex')`);
-      console.log('ARTEX GESPERRT', zu === 'chat' && auf === 'artex' && gesperrt ? 'ok' : 'FEHLT ' + JSON.stringify({ zu, auf, gesperrt }));
+      const frei = await js(`!document.querySelector('#tools [data-artex]').classList.contains('gesperrt') && START_WAHL.some((x) => x[0] === 'artex')`);
+      const startMit = cfg.startMit;
+      await js(`zeigeWorkspace('auto'); cfg.startMit = 'artex'; startAnsicht()`); await warte(600);
+      const alsStart = await js(`document.body.dataset.ansicht`);
+      await js(`cfg.startMit = ${JSON.stringify(startMit || '')}; 1`);
+      console.log('ARTEX FREI', auf === 'artex' && frei && alsStart === 'artex' ? 'ok' : 'FEHLT ' + JSON.stringify({ auf, frei, alsStart }));
       // Mit echtem ARTEX (GLOWLINE_TEST_ARTEX_ECHT=1): Start ueber den Knopf, Konsole laedt im Tab, Stop beendet es
       if (process.env.GLOWLINE_TEST_ARTEX_ECHT) {
         cfg.artexOrdner = '';

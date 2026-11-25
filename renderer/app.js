@@ -29,8 +29,8 @@ function anzeigeName(voll) {
 
 let cfg = {};
 let ansicht = 'terminal'; // terminal | chat | studio
-// ARTEX ist noch gesperrt, bis es einmal echt getestet ist (dann ARTEX_FREI = true). Shift+Klick oeffnet es trotzdem.
-const ARTEX_FREI = false;
+// ARTEX freigegeben (25.11. vom Nutzer getestet). Auf false = wieder gesperrt, Shift+Klick oeffnet es trotzdem.
+const ARTEX_FREI = true;
 const imChat = () => ansicht === 'chat' || ansicht === 'studio'; // Studio nutzt das Chat-Modell fuer den Prompt-Helfer
 const BACKEND_NAME = { ollama: 'Ollama', lmstudio: 'LM Studio', abo: 'Claude subscription', chatgpt: 'ChatGPT account', anthropic: 'Anthropic API', openai: 'OpenAI API', openrouter: 'OpenRouter', gemini: 'Google Gemini', deepseek: 'DeepSeek', groq: 'Groq', mistral: 'Mistral', xai: 'xAI' };
 const backendVon = (id) => (/^([a-z]+),/.exec(id || '') || [])[1] || 'ollama';
