@@ -38,12 +38,12 @@ function erreichbar(port, ms = 1200) {
     req.on('timeout', () => { req.destroy(); loese(false); });
   });
 }
-function warteAufPort(port, versuche = 60, abstand = 500) {
+function warteAufPort(port, versuche = 60, abstand = 500, lebt = () => true) {
   return new Promise((loese) => {
     let n = 0;
     const tick = async () => {
       if (await erreichbar(port)) return loese(true);
-      if (++n >= versuche) return loese(false);
+      if (++n >= versuche || !lebt()) return loese(false);
       setTimeout(tick, abstand);
     };
     tick();
@@ -98,11 +98,12 @@ function analysiere(ordner) {
   if (da('package.json')) {
     let pkg = {}; try { pkg = JSON.parse(liesDatei(ordner, 'package.json')); } catch {}
     const s = pkg.scripts || {};
-    const start = s.dev ? 'npm run dev' : s.start ? 'npm start' : s.serve ? 'npm run serve' : 'npm start';
     const pm = da('pnpm-lock.yaml') ? 'pnpm' : da('yarn.lock') ? 'yarn' : 'npm';
-    const install = pm === 'npm' ? 'npm install' : pm + ' install';
-    const port = suchePort([readme, JSON.stringify(s), liesDatei(ordner, 'vite.config.js'), liesDatei(ordner, 'vite.config.ts')], s.dev || /vite/.test(JSON.stringify(pkg)) ? 5173 : 3000);
-    return { install: pm === 'npm' ? install : install.replace('npm', pm), start: pm === 'npm' ? start : start.replace('npm', pm), port, art: 'node' };
+    const skript = s.dev ? 'dev' : s.start ? 'start' : s.serve ? 'serve' : 'start';
+    const start = skript === 'start' ? `${pm} start` : `${pm} run ${skript}`;
+    const vite = /\bvite\b/.test(JSON.stringify(pkg)) || da('vite.config.js') || da('vite.config.ts');
+    const port = suchePort([readme, JSON.stringify(s), liesDatei(ordner, 'vite.config.js'), liesDatei(ordner, 'vite.config.ts')], vite ? 5173 : 3000);
+    return { install: `${pm} install`, start, port, art: 'node' };
   }
   // Python
   if (da('requirements.txt') || da('pyproject.toml') || da('manage.py')) {
@@ -170,7 +171,7 @@ async function start(id) {
     p.on('exit', () => { if (prozesse.get(id) === p) prozesse.delete(id); });
     prozesse.set(id, p);
   } catch (e) { return { ok: false, grund: 'start-fehler', fehler: e.message }; }
-  const da = await warteAufPort(a.port);
+  const da = await warteAufPort(a.port, 60, 500, () => prozesse.has(id));
   if (!da) { await stop(id); return { ok: false, grund: 'kein-port' }; }
   return { ok: true };
 }

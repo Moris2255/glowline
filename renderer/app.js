@@ -686,15 +686,19 @@ function appBearbeiten() {
 }
 
 // Agent-Hilfe: Ordner im Terminal mit dem Standard-Agenten oeffnen und ihm die Aufgabe geben
-function appAgentEinrichten(ordner, name) {
-  const tool = (cfg && cfg.defaultTool) || 'claude';
-  hinweis('Opening ' + (WERKZEUG_NAME[tool] || tool) + ' in the app folder – it will set the app up');
-  starteSitzung({ tool, cwd: ordner });
+async function appAgentEinrichten(ordner, name) {
+  const tool = (cfg && cfg.defaultTool && cfg.defaultTool !== 'shell') ? cfg.defaultTool : 'claude';
+  zeigeTerminal();
+  hinweis('Opening ' + (WERKZEUG_NAME[tool] || tool) + ' in the app folder – press Enter to send it the setup task');
+  await starteSitzung({ tool, cwd: ordner });
+  const id = sitzung && !sitzung.beendet ? sitzung.id : null;
+  if (!id) return;
+  // dem Werkzeug kurz Zeit zum Hochfahren geben; nur eintippen (nicht abschicken), solange es noch dieselbe Sitzung ist
   setTimeout(() => {
-    if (!sitzung || !sitzung.id) return;
-    const text = `This folder is a project called "${name}". Please read the README, install what it needs and start its local web UI. Then tell me the exact http://localhost:<port> it serves on, so I can embed it. Don't do anything unrelated.`;
-    try { window.api.write(sitzung.id, text); } catch {}
-  }, 2500);
+    if (!sitzung || sitzung.id !== id || sitzung.beendet) return;
+    const text = `This folder is a project called "${name}". Please read the README, install what it needs and start its local web UI. Then tell me the exact http://localhost:<port> it serves on, so I can add it in Glowline (Apps → Edit → Port). Don't do anything unrelated.`;
+    try { window.api.write(id, text); } catch {}
+  }, 4000);
 }
 
 async function appStarten() {

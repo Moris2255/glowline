@@ -1723,6 +1723,10 @@ async function testLauf(ordner) {
       const py = apps.analysiere(mk('py', { 'requirements.txt': 'flask', 'app.py': 'x' }));
       const go = apps.analysiere(mk('go', { 'go.mod': 'module x' }));
       const stat = apps.analysiere(mk('stat', { 'index.html': '<h1>hi' }));
+      const pnpm = apps.analysiere(mk('pnpm', { 'package.json': JSON.stringify({ scripts: { dev: 'vite' }, devDependencies: { vite: '5' } }), 'pnpm-lock.yaml': '' }));
+      const yarn = apps.analysiere(mk('yarn', { 'package.json': JSON.stringify({ scripts: { start: 'node s.js' } }), 'yarn.lock': '' }));
+      const next = apps.analysiere(mk('next', { 'package.json': JSON.stringify({ scripts: { dev: 'next dev' } }) }));
+      const pmOk = pnpm.install === 'pnpm install' && pnpm.start === 'pnpm run dev' && pnpm.port === 5173 && yarn.install === 'yarn install' && yarn.start === 'yarn start' && next.start === 'npm run dev' && next.port === 3000;
       const gh = apps.githubTeile('https://github.com/BaaRai/ARTEX'), ghBad = apps.githubTeile('https://evil.example/repo');
       // Praepariertes Repo (".."/".") darf nie aus dem apps-Ordner herausfuehren
       const bose = ['..', '.', '...'].every((r) => apps.sichererName(r) === 'app') && ['..', '.', 'x/../..'].every((r) => apps.imOrdner(apps.freierOrdner(r)));
@@ -1732,6 +1736,12 @@ async function testLauf(ordner) {
       fs.mkdirSync(appDir, { recursive: true });
       fs.writeFileSync(path.join(appDir, 'server.js'), `require('http').createServer((q,r)=>r.end('ok')).listen(${port},'127.0.0.1')`);
       const eintrag = apps.speichere({ name: 'Testapp', ordner: appDir, install: '', start: 'node server.js', port });
+      // Start-Befehl, der sofort abstuerzt: muss schnell scheitern statt 30 s zu warten
+      const kaputt = apps.speichere({ name: 'Kaputt', ordner: appDir, install: '', start: 'node gibtsnicht.js', port: 39873 });
+      const t0 = Date.now(); const kaputtR = await apps.start(kaputt.id); const kaputtMs = Date.now() - t0;
+      await apps.entfernen(kaputt.id);
+      fs.mkdirSync(appDir, { recursive: true }); fs.writeFileSync(path.join(appDir, 'server.js'), `require('http').createServer((q,r)=>r.end('ok')).listen(${port},'127.0.0.1')`);
+      const schnellOk = !kaputtR.ok && kaputtR.grund === 'kein-port' && kaputtMs < 10000;
       const startR = await apps.start(eintrag.id);
       const stLauf = await apps.status(eintrag.id);
       await apps.stop(eintrag.id); await warte(800);
@@ -1749,11 +1759,16 @@ async function testLauf(ordner) {
       await js(`document.querySelector('#apps-add').click()`); await warte(300);
       const formular = await js(`!!document.querySelector('#apps-leer .app-form .app-ein')`);
       await bild('apps');
+      await js(`zeigeTerminal()`); await warte(300);
+      const wegTerminal = await js(`document.querySelector('#apps').classList.contains('versteckt')`);
+      await js(`zeigeApps()`); await warte(300); await js(`zeigeWorkspace('auto')`); await warte(300);
+      const wegCowork = await js(`document.querySelector('#apps').classList.contains('versteckt')`);
+      await js(`zeigeTerminal()`); await warte(200);
       const weg = await apps.entfernen(eintrag.id);
       console.log('APPS', node.start === 'npm run dev' && node.port === 5173 && node.install === 'npm install' && py.start === 'python app.py' && py.install === 'pip install -r requirements.txt'
-        && go.start === 'go run .' && stat.start.includes('serve') && gh && gh.repo === 'ARTEX' && !ghBad && bose && editOk && editForm
+        && go.start === 'go run .' && stat.start.includes('serve') && gh && gh.repo === 'ARTEX' && !ghBad && bose && editOk && editForm && pmOk && schnellOk && wegTerminal && wegCowork
         && startR.ok && stLauf.laeuft && stLauf.unser && !stAus.laeuft && ansichtApps === 'apps' && inListe && formular && weg.ok && !fs.existsSync(appDir)
-        ? 'ok' : 'FEHLT ' + JSON.stringify({ node, py: py.start, go: go.start, stat: stat.start, gh: !!gh, ghBad: !!ghBad, bose, editOk, editForm, startR, stLauf, stAus: stAus.laeuft, ansichtApps, inListe, formular, weg: weg.ok, ordnerWeg: !fs.existsSync(appDir) }));
+        ? 'ok' : 'FEHLT ' + JSON.stringify({ node, py: py.start, go: go.start, stat: stat.start, gh: !!gh, ghBad: !!ghBad, bose, editOk, editForm, pmOk, pnpm, yarn: yarn.start, next, schnellOk, kaputtR, kaputtMs, wegTerminal, wegCowork, startR, stLauf, stAus: stAus.laeuft, ansichtApps, inListe, formular, weg: weg.ok, ordnerWeg: !fs.existsSync(appDir) }));
     }
     if (was.includes('loeschen')) {
       // "Sure?" bleibt stehen, waehrend nebenbei ein Modell laedt (Video-Bereich, Karte nicht sichtbar)
