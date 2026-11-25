@@ -106,8 +106,7 @@
       <div class="platz"></div>
       <button class="chip versteckt" id="update-chip" title="A new Glowline version is ready"><span id="update-text">Update</span></button>
       <button class="chip versteckt" id="dl-chip" title="Show all downloads"><i class="ein-dreh"></i><span id="dl-chip-text"></span></button>
-      <button class="chip versteckt" id="gedaechtnis-chip" title="What the agent remembers for this task"><span class="ge-symbol">✦</span><span id="gedaechtnis-name">Memory</span></button>
-      <button class="chip versteckt" id="obsidian-chip" title="Obsidian"><span class="ob-symbol">◆</span><span id="obsidian-name">Obsidian</span></button>
+      <button class="chip" id="gedaechtnis-chip" title="Working memory for this task – click to see it and set its size"><span class="ge-symbol">✦</span><span id="gedaechtnis-name">Memory</span></button>
       <button class="chip" id="ordner-chip" title="Working folder – click to choose another"><span class="ordner-symbol">⌂</span><span id="ordner-name">–</span></button>
       <button class="chip" id="tool-chip" title="Switch tool">
         <span id="tool-name">Claude Code</span><span class="pfeil">▾</span>
@@ -121,6 +120,7 @@
   <!-- Arbeitsgedaechtnis der Aufgabe -->
   <div id="gedaechtnis" class="menue versteckt">
     <div class="ge-kopf"><b>Working memory</b><small>this task only – gone when you change the folder or quit Glowline. Note = always read, archive = searched when needed</small></div>
+    <div id="ge-groesse" class="ge-groesse"></div>
     <pre id="gedaechtnis-text"></pre>
     <div id="gedaechtnis-archiv" class="versteckt"><span id="gedaechtnis-archiv-text"></span><div class="balken"><i id="gedaechtnis-archiv-balken"></i></div></div>
     <div class="ge-fuss"><button id="gedaechtnis-weg" class="m-knopf" title="Erase the memory – the agent starts this task from scratch">Forget</button></div>

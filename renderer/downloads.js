@@ -94,10 +94,12 @@ function zeichneDlSeite() {
 
 // Zaehler am Tab und Chip unten in der Leiste (Klick oeffnet den Tab)
 function dlAktualisieren() {
-  const l = alleDownloads();
-  const aktiv = l.filter((x) => !x.wartet);
+  const alle = alleDownloads();
   const tab = document.querySelector('.bib-tabs [data-tab="downloads"]');
-  if (tab) tab.textContent = l.length ? `Downloads (${l.length})` : 'Downloads';
+  if (tab) tab.textContent = alle.length ? `Downloads (${alle.length})` : 'Downloads';
+  // Das Glowline-Update hat unten schon seinen eigenen Knopf mit Fortschritt – hier nicht nochmal zaehlen
+  const l = alle.filter((x) => x.key !== 'i:update');
+  const aktiv = l.filter((x) => !x.wartet);
   const chip = $('#dl-chip');
   chip.classList.toggle('versteckt', !l.length);
   if (l.length) {

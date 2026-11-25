@@ -290,15 +290,18 @@ function zeichneAnpassen() {
     const w = elem('select');
     for (const [id, name] of optionen) { const o = elem('option', null, name); o.value = id; w.appendChild(o); }
     w.value = jetzt;
-    w.addEventListener('change', () => { cfg[schluessel] = w.value; window.api.setConfig({ [schluessel]: w.value }); hinweis(info(optionen.find((x) => x[0] === w.value)[1])); });
+    w.addEventListener('change', () => {
+      cfg[schluessel] = w.value; window.api.setConfig({ [schluessel]: w.value }); hinweis(info(optionen.find((x) => x[0] === w.value)[1]));
+      if (schluessel === 'arbeitsgedaechtnis') window.api.gedaechtnisLesen(aufgabe).then((g) => zeigeGedaechtnis(g.text, g.archiv)); // Knopf unten mitziehen
+    });
     z.append(elem('span', null, titel), w);
     box.appendChild(z);
   };
   auswahlZeile('Window', 'startFenster', [['vollbild', 'Full screen'], ['gross', 'Maximized'], ['normal', 'Window'], ['minimiert', 'Minimized']],
     ['vollbild', 'gross', 'normal', 'minimiert'].includes(cfg.startFenster) ? cfg.startFenster : cfg.startVollbild === false ? 'gross' : 'vollbild',
     (n) => 'Glowline starts: ' + n + ' (F11 switches full screen)');
-  auswahlZeile('Memory', 'arbeitsgedaechtnis', [['256k', 'Note + 256k archive'], ['512k', 'Note + 512k archive'], ['1m', 'Note + 1M archive'], ['notiz', 'Note only'], ['aus', 'Off']],
-    cfg.arbeitsgedaechtnis === 'aus' || cfg.arbeitsgedaechtnis === false ? 'aus' : ['notiz', '256k', '512k', '1m'].includes(cfg.arbeitsgedaechtnis) ? cfg.arbeitsgedaechtnis : '256k',
+  auswahlZeile('Memory', 'arbeitsgedaechtnis', [['256k', 'Note + 256k archive'], ['512k', 'Note + 512k archive'], ['1m', 'Note + 1M archive'], ['1.5m', 'Note + 1.5M archive'], ['notiz', 'Note only'], ['aus', 'Off']],
+    geStufe(),
     (n) => n === 'Off' ? 'Working memory off (new sessions)' : n === 'Note only' ? 'Agents keep a short note for the current task (new sessions)'
       : `Agents keep a note and a searchable archive (${n.split(' ')[2]} tokens) for the current task – a virtual extension of their context (new sessions)`);
   auswahlZeile('Updates', 'updates', [['auto', 'Automatic'], ['fragen', 'Just tell me'], ['aus', 'Off']], cfg.updates || 'auto',
@@ -526,14 +529,19 @@ $('#ordner-chip').addEventListener('click', async () => {
   if (p) starteSitzung({ cwd: p });
 });
 
-// Arbeitsgedaechtnis der Aufgabe: Knopf erscheint, sobald der Agent sich etwas gemerkt hat
-const kTokens = (n) => n >= 1e6 ? (n / 1e6).toFixed(n % 1e6 ? 1 : 0) + 'M' : Math.round(n / 1000) + 'k';
+// Arbeitsgedaechtnis der Aufgabe: Knopf in der Leiste (im Terminal immer da) zeigt die Groesse + Belegung,
+// im Fenster stellt man die Groesse ein: aus | nur Notiz | Archiv 256k … 1.5M Tokens
+const kTokens = (n) => n >= 1e6 ? (n / 1e6).toFixed(n % 1e6 ? 1 : 0) + 'M' : n < 1000 ? String(n) : Math.round(n / 1000) + 'k';
+const GE_STUFEN = [['aus', 'Off'], ['notiz', 'Note'], ['256k', '256k'], ['512k', '512k'], ['1m', '1M'], ['1.5m', '1.5M']];
+const geStufe = () => { const v = cfg && cfg.arbeitsgedaechtnis; return v === false || v === 'aus' ? 'aus' : GE_STUFEN.some((s) => s[0] === v) ? v : '256k'; };
 function zeigeGedaechtnis(text, archiv) {
-  const c = $('#gedaechtnis-chip');
-  const mitArchiv = !!(archiv && archiv.eintraege);
-  c.classList.toggle('versteckt', !text && !mitArchiv);
-  const zeilen = text ? text.split('\n').filter((z) => z.trim()).length : 0;
-  $('#gedaechtnis-name').textContent = 'Memory' + (zeilen ? ' · ' + zeilen : '') + (mitArchiv ? ' · ' + kTokens(archiv.belegt) : '');
+  baueGeStufen();
+  const c = $('#gedaechtnis-chip'), st = geStufe();
+  const name = GE_STUFEN.find((s) => s[0] === st)[1];
+  c.classList.toggle('aus', st === 'aus');
+  $('#gedaechtnis-name').textContent = st === 'aus' ? 'Memory off' : st === 'notiz' ? 'Memory · note' + (text ? ' ✓' : '')
+    : 'Memory · ' + (archiv && archiv.belegt ? kTokens(archiv.belegt) + ' / ' : '') + name;
+  for (const b of $('#ge-groesse').children) b.classList.toggle('an', b.dataset.stufe === st);
   $('#gedaechtnis-text').textContent = text || '(no note yet)';
   // Archiv: wie voll der "virtuelle Kontext" ist
   const a = $('#gedaechtnis-archiv');
@@ -542,7 +550,27 @@ function zeigeGedaechtnis(text, archiv) {
     $('#gedaechtnis-archiv-text').textContent = `Archive · ${archiv.eintraege} ${archiv.eintraege === 1 ? 'entry' : 'entries'} · ${kTokens(archiv.belegt)} of ${kTokens(archiv.max)} tokens`;
     $('#gedaechtnis-archiv-balken').style.width = Math.min(100, (archiv.belegt / archiv.max) * 100) + '%';
   }
-  if (!text && !mitArchiv) $('#gedaechtnis').classList.add('versteckt');
+}
+// Groessen-Wahl oben im Gedaechtnis-Fenster (erst beim ersten Anzeigen gebaut – elem gibt es beim Laden hier noch nicht)
+function baueGeStufen() {
+  if ($('#ge-groesse').children.length) return;
+  for (const [id, name] of GE_STUFEN) {
+  const b = elem('button', null, name);
+  b.dataset.stufe = id;
+  b.addEventListener('click', async () => {
+    const vorher = geStufe();
+    if (vorher === id) return;
+    cfg.arbeitsgedaechtnis = id;
+    await window.api.setConfig({ arbeitsgedaechtnis: id });
+    const g = await window.api.gedaechtnisLesen(aufgabe);
+    zeigeGedaechtnis(g.text, g.archiv);
+    const archivArt = (x) => x !== 'aus' && x !== 'notiz';
+    hinweis(id === 'aus' ? 'Working memory off – from the next agent session'
+      : id === 'notiz' ? 'Memory: short note only – from the next agent session'
+      : archivArt(vorher) ? `Archive size: ${name} tokens – applies right away` : `Memory: note + ${name} archive – from the next agent session`);
+  });
+  $('#ge-groesse').appendChild(b);
+  }
 }
 window.api.onGedaechtnis((s) => { if (s.id === aufgabe) zeigeGedaechtnis(s.text, s.archiv); });
 $('#gedaechtnis-chip').addEventListener('click', async () => {
@@ -560,27 +588,15 @@ $('#gedaechtnis-weg').addEventListener('click', () => {
   hinweis('Memory erased – the agent starts this task from scratch');
 });
 
-// Obsidian-Schalter in der Leiste: an/aus mit einem Klick (nur sichtbar, wenn Obsidian einen Vault kennt)
+// Obsidian an/aus (eingestellt unter Customize): Cowork zeigt "Save to Obsidian" nur, wenn ein Vault aktiv ist
 async function zeigeObsidian() {
   let r;
   try { r = await window.api.gehirnVaults(); } catch { return; }
-  const c = $('#obsidian-chip');
-  c.classList.toggle('versteckt', !r.vaults.length && !r.aktiv);
-  c.classList.toggle('aus', !r.aktiv);
-  $('#obsidian-name').textContent = r.aktiv ? 'Obsidian' : 'Obsidian off';
-  c.title = r.aktiv ? `Obsidian “${r.aktiv.name}” is on – Cowork uses fitting notes, agents can read and change it. Click to turn it off.` : 'Obsidian is off – click to turn it on';
   if (typeof gehirnAktiv !== 'undefined' && !!gehirnAktiv !== !!r.aktiv) {
     gehirnAktiv = r.aktiv;
     if (document.body.dataset.ansicht === 'chat') zeichneChat(); // "Save to Obsidian" ein-/ausblenden
   }
 }
-$('#obsidian-chip').addEventListener('click', async () => {
-  schliesseMenues();
-  const r = await window.api.gehirnSchalten();
-  if (cfg) cfg.obsidian = r.obsidian;
-  await zeigeObsidian();
-  hinweis(r.aktiv ? `Obsidian on: “${r.aktiv.name}” – agents get it in their next session` : 'Obsidian off – Cowork and agents leave your vault alone');
-});
 zeigeObsidian();
 window.addEventListener('focus', zeigeObsidian); // Vault in Obsidian neu angelegt? dann taucht der Knopf auf
 

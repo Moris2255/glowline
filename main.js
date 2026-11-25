@@ -44,7 +44,7 @@ const STANDARD = {
   updates: 'auto', // auto = im Hintergrund laden + beim Beenden installieren | fragen = nur Bescheid sagen | aus
   beimSchliessen: 'beenden', // X oben rechts: beenden | minimieren | tray (laeuft im Infobereich weiter)
   lastDir: HOME,
-  arbeitsgedaechtnis: '256k', // Agenten bekommen ein Gedaechtnis pro Aufgabe (weg, wenn die Aufgabe endet): aus | notiz | 256k | 512k | 1m Archiv
+  arbeitsgedaechtnis: '256k', // Agenten bekommen ein Gedaechtnis pro Aufgabe (weg, wenn die Aufgabe endet): aus | notiz | 256k | 512k | 1m | 1.5m Archiv
   obsidian: 'auto', // Obsidian-Vault fuer Cowork und die Agenten: auto (der zuletzt offene) | aus | Ordnerpfad
   ohneDenken: [], // Modelle ohne "Denken"-Unterstuetzung
   favoriten: [], // Modell-IDs fuer das kleine Modellmenue
@@ -1562,14 +1562,8 @@ async function testLauf(ordner) {
       await warte(800);
       const gesp = fs.existsSync(path.join(vault, 'Glowline', 'Benachrichtigungen.md')) && /source: Glowline/.test(fs.readFileSync(path.join(vault, 'Glowline', 'Benachrichtigungen.md'), 'utf8'));
       console.log('GEHIRN FENSTER', chips === 'Python unter Windows' && gesp && (await js(`[...document.querySelectorAll('.n-fuss button')].some((b) => b.textContent === '✓ In Obsidian')`)) ? 'ok' : 'FEHLT chips=' + chips + ' gespeichert=' + gesp);
-      // Schalter in der Leiste: aus, dann wieder an (zurueck auf denselben Vault)
-      await js(`zeigeObsidian()`); await warte(400);
-      const sicht = await js(`!document.querySelector('#obsidian-chip').classList.contains('versteckt')`);
-      await js(`document.querySelector('#obsidian-chip').click()`); await warte(700);
-      const nachAus = cfg.obsidian, chipAus = await js(`document.querySelector('#obsidian-chip').classList.contains('aus') && !document.querySelector('.n-fuss button[title*="Obsidian"]')`);
-      await bild('gehirn-schalter-aus');
-      await js(`document.querySelector('#obsidian-chip').click()`); await warte(700);
-      console.log('GEHIRN SCHALTER', sicht && nachAus === 'aus' && chipAus && cfg.obsidian === vault && !(await js(`document.querySelector('#obsidian-chip').classList.contains('aus')`)) ? 'ok' : 'FEHLT sicht=' + sicht + ' aus=' + nachAus + ' chipAus=' + chipAus + ' danach=' + cfg.obsidian);
+      // Obsidian-Knopf in der Leiste gibt es nicht mehr (Ein/Aus unter Customize)
+      console.log('GEHIRN SCHALTER', (await js(`!document.querySelector('#obsidian-chip')`)) ? 'ok' : 'FEHLT Knopf noch da');
       cfg.obsidian = 'aus';
       const aus = await baueBefehl('claude', 'ollama/test:1b', 'gehirntest');
       console.log('GEHIRN AUS', !/glowline-obsidian/.test(z(aus)) && !gehirn.kontext('Wie mache ich Windows Benachrichtigungen in Python?') ? 'ok' : 'FEHLT');
@@ -1636,8 +1630,20 @@ async function testLauf(ordner) {
       await bild('gedaechtnis-fenster');
       const fenster = await js(`!document.querySelector('#gedaechtnis').classList.contains('versteckt') && /Logout/.test(document.querySelector('#gedaechtnis-text').textContent) && /Archive · \\d+ entries · \\d+k of 256k tokens/.test(document.querySelector('#gedaechtnis-archiv-text').textContent)`);
       await js(`document.querySelector('#gedaechtnis-weg').click()`); await warte(500);
-      const weg = !gedaechtnis.lese(id) && (await js(`document.querySelector('#gedaechtnis-chip').classList.contains('versteckt')`));
-      console.log('GEDAECHTNIS LEISTE', /^true Memory · 5 · \d+k$/.test(chip) && fenster && weg ? 'ok' : 'FEHLT chip=' + chip + ' fenster=' + fenster + ' weg=' + weg);
+      const weg = !gedaechtnis.lese(id) && (await js(`document.querySelector('#gedaechtnis-name').textContent`)) === 'Memory · 256k';
+      console.log('GEDAECHTNIS LEISTE', /^true Memory · \d+k \/ 256k$/.test(chip) && fenster && weg ? 'ok' : 'FEHLT chip=' + chip + ' fenster=' + fenster + ' weg=' + weg);
+      // Groesse direkt im Fenster waehlen: 1.5M, Notiz, aus – Knopf und Einstellung ziehen mit
+      await js(`document.querySelector('#gedaechtnis-chip').click()`); await warte(400);
+      const stufen = await js(`[...document.querySelectorAll('#ge-groesse button')].map((b) => b.textContent).join(',')`);
+      const klick = async (n) => { await js(`[...document.querySelectorAll('#ge-groesse button')].find((b) => b.textContent === '${n}').click()`); await warte(500); return [cfg.arbeitsgedaechtnis, await js(`document.querySelector('#gedaechtnis-name').textContent`)]; };
+      const [g15, n15] = await klick('1.5M'); const max15 = gedaechtnis.archivStand(id).max;
+      await bild('gedaechtnis-groesse');
+      const [gN, nN] = await klick('Note'); const [gA, nA] = await klick('Off');
+      const aus = await js(`document.querySelector('#gedaechtnis-chip').classList.contains('aus')`);
+      await klick('256k');
+      console.log('GEDAECHTNIS GROESSE', stufen === 'Off,Note,256k,512k,1M,1.5M' && g15 === '1.5m' && n15 === 'Memory · 1.5M' && max15 === 1500000 && gN === 'notiz' && nN === 'Memory · note'
+        && gA === 'aus' && nA === 'Memory off' && aus && cfg.arbeitsgedaechtnis === '256k' ? 'ok' : 'FEHLT ' + JSON.stringify({ stufen, g15, n15, max15, gN, nN, gA, nA, aus }));
+      await js(`schliesseMenues()`);
       // Aufgabe: gleicher Ordner = gleiches Gedaechtnis, neuer Ordner = neu (altes geloescht)
       const o1 = path.join(process.env.GLOWLINE_TEST, 'ordner1'), o2 = path.join(process.env.GLOWLINE_TEST, 'ordner2');
       fs.mkdirSync(o1, { recursive: true }); fs.mkdirSync(o2, { recursive: true });
@@ -2331,6 +2337,11 @@ async function testLauf(ordner) {
       await js(`document.querySelector('#up-spaeter').click()`);
       const l = await update.laden();
       console.log('UPDATE LADEN', 'bereit=' + l.bereit, 'geladen=' + l.geladen + '/' + l.gesamt, 'fehler=' + l.fehler);
+      // Fortschritt nur einmal unten: im Update-Knopf, nicht zusaetzlich als "1 download" (im Downloads-Tab steht es trotzdem)
+      win.webContents.send('installer', { id: 'update', geladen: 50, gesamt: 100, laeuft: true }); await warte(900);
+      const dlChip = await js(`document.querySelector('#dl-chip').classList.contains('versteckt') && alleDownloads().some((x) => x.key === 'i:update')`);
+      win.webContents.send('installer', { id: 'update', geladen: 100, gesamt: 100, laeuft: false }); await warte(300);
+      console.log('UPDATE EINMAL', dlChip ? 'ok' : 'FEHLT Downloads-Knopf zeigt das Update nochmal');
       await warte(400);
       console.log('UPDATE CHIP2', await js(`document.querySelector('#update-text').textContent`));
       // Neustart nach dem Update: Fensterzustand gemerkt und beim naechsten Start genau einmal benutzt
@@ -3021,7 +3032,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     gehirn.init({ cfg: () => cfg, userData: app.getPath('userData') });
     artex.init({ cfg: () => cfg, setCfg: speichereConfig, userData: app.getPath('userData') });
     gedaechtnis.init(app.getPath('userData'), (id, text, archiv) => sende('gedaechtnis', { id, text, archiv }), () => {
-      const v = cfg.arbeitsgedaechtnis; // aus | notiz | 256k | 512k | 1m (alt: true/an = 256k)
+      const v = cfg.arbeitsgedaechtnis; // aus | notiz | 256k | 512k | 1m | 1.5m (alt: true/an = 256k)
       return v === 'notiz' || v === 'aus' || v === false ? 0 : gedaechtnis.GROESSEN[v] || 256000;
     });
     dateiProtokoll();

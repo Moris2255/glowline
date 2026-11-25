@@ -10,7 +10,7 @@ const { woerter } = require('./gehirn');
 
 const MAX = 20000; // Zeichen – ein Arbeitsgedaechtnis soll kurz bleiben
 let ordner = null, beiAenderung = () => {}, archivGroesse = () => 256000;
-const GROESSEN = { '256k': 256000, '512k': 512000, '1m': 1000000 }; // Tokens
+const GROESSEN = { '256k': 256000, '512k': 512000, '1m': 1000000, '1.5m': 1500000 }; // Tokens
 const tokens = (t) => Math.ceil(String(t).length / 4); // grob: 4 Zeichen pro Token
 
 function init(userData, hoerer, groesse) {

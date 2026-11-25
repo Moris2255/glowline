@@ -85,7 +85,7 @@ body.vollbild .term { top: 10px; }
 .werte .eng-weg { display: none !important; }
 /* sehr eng: Knopf-Texte werden gekuerzt (Ordner, Update, Downloads zuerst, Werkzeug und Modell nur wenig) */
 .werte.eng > .chip { flex: 0 1 auto; min-width: 44px; }
-.werte.eng > #ordner-chip, .werte.eng > #obsidian-chip, .werte.eng > #gedaechtnis-chip, .werte.eng > #update-chip, .werte.eng > #dl-chip { flex-shrink: 4; }
+.werte.eng > #ordner-chip, .werte.eng > #gedaechtnis-chip, .werte.eng > #update-chip, .werte.eng > #dl-chip { flex-shrink: 4; }
 .pfeil { color: var(--sehrleise); }
 .punkt { width: 7px; height: 7px; border-radius: 50%; background: var(--sehrleise); flex: none; }
 .punkt.an { background: var(--akzent); }
@@ -531,7 +531,6 @@ body[data-ansicht="studio"] #f-vram { display: flex; }
 #ordner-chip { max-width: 220px; }
 #ordner-chip #ordner-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #ordner-chip .ordner-symbol { color: var(--sehrleise); margin-right: 2px; }
-#obsidian-chip .ob-symbol { color: #a78bfa; margin-right: 2px; }
 #gedaechtnis-chip .ge-symbol { color: #fbbf24; margin-right: 2px; }
 body:not([data-ansicht="terminal"]) #gedaechtnis-chip { display: none; }
 #gedaechtnis { right: 16px; width: 460px; padding: 12px 14px; gap: 10px; }
@@ -541,10 +540,14 @@ body:not([data-ansicht="terminal"]) #gedaechtnis-chip { display: none; }
 .ge-fuss { display: flex; justify-content: flex-end; }
 #gedaechtnis-archiv { display: flex; flex-direction: column; gap: 5px; font: 11.5px var(--mono); color: var(--leise); }
 #gedaechtnis-archiv.versteckt { display: none; }
-#gedaechtnis-archiv .balken { height: 4px; border-radius: 2px; background: var(--bg3); overflow: hidden; }
+#gedaechtnis-archiv .balken { width: 100%; height: 4px; border-radius: 2px; background: var(--bg3); overflow: hidden; }
 #gedaechtnis-archiv .balken i { display: block; height: 100%; width: 0; background: #fbbf24; border-radius: 2px; }
-#obsidian-chip.aus { color: var(--leise); }
-#obsidian-chip.aus .ob-symbol { color: var(--sehrleise); }
+#gedaechtnis-chip.aus { color: var(--leise); }
+#gedaechtnis-chip.aus .ge-symbol { color: var(--sehrleise); }
+.ge-groesse { display: flex; gap: 4px; flex-wrap: wrap; }
+.ge-groesse button { flex: 1; padding: 5px 0; font: 12px var(--mono); border: 1px solid var(--linie); border-radius: 7px; color: var(--leise); }
+.ge-groesse button:hover { color: var(--text); border-color: var(--leise); }
+.ge-groesse button.an { color: #fbbf24; border-color: #fbbf24; background: rgba(251, 191, 36, .08); }
 body[data-ansicht="chat"] #ordner-chip, body[data-ansicht="studio"] #ordner-chip { display: none; }
 
 /* Modellfenster: Cowork-Rollen */

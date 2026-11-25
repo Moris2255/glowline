@@ -81,7 +81,7 @@ Have an [Obsidian](https://obsidian.md) vault? Glowline finds it by itself (it r
 - **Agents can read and write it – without asking** – Claude Code, Codex, OpenCode and Qwen Code started from Glowline get the `glowline-obsidian` MCP server with `search_notes`, `read_note`, `list_notes`, `write_note`, `edit_note`, `append_to_note`, `move_note` (updates `[[links]]` in all other notes), `delete_note` and `note_links`. They're allowed without a permission prompt (Claude Code `--allowedTools`, Codex `default_tools_approval_mode = "approve"`, Qwen Code `trust`), so an agent can tidy or extend your vault overnight.
 - **Nothing gets lost** – before a note is changed, moved or deleted, Glowline copies the old version to `%APPDATA%\Glowline\gehirn-sicherung\<vault>\<date>\` (kept 30 days). Deleted notes go to the vault's `.trash`, like in Obsidian. Agents can't touch anything outside the vault or in hidden folders (`.obsidian`, `.trash`, `.git`).
 - **Glowline Code** (`gl`) uses your notes the same way and lists them under the answer.
-- **On/off with one click** – the **◆ Obsidian** button in the bar at the bottom turns it off (*Obsidian off*) and on again, back to the vault you had. It only shows up when Obsidian knows a vault.
+- **On/off** – Tool menu → **Customize → Obsidian**: pick a vault, *Auto* or *Off*.
 - Tool menu → **Customize → Obsidian**: *Auto* (the vault you opened last), a specific vault, or *Off*.
 
 ## Working memory – per task
@@ -90,10 +90,10 @@ Long agent tasks fill up the context. Claude Code, Codex, OpenCode and Qwen Code
 
 - The agent keeps it up to date by itself: goal, what's done, decisions, key files, next steps. After `/clear`, after the context gets compacted, or when you switch the model, it reads the memory first and carries on – without dragging the whole old conversation along.
 - It belongs to **this task only**: switching the model or tool in the same folder keeps it; a new folder starts a new task with an empty memory; quitting Glowline erases it. Nothing goes into your Obsidian vault or anywhere else.
-- The **✦ Memory** button in the bar at the bottom (terminal view) shows up as soon as the agent has saved something – click it to see what it remembers, **Forget** erases it.
-- **Archive – a virtual context of 256k, 512k or 1M tokens.** Besides the short note, the agent gets a searchable archive for the task (`archive_save`, `archive_search`, `archive_read`). Whatever it reads or works out in detail – docs, long files, logs, analyses – goes there; later only the matching passages come back into the real context. The context window itself stays the same size, but the agent can work with far more than fits into it. When the archive is full, nothing more is added. The Memory window shows how full it is.
+- The **✦ Memory** button in the bar at the bottom (terminal view) is always there and shows the size and how full it is (e.g. *Memory · 12k / 256k*). Click it to see what the agent remembers and to **set the size right there: Off · Note · 256k · 512k · 1M · 1.5M**. **Forget** erases it.
+- **Archive – a virtual context of 256k, 512k, 1M or 1.5M tokens.** Besides the short note, the agent gets a searchable archive for the task (`archive_save`, `archive_search`, `archive_read`). Whatever it reads or works out in detail – docs, long files, logs, analyses – goes there; later only the matching passages come back into the real context. The context window itself stays the same size, but the agent can work with far more than fits into it. When the archive is full, nothing more is added. The Memory window shows how full it is.
 - Claude Code also gets a short start instruction to read the memory first – it loads MCP tools only on demand and would otherwise skip it now and then.
-- Tool menu → **Customize → Memory**: *Note + 256k / 512k / 1M archive*, *Note only* or *Off*.
+- The same choice is also under Tool menu → **Customize → Memory**. Switching between archive sizes applies right away; turning the archive or the whole memory on/off applies from the next agent session.
 
 ## Glowline Code – the terminal (`gl`)
 
@@ -101,7 +101,7 @@ Long agent tasks fill up the context. Claude Code, Codex, OpenCode and Qwen Code
 
 ```
 ╭───────────────────────────────────────────────────────────────────────────╮
-│    ▀▄      ▄▀      Glowline Code 6.0.22                                   │
+│    ▀▄      ▄▀      Glowline Code 6.0.23                                   │
 │ ▄▄ ███▀███▀██ ▄▄   Cowork · RTX 4060 Ti · 2.6 / 8 GB VRAM                 │
 │ ▀██ ▀██████▀ ██▀   ~\Projekte\my-game                                     │
 │     ▄██████▄                                                              │
