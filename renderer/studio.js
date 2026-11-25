@@ -97,6 +97,7 @@ async function zeigeStudio(bereich) {
   el.classList.add('versteckt');
   $('#chat').classList.add('versteckt');
   $('#artex').classList.add('versteckt');
+  $('#apps').classList.add('versteckt');
   $('#studio').classList.remove('versteckt');
   zeichneStudio();
   zeichneLeiste();

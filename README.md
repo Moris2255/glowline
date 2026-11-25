@@ -101,7 +101,7 @@ Long agent tasks fill up the context. Claude Code, Codex, OpenCode and Qwen Code
 
 ```
 ╭───────────────────────────────────────────────────────────────────────────╮
-│    ▀▄      ▄▀      Glowline Code 6.0.24                                   │
+│    ▀▄      ▄▀      Glowline Code 6.0.25                                   │
 │ ▄▄ ███▀███▀██ ▄▄   Cowork · RTX 4060 Ti · 2.6 / 8 GB VRAM                 │
 │ ▀██ ▀██████▀ ██▀   ~\Projekte\my-game                                     │
 │     ▄██████▄                                                              │
@@ -191,6 +191,17 @@ If you use [ARTEX](https://github.com/BaaRai/ARTEX) (a local, autonomous LLM pen
 - **Start** launches PostgreSQL and ARTEX for you and shows ARTEX's own web interface (`localhost:8787`) right in the window once it's up. **Stop** shuts the ARTEX process down again, and **Browser ↗** opens the same interface in your normal browser.
 - Glowline only stops the parts it started itself, and it closes ARTEX when you quit Glowline.
 - **Only point ARTEX at systems you own or are explicitly allowed to test.**
+
+## Apps – your own tools from a GitHub link
+
+Besides ARTEX, you can add your own local web tools. Tool menu → **Apps** → **+ Add app**.
+
+- **Paste a GitHub link** (e.g. `https://github.com/user/repo`). Glowline clones it into `%APPDATA%\Glowline\apps` and works out how it starts: the install command, the start command and the port. It knows the common cases (Node, Python, Go, Docker, static sites).
+- **Check before anything runs.** Glowline shows the guessed commands – you can edit all of them – and nothing runs until you click **Save & run**. Only run code you trust.
+- **Or let an agent set it up.** The button opens the cloned folder in a terminal with your agent (e.g. Claude Code) and asks it to read the README, install and start the project – handy for trickier repos.
+- Once it answers on its port, the app shows up embedded, just like ARTEX, with **Start / Stop / ⟳ / Browser ↗**. Pick between your apps with the dropdown, or **Remove** one (that also deletes its files).
+- The embedded page is sandboxed and limited to its own `localhost` port; other links open in your browser. Apps Glowline started are stopped when you quit.
+- **Only add and run projects you trust** – this runs code from the internet on your PC.
 
 ## Glowline Link – use your PC from your laptop
 

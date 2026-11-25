@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: glowline:; media-src glowline:; frame-src http://localhost:8787 http://127.0.0.1:8787">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: glowline:; media-src glowline:; frame-src http://localhost:* http://127.0.0.1:*">
   <title>Glowline</title>
   <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
   <link rel="stylesheet" href="style.css">
@@ -55,6 +55,24 @@
       <div id="artex-haupt">
         <webview id="ax-view" class="versteckt" partition="persist:artex"></webview>
         <div id="ax-leer" class="ax-leer"></div>
+      </div>
+    </section>
+    <section id="apps" class="versteckt">
+      <div class="chat-kopf">
+        <div class="ax-titel"><b>Apps</b><small>your own local web tools from a GitHub link</small></div>
+        <select id="apps-wahl" class="versteckt"></select>
+        <div class="platz"></div>
+        <span id="apps-status" class="ax-status"></span>
+        <button id="apps-start" class="versteckt">Start</button>
+        <button id="apps-stop" class="versteckt">Stop</button>
+        <button id="apps-neu" class="versteckt" title="Reload">⟳</button>
+        <button id="apps-extern" class="versteckt" title="Open in your browser">Browser ↗</button>
+        <button id="apps-weg" class="versteckt" title="Remove this app">Remove</button>
+        <button id="apps-add">+ Add app</button>
+      </div>
+      <div id="apps-haupt">
+        <webview id="apps-view" class="versteckt" partition="persist:apps"></webview>
+        <div id="apps-leer" class="ax-leer"></div>
       </div>
     </section>
     <div id="hinweis" class="versteckt"></div>
@@ -142,6 +160,7 @@
     <button data-modus="auto"><b>Cowork</b><small>one chat for everything – picks the right model itself</small></button>
     <button data-studio=""><b>Studio</b><small>images, video, upscale and voice</small></button>
     <button data-artex=""><b>ARTEX</b><small>autonomous pentest – local, your own targets</small></button>
+    <button data-apps=""><b>Apps</b><small>your own tools from a GitHub link</small></button>
     <div class="m-fuss tools-fuss"><span>Switching restarts the session</span><button id="tools-anpassen-knopf">Start &amp; list ⚙</button></div>
     <div id="tools-anpassen"></div>
   </div>

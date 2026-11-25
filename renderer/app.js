@@ -383,6 +383,7 @@ $('#tool-chip').addEventListener('click', () => {
   for (const b of document.querySelectorAll('#tools [data-modus]')) b.classList.toggle('an', ansicht === 'chat');
   for (const b of document.querySelectorAll('#tools [data-studio]')) b.classList.toggle('an', ansicht === 'studio' && (!b.dataset.studio || b.dataset.studio === sz.bereich));
   for (const b of document.querySelectorAll('#tools [data-artex]')) b.classList.toggle('an', ansicht === 'artex');
+  for (const b of document.querySelectorAll('#tools [data-apps]')) b.classList.toggle('an', ansicht === 'apps');
   // nur die Gruppe aufklappen, in der man gerade ist
   klappAuf = sitzung && MEHR_AGENTEN.includes(sitzung.tool) ? 'agenten' : null;
   zeigeKlapp();
@@ -432,6 +433,9 @@ for (const b of document.querySelectorAll('#tools [data-artex]')) {
     schliesseMenues(); zeigeArtex();
   });
 }
+for (const b of document.querySelectorAll('#tools [data-apps]')) {
+  b.addEventListener('click', () => { schliesseMenues(); zeigeApps(); });
+}
 
 // ---------------- ARTEX (eingebettetes Pentest-Werkzeug) ----------------
 // ARTEX hat eine eigene Web-Oberflaeche auf localhost:8787. Diese Ansicht bettet sie per <webview> ein,
@@ -444,6 +448,7 @@ async function zeigeArtex() {
   el.classList.add('versteckt');
   $('#chat').classList.add('versteckt');
   $('#studio').classList.add('versteckt');
+  $('#apps').classList.add('versteckt');
   $('#artex').classList.remove('versteckt');
   $('#titel-text').innerHTML = '';
   $('#titel-text').append(elem('b', null, 'ARTEX'), '  ·  autonomous pentest');
@@ -517,6 +522,199 @@ $('#ax-start').addEventListener('click', artexStarten);
 $('#ax-stop').addEventListener('click', artexStoppen);
 $('#ax-neu').addEventListener('click', () => { const v = $('#ax-view'); try { v.reload(); } catch { v.src = v.src; } });
 $('#ax-extern').addEventListener('click', () => window.api.artexExtern());
+
+// ---------------- Apps (eigene lokale Web-Tools per GitHub-Link) ----------------
+// Wie ARTEX, aber vom Nutzer hinzugefuegt: klonen, erraten womit es startet + Port, bestaetigen, starten, einbetten.
+let appsL = [];        // Liste der Apps
+let appAktiv = null;   // aktuell gewaehlte App-ID
+let appLaedt = false;  // startet oder klont gerade
+async function zeigeApps() {
+  ansicht = 'apps';
+  document.body.dataset.ansicht = ansicht;
+  el.classList.add('versteckt');
+  $('#chat').classList.add('versteckt');
+  $('#studio').classList.add('versteckt');
+  $('#artex').classList.add('versteckt');
+  $('#apps').classList.remove('versteckt');
+  $('#titel-text').innerHTML = '';
+  $('#titel-text').append(elem('b', null, 'Apps'));
+  zeichneLeiste();
+  await appsLaden();
+}
+window.zeigeApps = zeigeApps;
+
+async function appsLaden() {
+  appsL = await window.api.appsListe().catch(() => []);
+  const w = $('#apps-wahl');
+  w.innerHTML = '';
+  for (const a of appsL) { const o = elem('option', null, a.name); o.value = a.id; w.appendChild(o); }
+  w.classList.toggle('versteckt', appsL.length < 1);
+  if (!appsL.some((a) => a.id === appAktiv)) appAktiv = appsL.length ? appsL[0].id : null;
+  if (appAktiv) w.value = appAktiv;
+  await appsAktualisieren();
+}
+
+function appsLeer(bauen) {
+  const box = $('#apps-leer');
+  box.innerHTML = '';
+  box.classList.remove('versteckt');
+  $('#apps-view').classList.add('versteckt');
+  bauen(box);
+}
+function appText(zeilen) { appsLeer((box) => { const t = elem('div', 'ax-leer-text'); for (const z of zeilen) t.append(elem('p', null, z)); box.appendChild(t); }); }
+
+async function appsAktualisieren() {
+  const hat = !!appAktiv;
+  $('#apps-weg').classList.toggle('versteckt', !hat);
+  $('#apps-extern').classList.toggle('versteckt', !hat);
+  if (!hat) {
+    $('#apps-start').classList.add('versteckt'); $('#apps-stop').classList.add('versteckt'); $('#apps-neu').classList.add('versteckt');
+    $('#apps-status').textContent = '';
+    if (!document.querySelector('#apps-leer .app-form')) appText(['No apps yet.', 'Add one from a GitHub link with “+ Add app”.']);
+    return;
+  }
+  const view = $('#apps-view'), st = await window.api.appsStatus(appAktiv).catch(() => null);
+  if (ansicht !== 'apps' || appAktiv !== $('#apps-wahl').value) return;
+  if (st && st.laeuft) {
+    $('#apps-status').textContent = st.unser ? 'running' : 'running (started outside)';
+    $('#apps-start').classList.add('versteckt'); $('#apps-stop').classList.toggle('versteckt', !st.unser); $('#apps-neu').classList.remove('versteckt');
+    $('#apps-leer').classList.add('versteckt'); view.classList.remove('versteckt');
+    try { if (view.src !== st.url && !(view.src || '').startsWith(st.url)) view.src = st.url; } catch {}
+  } else {
+    $('#apps-status').textContent = appLaedt ? 'starting…' : 'stopped';
+    $('#apps-start').classList.toggle('versteckt', appLaedt); $('#apps-stop').classList.add('versteckt'); $('#apps-neu').classList.add('versteckt');
+    try { if (view.src && view.src !== AX_LEER) view.src = AX_LEER; } catch {}
+    const a = appsL.find((x) => x.id === appAktiv);
+    appText(appLaedt ? ['Starting ' + (a ? a.name : 'the app') + '…', 'This can take a moment.'] : [(a ? a.name : 'This app') + ' is not running.', 'Click Start to launch it.']);
+  }
+}
+
+// + Add app: erst der Link, dann (nach dem Klonen) die erratenen Befehle zum Bestaetigen
+function appAddPanel() {
+  appAktiv = null;
+  $('#apps-wahl').classList.toggle('versteckt', !appsL.length);
+  appsLeer((box) => {
+    const f = elem('div', 'app-form');
+    f.append(elem('div', 'app-form-titel', 'Add an app from GitHub'));
+    f.append(elem('p', 'app-form-info', 'Paste a GitHub link. Glowline clones it, works out how it starts and shows it to you before anything runs.'));
+    const ein = elem('input'); ein.placeholder = 'https://github.com/user/repo'; ein.className = 'app-ein'; ein.spellcheck = false;
+    f.append(ein);
+    const reihe = elem('div', 'app-reihe');
+    const los = elem('button', 'ax-knopf', 'Clone & analyze');
+    const ab = elem('button', 'app-ab', 'Cancel');
+    los.addEventListener('click', () => appKlonen(ein.value.trim()));
+    ab.addEventListener('click', () => appsLaden());
+    ein.addEventListener('keydown', (e) => { if (e.key === 'Enter') los.click(); });
+    reihe.append(los, ab); f.append(reihe);
+    box.appendChild(f);
+    ein.focus();
+  });
+}
+
+async function appKlonen(url) {
+  if (!/^https:\/\/github\.com\//i.test(url)) return hinweis('Please paste a GitHub link (https://github.com/user/repo)');
+  appText(['Cloning ' + url + ' …', 'This can take a moment.']);
+  const r = await window.api.appsHinzufuegen(url).catch(() => ({ ok: false }));
+  if (!r.ok) return appAddFehler(url, r.grund);
+  appBestaetigen({ quelle: url, ...r });
+}
+function appAddFehler(url, grund) {
+  appsLeer((box) => {
+    const t = elem('div', 'ax-leer-text');
+    t.append(elem('p', null, grund === 'kein-github' ? 'That is not a GitHub link.' : 'Could not clone that repository.'));
+    t.append(elem('p', null, grund === 'kein-github' ? 'Use https://github.com/user/repo' : 'Check the link and your internet connection.'));
+    box.appendChild(t);
+    const k = elem('button', 'ax-knopf', 'Try again');
+    k.addEventListener('click', appAddPanel);
+    box.appendChild(k);
+  });
+}
+
+// Bestaetigen: erratene Befehle + Port, alles aenderbar. Erst auf "Run" laeuft etwas.
+function appBestaetigen(v) {
+  appsLeer((box) => {
+    const f = elem('div', 'app-form');
+    f.append(elem('div', 'app-form-titel', 'Set up ' + v.name));
+    f.append(elem('p', 'app-form-info', 'Glowline cloned it and guessed how to run it. Check the commands – they run on your PC – then start it. You can edit anything.'));
+    const feld = (label, wert, ph) => {
+      const z = elem('label', 'app-feld');
+      z.append(elem('span', null, label));
+      const i = elem('input'); i.value = wert || ''; i.placeholder = ph || ''; i.spellcheck = false;
+      z.append(i); f.append(z); return i;
+    };
+    const iName = feld('Name', v.name);
+    const iInstall = feld('Install (once)', v.install, 'e.g. npm install – leave empty if none');
+    const iStart = feld('Start', v.start, 'e.g. npm run dev');
+    const iPort = feld('Port', v.port ? String(v.port) : '', 'e.g. 3000');
+    const warn = elem('p', 'app-warn', '⚠ These commands run on your PC. Only run code you trust.');
+    f.append(warn);
+    const reihe = elem('div', 'app-reihe');
+    const run = elem('button', 'ax-knopf', 'Save & run');
+    const agent = elem('button', 'app-ab', 'Let an agent set it up');
+    const ab = elem('button', 'app-ab', 'Cancel');
+    run.addEventListener('click', async () => {
+      const port = parseInt(iPort.value, 10);
+      if (!iStart.value.trim() || !port) return hinweis('Needs a start command and a port');
+      const eintrag = await window.api.appsSpeichern({ name: iName.value.trim() || v.name, quelle: v.quelle, ordner: v.ordner, install: iInstall.value.trim(), start: iStart.value.trim(), port });
+      appAktiv = eintrag.id;
+      await appsLaden();
+      appStarten();
+    });
+    agent.addEventListener('click', async () => {
+      const eintrag = await window.api.appsSpeichern({ name: iName.value.trim() || v.name, quelle: v.quelle, ordner: v.ordner, install: iInstall.value.trim(), start: iStart.value.trim(), port: parseInt(iPort.value, 10) || 0 });
+      appAktiv = eintrag.id;
+      appAgentEinrichten(v.ordner, eintrag.name);
+    });
+    ab.addEventListener('click', () => appsLaden());
+    reihe.append(run, agent, ab); f.append(reihe);
+    box.appendChild(f);
+    iName.focus();
+  });
+}
+
+// Agent-Hilfe: Ordner im Terminal mit dem Standard-Agenten oeffnen und ihm die Aufgabe geben
+function appAgentEinrichten(ordner, name) {
+  const tool = (cfg && cfg.defaultTool) || 'claude';
+  hinweis('Opening ' + (WERKZEUG_NAME[tool] || tool) + ' in the app folder – it will set the app up');
+  starteSitzung({ tool, cwd: ordner });
+  setTimeout(() => {
+    if (!sitzung || !sitzung.id) return;
+    const text = `This folder is a project called "${name}". Please read the README, install what it needs and start its local web UI. Then tell me the exact http://localhost:<port> it serves on, so I can embed it. Don't do anything unrelated.`;
+    try { window.api.write(sitzung.id, text); } catch {}
+  }, 2500);
+}
+
+async function appStarten() {
+  if (appLaedt || !appAktiv) return;
+  appLaedt = true;
+  await appsAktualisieren();
+  const r = await window.api.appsStart(appAktiv).catch(() => ({ ok: false }));
+  appLaedt = false;
+  if (!r.ok) hinweis(r.grund === 'install-fehler' ? 'Install failed – check the command' : r.grund === 'kein-port' ? 'The app did not come up on its port' : r.grund === 'kein-start' ? 'No start command or port set' : 'Could not start the app');
+  await appsAktualisieren();
+}
+async function appStoppen() {
+  if (!appAktiv) return;
+  await window.api.appsStop(appAktiv).catch(() => {});
+  try { $('#apps-view').src = AX_LEER; } catch {}
+  await appsAktualisieren();
+}
+async function appEntfernen() {
+  if (!appAktiv) return;
+  const a = appsL.find((x) => x.id === appAktiv);
+  if (!confirm('Remove ' + (a ? a.name : 'this app') + '? Its downloaded files are deleted too.')) return;
+  await window.api.appsEntfernen(appAktiv).catch(() => {});
+  appAktiv = null;
+  hinweis('App removed');
+  await appsLaden();
+}
+$('#apps-wahl').addEventListener('change', async () => { appAktiv = $('#apps-wahl').value; try { $('#apps-view').src = AX_LEER; } catch {} await appsAktualisieren(); });
+$('#apps-add').addEventListener('click', appAddPanel);
+$('#apps-start').addEventListener('click', appStarten);
+$('#apps-stop').addEventListener('click', appStoppen);
+$('#apps-neu').addEventListener('click', () => { const v = $('#apps-view'); try { v.reload(); } catch {} });
+$('#apps-extern').addEventListener('click', () => { if (appAktiv) window.api.appsExtern(appAktiv); });
+$('#apps-weg').addEventListener('click', appEntfernen);
 // Ordner-Knopf in der Leiste (nur im Terminal): zeigt den Arbeitsordner, Klick waehlt einen anderen
 function zeigeOrdner() {
   const voll = String((sitzung ? sitzung.cwd : cfg && cfg.lastDir) || '');

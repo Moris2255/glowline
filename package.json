@@ -1,7 +1,7 @@
 {
   "name": "glowline",
   "productName": "Glowline",
-  "version": "6.0.24",
+  "version": "6.0.25",
   "description": "Glowline - local AI workspace: terminal, chat and studio for local models",
   "author": "Moris2255",
   "main": "main.js",
@@ -54,6 +54,7 @@
       "gehirn.js",
       "gedaechtnis.js",
       "artex.js",
+      "apps.js",
       "auto.js",
       "stimme.py",
       "schnitt.py",

@@ -24,6 +24,7 @@ const statistik = require('./statistik');
 const gehirn = require('./gehirn');
 const gedaechtnis = require('./gedaechtnis');
 const artex = require('./artex');
+const apps = require('./apps');
 // eigene App "Glowline Link" (gleicher Code, eigener Installer): nutzt die Modelle eines PCs im Heimnetz
 const LINK_APP = !!require('./package.json').glowlineLink || !!(process.env.GLOWLINE_TEST && process.env.GLOWLINE_TEST_LINKAPP);
 const autoChat = require('./auto');
@@ -979,6 +980,15 @@ ipcMain.handle('artex:ordner', async () => {
   return artex.setzeOrdner(r.filePaths[0]);
 });
 ipcMain.on('artex:extern', () => shell.openExternal(artex.URL));
+// Eigene Apps (per GitHub-Link): klonen + erraten, speichern, starten/stoppen, Status, entfernen, im Browser oeffnen
+ipcMain.handle('apps:liste', () => apps.liste());
+ipcMain.handle('apps:status', (_e, id) => apps.status(id));
+ipcMain.handle('apps:hinzufuegen', (_e, url) => apps.klonen(String(url || '')));
+ipcMain.handle('apps:speichern', (_e, o) => apps.speichere(o || {}));
+ipcMain.handle('apps:start', (_e, id) => apps.start(id));
+ipcMain.handle('apps:stop', async (_e, id) => { await apps.stop(id); return apps.status(id); });
+ipcMain.handle('apps:entfernen', (_e, id) => apps.entfernen(id));
+ipcMain.on('apps:extern', (_e, id) => { const a = apps.hol(id); if (a && a.port) shell.openExternal(`http://localhost:${a.port}`); });
 ipcMain.handle('auto:rollen', async (_e, neu) => ({ rollen: await autoChat.rollen(!!neu), namen: autoChat.NAME }));
 ipcMain.handle('auto:setzen', (_e, rolle, id) => {
   if (!autoChat.ROLLEN.includes(rolle)) return;
@@ -1318,13 +1328,13 @@ function fenster() {
   });
   Menu.setApplicationMenu(null);
   // Eingebettete ARTEX-Oberflaeche: ohne preload/Node und nur auf localhost:8787 – alles andere oeffnet der Browser
-  const nurArtex = (u) => /^http:\/\/(localhost|127\.0\.0\.1):8787(\/|$)/.test(String(u)) || /^data:text\/html,/.test(String(u));
+  const nurLokal = (u) => /^http:\/\/(localhost|127\.0\.0\.1):\d{2,5}(\/|$|\?)/.test(String(u)) || /^data:text\/html,/.test(String(u));
   win.webContents.on('will-attach-webview', (e, wp, params) => {
     delete wp.preload; wp.nodeIntegration = false; wp.contextIsolation = true; wp.sandbox = true;
-    if (!nurArtex(params.src)) e.preventDefault();
+    if (!nurLokal(params.src)) e.preventDefault();
   });
   win.webContents.on('did-attach-webview', (_e, gast) => {
-    gast.on('will-navigate', (e, u) => { if (!nurArtex(u)) { e.preventDefault(); if (/^https?:\/\//.test(u)) shell.openExternal(u); } });
+    gast.on('will-navigate', (e, u) => { if (!nurLokal(u)) { e.preventDefault(); if (/^https?:\/\//.test(u)) shell.openExternal(u); } });
     gast.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   });
   // Fenster bleibt immer Glowline: eine daneben fallen gelassene Datei oder ein Link ersetzt sonst die ganze App
@@ -1705,6 +1715,37 @@ async function testLauf(ordner) {
       console.log('ARTEX', typeof stSchlecht.laeuft === 'boolean' && stGut.installiert && stGut.ordner === gut && typeof stGut.laeuft === 'boolean'
         && !setzFalsch.ok && setzGut.ok && g && g.exe.endsWith('artex.exe') && ansichtArtex === 'artex' && sichtbar && knopf
         ? 'ok' : 'FEHLT ' + JSON.stringify({ sl: typeof stSchlecht.laeuft, g: stGut.installiert, o: stGut.ordner === gut, l: typeof stGut.laeuft, sf: setzFalsch.ok, sg: setzGut.ok, exe: !!g, a: ansichtArtex, sichtbar, knopf }));
+    }
+    if (was.includes('apps')) {
+      // Erraten womit ein Projekt startet (Node/Python/Go/statisch) + GitHub-Link pruefen
+      const mk = (name, dateien) => { const d = path.join(process.env.GLOWLINE_TEST, 'repo-' + name); fs.mkdirSync(d, { recursive: true }); for (const [f, inhalt] of Object.entries(dateien)) fs.writeFileSync(path.join(d, f), inhalt); return d; };
+      const node = apps.analysiere(mk('node', { 'package.json': JSON.stringify({ scripts: { dev: 'vite' } }), 'README.md': 'runs on http://localhost:5173' }));
+      const py = apps.analysiere(mk('py', { 'requirements.txt': 'flask', 'app.py': 'x' }));
+      const go = apps.analysiere(mk('go', { 'go.mod': 'module x' }));
+      const stat = apps.analysiere(mk('stat', { 'index.html': '<h1>hi' }));
+      const gh = apps.githubTeile('https://github.com/BaaRai/ARTEX'), ghBad = apps.githubTeile('https://evil.example/repo');
+      // Eine App mit echtem Mini-Server starten, Status, stoppen, entfernen (Ordner unter apps/ wird geloescht)
+      const port = 39871;
+      const appDir = path.join(app.getPath('userData'), 'apps', 'testapp');
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(path.join(appDir, 'server.js'), `require('http').createServer((q,r)=>r.end('ok')).listen(${port},'127.0.0.1')`);
+      const eintrag = apps.speichere({ name: 'Testapp', ordner: appDir, install: '', start: 'node server.js', port });
+      const startR = await apps.start(eintrag.id);
+      const stLauf = await apps.status(eintrag.id);
+      await apps.stop(eintrag.id); await warte(800);
+      const stAus = await apps.status(eintrag.id);
+      // Oberflaeche: Ansicht wechseln, "+ Add app" zeigt das Formular, Liste enthaelt die App
+      await js(`zeigeApps()`); await warte(500);
+      const ansichtApps = await js(`document.body.dataset.ansicht`);
+      const inListe = await js(`[...document.querySelectorAll('#apps-wahl option')].some((o) => o.textContent === 'Testapp')`);
+      await js(`document.querySelector('#apps-add').click()`); await warte(300);
+      const formular = await js(`!!document.querySelector('#apps-leer .app-form .app-ein')`);
+      await bild('apps');
+      const weg = await apps.entfernen(eintrag.id);
+      console.log('APPS', node.start === 'npm run dev' && node.port === 5173 && node.install === 'npm install' && py.start === 'python app.py' && py.install === 'pip install -r requirements.txt'
+        && go.start === 'go run .' && stat.start.includes('serve') && gh && gh.repo === 'ARTEX' && !ghBad
+        && startR.ok && stLauf.laeuft && stLauf.unser && !stAus.laeuft && ansichtApps === 'apps' && inListe && formular && weg.ok && !fs.existsSync(appDir)
+        ? 'ok' : 'FEHLT ' + JSON.stringify({ node, py: py.start, go: go.start, stat: stat.start, gh: !!gh, ghBad: !!ghBad, startR, stLauf, stAus: stAus.laeuft, ansichtApps, inListe, formular, weg: weg.ok, ordnerWeg: !fs.existsSync(appDir) }));
     }
     if (was.includes('loeschen')) {
       // "Sure?" bleibt stehen, waehrend nebenbei ein Modell laedt (Video-Bereich, Karte nicht sichtbar)
@@ -2975,7 +3016,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
   app.on('second-instance', () => zeigeFenster());
   app.on('before-quit', () => { wirklichBeenden = true; });
   // fertig geladenes Update beim Beenden still installieren (Einstellung "auto")
-  app.on('will-quit', () => { statistik.jetztSpeichern(); gedaechtnis.alleLoeschen(); update.beimBeenden(); terminal.stoppe(); handy.alleStopp(); artex.beimBeenden(); });
+  app.on('will-quit', () => { statistik.jetztSpeichern(); gedaechtnis.alleLoeschen(); update.beimBeenden(); terminal.stoppe(); handy.alleStopp(); artex.beimBeenden(); apps.beimBeenden(); });
   app.setAppUserModelId('Glowline');
   app.whenReady().then(async () => {
     ladeConfig();
@@ -3033,6 +3074,7 @@ if (!process.env.GLOWLINE_TEST && !app.requestSingleInstanceLock()) {
     dateien.init((art) => app.getPath(art));
     gehirn.init({ cfg: () => cfg, userData: app.getPath('userData') });
     artex.init({ cfg: () => cfg, setCfg: speichereConfig, userData: app.getPath('userData') });
+    apps.init({ cfg: () => cfg, setCfg: speichereConfig, userData: app.getPath('userData') });
     gedaechtnis.init(app.getPath('userData'), (id, text, archiv) => sende('gedaechtnis', { id, text, archiv }), () => {
       const v = cfg.arbeitsgedaechtnis; // aus | notiz | 256k | 512k | 1m | 1.5m (alt: true/an = 256k)
       return v === 'notiz' || v === 'aus' || v === false ? 0 : gedaechtnis.GROESSEN[v] || 256000;
