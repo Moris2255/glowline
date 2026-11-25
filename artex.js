@@ -107,9 +107,13 @@ async function starten() {
     const log = fs.openSync(path.join(g.appDir, 'artex.log'), 'a');
     artexProc = spawn(g.exe, [], { cwd: g.appDir, windowsHide: true, stdio: ['ignore', log, log], detached: false });
     fs.closeSync(log);
-    artexProc.on('exit', () => { artexProc = null; });
+    const p = artexProc;
+    // z. B. Defender blockiert artex.exe: kommt als Ereignis, ohne Abfangen wuerde Glowline abstuerzen
+    p.on('error', () => { if (artexProc === p) artexProc = null; });
+    p.on('exit', () => { if (artexProc === p) artexProc = null; });
   } catch (e) { return { ok: false, grund: 'start-fehler', fehler: e.message }; }
   const da = await warteBis(true);
+  if (!da) await stoppen(); // nicht hochgekommen: nichts unsichtbar weiterlaufen lassen
   return da ? { ok: true } : { ok: false, grund: 'kein-port' };
 }
 async function stoppen() {
