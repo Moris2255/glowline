@@ -566,6 +566,7 @@ function appText(zeilen) { appsLeer((box) => { const t = elem('div', 'ax-leer-te
 async function appsAktualisieren() {
   const hat = !!appAktiv;
   $('#apps-weg').classList.toggle('versteckt', !hat);
+  $('#apps-edit').classList.toggle('versteckt', !hat);
   $('#apps-extern').classList.toggle('versteckt', !hat);
   if (!hat) {
     $('#apps-start').classList.add('versteckt'); $('#apps-stop').classList.add('versteckt'); $('#apps-neu').classList.add('versteckt');
@@ -593,6 +594,9 @@ async function appsAktualisieren() {
 function appAddPanel() {
   appAktiv = null;
   $('#apps-wahl').classList.toggle('versteckt', !appsL.length);
+  // kein App-Knopf, solange gerade hinzugefuegt wird (es ist keine App aktiv)
+  for (const id of ['apps-start', 'apps-stop', 'apps-neu', 'apps-edit', 'apps-weg', 'apps-extern']) $('#' + id).classList.add('versteckt');
+  $('#apps-status').textContent = '';
   appsLeer((box) => {
     const f = elem('div', 'app-form');
     f.append(elem('div', 'app-form-titel', 'Add an app from GitHub'));
@@ -622,7 +626,7 @@ function appAddFehler(url, grund) {
   appsLeer((box) => {
     const t = elem('div', 'ax-leer-text');
     t.append(elem('p', null, grund === 'kein-github' ? 'That is not a GitHub link.' : 'Could not clone that repository.'));
-    t.append(elem('p', null, grund === 'kein-github' ? 'Use https://github.com/user/repo' : 'Check the link and your internet connection.'));
+    t.append(elem('p', null, grund === 'kein-github' ? 'Use https://github.com/user/repo' : 'Check the link, your internet, and that Git is installed.'));
     box.appendChild(t);
     const k = elem('button', 'ax-knopf', 'Try again');
     k.addEventListener('click', appAddPanel);
@@ -631,11 +635,14 @@ function appAddFehler(url, grund) {
 }
 
 // Bestaetigen: erratene Befehle + Port, alles aenderbar. Erst auf "Run" laeuft etwas.
+// Mit v.id ist es das Bearbeiten einer schon gespeicherten App (z. B. um den Port nachzutragen,
+// den der Agent gefunden hat), sonst das Einrichten einer frisch geklonten App.
 function appBestaetigen(v) {
+  const bearbeiten = !!v.id;
   appsLeer((box) => {
     const f = elem('div', 'app-form');
-    f.append(elem('div', 'app-form-titel', 'Set up ' + v.name));
-    f.append(elem('p', 'app-form-info', 'Glowline cloned it and guessed how to run it. Check the commands – they run on your PC – then start it. You can edit anything.'));
+    f.append(elem('div', 'app-form-titel', (bearbeiten ? 'Edit ' : 'Set up ') + v.name));
+    f.append(elem('p', 'app-form-info', bearbeiten ? 'Change the name, the commands or the port – for example the port an agent found for this app.' : 'Glowline cloned it and guessed how to run it. Check the commands – they run on your PC – then start it. You can edit anything.'));
     const feld = (label, wert, ph) => {
       const z = elem('label', 'app-feld');
       z.append(elem('span', null, label));
@@ -649,27 +656,33 @@ function appBestaetigen(v) {
     const warn = elem('p', 'app-warn', '⚠ These commands run on your PC. Only run code you trust.');
     f.append(warn);
     const reihe = elem('div', 'app-reihe');
-    const run = elem('button', 'ax-knopf', 'Save & run');
-    const agent = elem('button', 'app-ab', 'Let an agent set it up');
+    const run = elem('button', 'ax-knopf', bearbeiten ? 'Save' : 'Save & run');
+    const agent = bearbeiten ? null : elem('button', 'app-ab', 'Let an agent set it up');
     const ab = elem('button', 'app-ab', 'Cancel');
+    const sammle = () => ({ id: v.id, name: iName.value.trim() || v.name, quelle: v.quelle, ordner: v.ordner, install: iInstall.value.trim(), start: iStart.value.trim(), port: parseInt(iPort.value, 10) || 0 });
     run.addEventListener('click', async () => {
-      const port = parseInt(iPort.value, 10);
-      if (!iStart.value.trim() || !port) return hinweis('Needs a start command and a port');
-      const eintrag = await window.api.appsSpeichern({ name: iName.value.trim() || v.name, quelle: v.quelle, ordner: v.ordner, install: iInstall.value.trim(), start: iStart.value.trim(), port });
+      const o = sammle();
+      if (!o.start || !o.port) return hinweis('Needs a start command and a port');
+      const eintrag = await window.api.appsSpeichern(o);
       appAktiv = eintrag.id;
       await appsLaden();
-      appStarten();
+      if (!bearbeiten) appStarten();
     });
-    agent.addEventListener('click', async () => {
-      const eintrag = await window.api.appsSpeichern({ name: iName.value.trim() || v.name, quelle: v.quelle, ordner: v.ordner, install: iInstall.value.trim(), start: iStart.value.trim(), port: parseInt(iPort.value, 10) || 0 });
+    if (agent) agent.addEventListener('click', async () => {
+      const eintrag = await window.api.appsSpeichern(sammle());
       appAktiv = eintrag.id;
       appAgentEinrichten(v.ordner, eintrag.name);
     });
     ab.addEventListener('click', () => appsLaden());
-    reihe.append(run, agent, ab); f.append(reihe);
+    reihe.append(run, ...(agent ? [agent] : []), ab); f.append(reihe);
     box.appendChild(f);
     iName.focus();
   });
+}
+// Eine schon gespeicherte App bearbeiten (Name, Befehle, Port)
+function appBearbeiten() {
+  const a = appsL.find((x) => x.id === appAktiv);
+  if (a) appBestaetigen({ id: a.id, name: a.name, quelle: a.quelle, ordner: a.ordner, install: a.install, start: a.start, port: a.port });
 }
 
 // Agent-Hilfe: Ordner im Terminal mit dem Standard-Agenten oeffnen und ihm die Aufgabe geben
@@ -714,6 +727,7 @@ $('#apps-start').addEventListener('click', appStarten);
 $('#apps-stop').addEventListener('click', appStoppen);
 $('#apps-neu').addEventListener('click', () => { const v = $('#apps-view'); try { v.reload(); } catch {} });
 $('#apps-extern').addEventListener('click', () => { if (appAktiv) window.api.appsExtern(appAktiv); });
+$('#apps-edit').addEventListener('click', appBearbeiten);
 $('#apps-weg').addEventListener('click', appEntfernen);
 // Ordner-Knopf in der Leiste (nur im Terminal): zeigt den Arbeitsordner, Klick waehlt einen anderen
 function zeigeOrdner() {

@@ -123,9 +123,18 @@ function analysiere(ordner) {
 // ---------- Speichern / Entfernen ----------
 function speichere({ id, name, quelle, ordner, install, start, port }) {
   const apps = liste();
-  const eintrag = { id: id || 'a' + Date.now().toString(36), name: String(name || 'App').slice(0, 60), quelle: quelle || '', ordner, install: install || '', start: start || '', port: +port || 0, eingerichtet: false };
-  const i = apps.findIndex((a) => a.id === eintrag.id);
-  if (i >= 0) apps[i] = { ...apps[i], ...eintrag }; else apps.push(eintrag);
+  const i = id ? apps.findIndex((a) => a.id === id) : -1;
+  const alt = i >= 0 ? apps[i] : null;
+  // Beim Bearbeiten "eingerichtet" nur behalten, wenn der Install-Befehl gleich bleibt (sonst neu installieren)
+  const eingerichtet = !!(alt && alt.eingerichtet && (alt.install || '') === (install || ''));
+  const eintrag = {
+    id: id || 'a' + Date.now().toString(36),
+    name: String(name || (alt && alt.name) || 'App').slice(0, 60),
+    quelle: quelle || (alt && alt.quelle) || '',
+    ordner: ordner || (alt && alt.ordner) || '',
+    install: install || '', start: start || '', port: +port || 0, eingerichtet,
+  };
+  if (i >= 0) apps[i] = { ...alt, ...eintrag }; else apps.push(eintrag);
   sichere(apps);
   return eintrag;
 }

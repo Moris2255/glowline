@@ -1736,18 +1736,24 @@ async function testLauf(ordner) {
       const stLauf = await apps.status(eintrag.id);
       await apps.stop(eintrag.id); await warte(800);
       const stAus = await apps.status(eintrag.id);
-      // Oberflaeche: Ansicht wechseln, "+ Add app" zeigt das Formular, Liste enthaelt die App
+      // Bearbeiten: Name + Port einer gespeicherten App aendern (gleiche id, ein Eintrag, Werte uebernommen)
+      const port2 = 39872;
+      const eintrag2 = apps.speichere({ id: eintrag.id, name: 'Testapp2', ordner: appDir, install: '', start: 'node server.js', port: port2 });
+      const editOk = eintrag2.id === eintrag.id && apps.liste().filter((a) => a.id === eintrag.id).length === 1 && apps.hol(eintrag.id).name === 'Testapp2' && apps.hol(eintrag.id).port === port2;
+      // Oberflaeche: Ansicht wechseln, Liste enthaelt die App, Edit zeigt das vorbefuellte Formular, "+ Add app" das leere
       await js(`zeigeApps()`); await warte(500);
       const ansichtApps = await js(`document.body.dataset.ansicht`);
-      const inListe = await js(`[...document.querySelectorAll('#apps-wahl option')].some((o) => o.textContent === 'Testapp')`);
+      const inListe = await js(`[...document.querySelectorAll('#apps-wahl option')].some((o) => o.textContent === 'Testapp2')`);
+      await js(`document.querySelector('#apps-edit').click()`); await warte(300);
+      const editForm = await js(`!!document.querySelector('#apps-leer .app-form-titel') && document.querySelector('#apps-leer .app-form-titel').textContent.indexOf('Edit') === 0 && [...document.querySelectorAll('#apps-leer .app-feld input')].some((x) => x.value === '${port2}')`);
       await js(`document.querySelector('#apps-add').click()`); await warte(300);
       const formular = await js(`!!document.querySelector('#apps-leer .app-form .app-ein')`);
       await bild('apps');
       const weg = await apps.entfernen(eintrag.id);
       console.log('APPS', node.start === 'npm run dev' && node.port === 5173 && node.install === 'npm install' && py.start === 'python app.py' && py.install === 'pip install -r requirements.txt'
-        && go.start === 'go run .' && stat.start.includes('serve') && gh && gh.repo === 'ARTEX' && !ghBad && bose
+        && go.start === 'go run .' && stat.start.includes('serve') && gh && gh.repo === 'ARTEX' && !ghBad && bose && editOk && editForm
         && startR.ok && stLauf.laeuft && stLauf.unser && !stAus.laeuft && ansichtApps === 'apps' && inListe && formular && weg.ok && !fs.existsSync(appDir)
-        ? 'ok' : 'FEHLT ' + JSON.stringify({ node, py: py.start, go: go.start, stat: stat.start, gh: !!gh, ghBad: !!ghBad, bose, startR, stLauf, stAus: stAus.laeuft, ansichtApps, inListe, formular, weg: weg.ok, ordnerWeg: !fs.existsSync(appDir) }));
+        ? 'ok' : 'FEHLT ' + JSON.stringify({ node, py: py.start, go: go.start, stat: stat.start, gh: !!gh, ghBad: !!ghBad, bose, editOk, editForm, startR, stLauf, stAus: stAus.laeuft, ansichtApps, inListe, formular, weg: weg.ok, ordnerWeg: !fs.existsSync(appDir) }));
     }
     if (was.includes('loeschen')) {
       // "Sure?" bleibt stehen, waehrend nebenbei ein Modell laedt (Video-Bereich, Karte nicht sichtbar)

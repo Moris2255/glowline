@@ -101,7 +101,7 @@ Long agent tasks fill up the context. Claude Code, Codex, OpenCode and Qwen Code
 
 ```
 ╭───────────────────────────────────────────────────────────────────────────╮
-│    ▀▄      ▄▀      Glowline Code 6.0.26                                   │
+│    ▀▄      ▄▀      Glowline Code 6.0.27                                   │
 │ ▄▄ ███▀███▀██ ▄▄   Cowork · RTX 4060 Ti · 2.6 / 8 GB VRAM                 │
 │ ▀██ ▀██████▀ ██▀   ~\Projekte\my-game                                     │
 │     ▄██████▄                                                              │
@@ -200,6 +200,7 @@ Besides ARTEX, you can add your own local web tools. Tool menu → **Apps** → 
 - **Check before anything runs.** Glowline shows the guessed commands – you can edit all of them – and nothing runs until you click **Save & run**. Only run code you trust.
 - **Or let an agent set it up.** The button opens the cloned folder in a terminal with your agent (e.g. Claude Code) and asks it to read the README, install and start the project – handy for trickier repos.
 - Once it answers on its port, the app shows up embedded, just like ARTEX, with **Start / Stop / ⟳ / Browser ↗**. Pick between your apps with the dropdown, or **Remove** one (that also deletes its files).
+- **Edit** lets you change an app's name, commands or port later – e.g. to fill in the port an agent found for it.
 - The embedded page is sandboxed and limited to its own `localhost` port; other links open in your browser. Apps Glowline started are stopped when you quit.
 - **Only add and run projects you trust** – this runs code from the internet on your PC.
 
