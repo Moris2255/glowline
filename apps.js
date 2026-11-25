@@ -128,8 +128,11 @@ function speichere({ id, name, quelle, ordner, install, start, port }) {
   const alt = i >= 0 ? apps[i] : null;
   // Beim Bearbeiten "eingerichtet" nur behalten, wenn der Install-Befehl gleich bleibt (sonst neu installieren)
   const eingerichtet = !!(alt && alt.eingerichtet && (alt.install || '') === (install || ''));
+  // neue ID immer eindeutig (nur die Zeit reicht nicht: zwei Apps in derselben Millisekunde bekamen sonst dieselbe ID)
+  let neueId = id;
+  while (!neueId || (i < 0 && apps.some((a) => a.id === neueId))) neueId = 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const eintrag = {
-    id: id || 'a' + Date.now().toString(36),
+    id: neueId,
     name: String(name || (alt && alt.name) || 'App').slice(0, 60),
     quelle: quelle || (alt && alt.quelle) || '',
     ordner: ordner || (alt && alt.ordner) || '',

@@ -101,7 +101,7 @@ Long agent tasks fill up the context. Claude Code, Codex, OpenCode and Qwen Code
 
 ```
 ╭───────────────────────────────────────────────────────────────────────────╮
-│    ▀▄      ▄▀      Glowline Code 6.0.28                                   │
+│    ▀▄      ▄▀      Glowline Code 6.0.29                                   │
 │ ▄▄ ███▀███▀██ ▄▄   Cowork · RTX 4060 Ti · 2.6 / 8 GB VRAM                 │
 │ ▀██ ▀██████▀ ██▀   ~\Projekte\my-game                                     │
 │     ▄██████▄                                                              │
@@ -196,6 +196,7 @@ If you use [ARTEX](https://github.com/BaaRai/ARTEX) (a local, autonomous LLM pen
 
 Besides ARTEX, you can add your own local web tools. Tool menu → **Apps** → **+ Add app**.
 
+- **At your own risk:** before anything is downloaded, Glowline shows a warning that custom apps come from the internet, aren't checked and run on your PC. You have to tick *I understand – I add this at my own risk* before the clone button works.
 - **Paste a GitHub link** (e.g. `https://github.com/user/repo`). Glowline clones it into `%APPDATA%\Glowline\apps` and works out how it starts: the install command, the start command and the port. It knows the common cases (Node, Python, Go, Docker, static sites).
 - **Check before anything runs.** Glowline shows the guessed commands – you can edit all of them – and nothing runs until you click **Save & run**. Only run code you trust.
 - **Or let an agent set it up.** The button opens the cloned folder in a terminal with your agent (e.g. Claude Code) and asks it to read the README, install and start the project – handy for trickier repos.

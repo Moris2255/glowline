@@ -603,10 +603,21 @@ function appAddPanel() {
     f.append(elem('p', 'app-form-info', 'Paste a GitHub link. Glowline clones it, works out how it starts and shows it to you before anything runs.'));
     const ein = elem('input'); ein.placeholder = 'https://github.com/user/repo'; ein.className = 'app-ein'; ein.spellcheck = false;
     f.append(ein);
+    // Eigene Apps = fremder Code aus dem Internet: erst nach ausdruecklichem Haken auf eigene Gefahr
+    const risiko = elem('div', 'app-risiko');
+    risiko.append(elem('b', null, '⚠ At your own risk'));
+    risiko.append(elem('p', null, 'Custom apps are downloaded from the internet and run on your PC. Glowline does not check them and is not responsible for what they do. Only add projects you trust.'));
+    const haken = elem('label', 'app-haken');
+    const kb = elem('input'); kb.type = 'checkbox';
+    haken.append(kb, elem('span', null, 'I understand – I add this at my own risk'));
+    risiko.append(haken);
+    f.append(risiko);
     const reihe = elem('div', 'app-reihe');
     const los = elem('button', 'ax-knopf', 'Clone & analyze');
+    los.disabled = true;
+    kb.addEventListener('change', () => { los.disabled = !kb.checked; });
     const ab = elem('button', 'app-ab', 'Cancel');
-    los.addEventListener('click', () => appKlonen(ein.value.trim()));
+    los.addEventListener('click', () => { if (kb.checked) appKlonen(ein.value.trim()); else hinweis('Please confirm the warning first'); });
     ab.addEventListener('click', () => appsLaden());
     ein.addEventListener('keydown', (e) => { if (e.key === 'Enter') los.click(); });
     reihe.append(los, ab); f.append(reihe);

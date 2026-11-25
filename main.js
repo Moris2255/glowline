@@ -1742,6 +1742,9 @@ async function testLauf(ordner) {
       await apps.entfernen(kaputt.id);
       fs.mkdirSync(appDir, { recursive: true }); fs.writeFileSync(path.join(appDir, 'server.js'), `require('http').createServer((q,r)=>r.end('ok')).listen(${port},'127.0.0.1')`);
       const schnellOk = !kaputtR.ok && kaputtR.grund === 'kein-port' && kaputtMs < 10000;
+      const viele = [1, 2, 3, 4, 5].map((n) => apps.speichere({ name: 'Id' + n, ordner: appDir, start: 'x', port: 1 }).id);
+      const idsOk = new Set(viele).size === 5 && apps.hol(eintrag.id).name === 'Testapp';
+      for (const v of viele) { const l = apps.liste().filter((a) => a.id !== v); const c = cfg; c.apps = l; }
       const startR = await apps.start(eintrag.id);
       const stLauf = await apps.status(eintrag.id);
       await apps.stop(eintrag.id); await warte(800);
@@ -1758,6 +1761,10 @@ async function testLauf(ordner) {
       const editForm = await js(`!!document.querySelector('#apps-leer .app-form-titel') && document.querySelector('#apps-leer .app-form-titel').textContent.indexOf('Edit') === 0 && [...document.querySelectorAll('#apps-leer .app-feld input')].some((x) => x.value === '${port2}')`);
       await js(`document.querySelector('#apps-add').click()`); await warte(300);
       const formular = await js(`!!document.querySelector('#apps-leer .app-form .app-ein')`);
+      // Warnung "auf eigene Gefahr": Knopf erst nach Haken frei
+      const risiko = await js(`(() => { const k = document.querySelector('#apps-leer .app-haken input'), b = document.querySelector('#apps-leer .ax-knopf');
+        if (!k || !b || !document.querySelector('#apps-leer .app-risiko') || !b.disabled) return false;
+        k.click(); const frei = !b.disabled; k.click(); return frei && b.disabled; })()`);
       await bild('apps');
       await js(`zeigeTerminal()`); await warte(300);
       const wegTerminal = await js(`document.querySelector('#apps').classList.contains('versteckt')`);
@@ -1766,9 +1773,9 @@ async function testLauf(ordner) {
       await js(`zeigeTerminal()`); await warte(200);
       const weg = await apps.entfernen(eintrag.id);
       console.log('APPS', node.start === 'npm run dev' && node.port === 5173 && node.install === 'npm install' && py.start === 'python app.py' && py.install === 'pip install -r requirements.txt'
-        && go.start === 'go run .' && stat.start.includes('serve') && gh && gh.repo === 'ARTEX' && !ghBad && bose && editOk && editForm && pmOk && schnellOk && wegTerminal && wegCowork
+        && go.start === 'go run .' && stat.start.includes('serve') && gh && gh.repo === 'ARTEX' && !ghBad && bose && editOk && editForm && pmOk && schnellOk && wegTerminal && wegCowork && risiko && idsOk
         && startR.ok && stLauf.laeuft && stLauf.unser && !stAus.laeuft && ansichtApps === 'apps' && inListe && formular && weg.ok && !fs.existsSync(appDir)
-        ? 'ok' : 'FEHLT ' + JSON.stringify({ node, py: py.start, go: go.start, stat: stat.start, gh: !!gh, ghBad: !!ghBad, bose, editOk, editForm, pmOk, pnpm, yarn: yarn.start, next, schnellOk, kaputtR, kaputtMs, wegTerminal, wegCowork, startR, stLauf, stAus: stAus.laeuft, ansichtApps, inListe, formular, weg: weg.ok, ordnerWeg: !fs.existsSync(appDir) }));
+        ? 'ok' : 'FEHLT ' + JSON.stringify({ node, py: py.start, go: go.start, stat: stat.start, gh: !!gh, ghBad: !!ghBad, bose, editOk, editForm, pmOk, pnpm, yarn: yarn.start, next, schnellOk, kaputtR, kaputtMs, wegTerminal, wegCowork, risiko, idsOk, startR, stLauf, stAus: stAus.laeuft, ansichtApps, inListe, formular, weg: weg.ok, ordnerWeg: !fs.existsSync(appDir) }));
     }
     if (was.includes('loeschen')) {
       // "Sure?" bleibt stehen, waehrend nebenbei ein Modell laedt (Video-Bereich, Karte nicht sichtbar)
